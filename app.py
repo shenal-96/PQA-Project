@@ -37,7 +37,6 @@ TEMPLATE_DIR = os.path.join(OUTPUT_BASE, "Template")
 
 
 def init_output_dirs():
-    """Create/clean output directories."""
     for d in [GRAPH_DIR, SNAPSHOT_DIR, IMAGE_DIR, TEMPLATE_DIR]:
         if os.path.exists(d):
             shutil.rmtree(d)
@@ -55,11 +54,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ============================================================
-# Helper: scan a CSV to get its time range
-# ============================================================
 def _get_csv_time_range(uploaded_file):
-    """Read a CSV and return (start_time_str, end_time_str) or (None, None)."""
+    """Read a CSV and return (start_str, end_str) or (None, None)."""
     try:
         pos = uploaded_file.tell()
         uploaded_file.seek(0)
@@ -76,12 +72,12 @@ def _get_csv_time_range(uploaded_file):
 
 
 # ============================================================
-# SIDEBAR - Everything: Upload, Config, Run
+# SIDEBAR
 # ============================================================
 with st.sidebar:
     st.title("\u2699\ufe0f Configuration")
 
-    # --- 1. CSV Upload (top of sidebar) ---
+    # ── 1. CSV Upload ──────────────────────────────────────────
     st.subheader("Data Files")
     csv_files = st.file_uploader(
         "Upload CSV files",
@@ -90,45 +86,27 @@ with st.sidebar:
         help="Upload one or more CSV files from your power quality recorder.",
     )
 
-    # Build file selection dropdown
     selected_csv = None
     client_name = ""
     auto_start = ""
     auto_end = ""
 
     if csv_files:
-        file_names = [f.name for f in csv_files]
-        selected_name = st.selectbox("Select CSV to analyse", file_names)
+        selected_name = st.selectbox("Select CSV to analyse", [f.name for f in csv_files])
         selected_csv = next(f for f in csv_files if f.name == selected_name)
         client_name = os.path.splitext(selected_csv.name)[0]
-
-        # Auto-detect time range for selected file
         auto_start, auto_end = _get_csv_time_range(selected_csv)
         selected_csv.seek(0)
 
     st.divider()
 
-    # --- 2. Report Details ---
-    st.subheader("Report Details")
-    report_title = st.text_input("Report Title", value=client_name, placeholder="Enter report/client name")
-    gen_sn = st.text_input("Generator Serial Number", placeholder="Enter Gen S/N")
-    site_address = st.text_input("Site Address", placeholder="Enter site address")
-    custom_text = st.text_input("Custom Text Field", placeholder="Enter custom info")
-
-    st.divider()
-
-    # --- 3. Acceptance Criteria ---
+    # ── 2. Acceptance Criteria ────────────────────────────────
     st.subheader("Acceptance Criteria")
     apply_iso = st.checkbox("Apply ISO 8528 Presets", value=False)
 
     if apply_iso:
-        load_thresh = 50.0
-        v_tol = 1.0
-        v_rec = 4.0
-        v_max_dev = 15.0
-        f_tol = 0.5
-        f_rec = 3.0
-        f_max_dev = 7.0
+        load_thresh = 50.0; v_tol = 1.0; v_rec = 4.0; v_max_dev = 15.0
+        f_tol = 0.5; f_rec = 3.0; f_max_dev = 7.0
         st.info("ISO 8528 presets applied")
         col1, col2 = st.columns(2)
         with col1:
@@ -154,7 +132,7 @@ with st.sidebar:
 
     st.divider()
 
-    # --- 4. Display Options ---
+    # ── 3. Display Options ────────────────────────────────────
     st.subheader("Display Options")
     show_limits = st.checkbox("Show Limits on Graphs", value=False)
     nom_v = st.number_input("Nominal Voltage (V)", value=415.0, step=1.0)
@@ -162,19 +140,75 @@ with st.sidebar:
 
     st.divider()
 
-    # --- 5. Time Filter (auto-populated from selected CSV) ---
+    # ── 4. Time Filter ────────────────────────────────────────
     st.subheader("Time Filter")
     start_time = st.text_input("Start Time", value=auto_start or "", placeholder="HH:MM:SS")
     end_time = st.text_input("End Time", value=auto_end or "", placeholder="HH:MM:SS")
 
     st.divider()
 
-    # --- 6. Run Analysis Button (bottom of sidebar) ---
+    # ── 5. Run Analysis ───────────────────────────────────────
     run_clicked = False
     if selected_csv is not None:
         run_clicked = st.button("\u26a1 Run Analysis", type="primary", use_container_width=True)
     else:
         st.info("Upload CSV files above to begin.")
+
+    st.divider()
+
+    # ── 6. Report Details ─────────────────────────────────────
+    st.subheader("Report Details")
+    report_title = st.text_input("Report Title", value=client_name, placeholder="Enter report/client name")
+    gen_sn = st.text_input("Generator Serial Number", placeholder="Enter Gen S/N")
+    site_address = st.text_input("Site Address", placeholder="Enter site address")
+    custom_text = st.text_input("Custom Text Field", placeholder="Enter custom info")
+
+    st.divider()
+
+    # ── 7. Report Generation ──────────────────────────────────
+    st.subheader("Generate Report")
+
+    template_files = st.file_uploader(
+        "Upload Word Templates (.docx)",
+        type=["docx"],
+        accept_multiple_files=True,
+        help="Upload one or more .docx templates with placeholders.",
+    )
+
+    selected_template = None
+    if template_files:
+        template_names = [f.name for f in template_files]
+        selected_template_name = st.selectbox("Select Template", template_names)
+        selected_template = next(f for f in template_files if f.name == selected_template_name)
+
+        with st.expander("Available Placeholders"):
+            st.markdown("""
+`{{Avg_Voltage_LL}}` `{{Avg_kW}}` `{{Avg_Current}}`
+`{{Avg_Frequency}}` `{{Avg_THD_F}}` `{{Avg_PF}}`
+`{{Compliance_Table}}`
+`{{Snapshot_1}}` `{{Snapshot_2}}` ...
+`{{Report_Title}}` `{{Gen_SN}}` `{{Site_Address}}`
+`{{Custom_Field}}` `{{Date}}` `{{Start Time}}` `{{End Time}}`
+            """)
+
+    report_filename = st.text_input(
+        "Report Filename",
+        value=client_name or "PQA_Report",
+        placeholder="Enter filename (no extension)",
+    )
+
+    download_format = st.selectbox(
+        "Download Format",
+        ["Word (.docx)", "PDF", "Both"],
+    )
+
+    generate_clicked = False
+    if selected_template is not None and st.session_state.get("analysis_done"):
+        generate_clicked = st.button("\U0001f4c4 Generate Report", type="primary", use_container_width=True)
+    elif not st.session_state.get("analysis_done"):
+        st.caption("Run analysis first to enable report generation.")
+    else:
+        st.caption("Upload a template above to generate a report.")
 
 
 # ============================================================
@@ -183,7 +217,6 @@ with st.sidebar:
 st.title("\u26a1 Power Quality Analysis")
 
 if selected_csv is not None:
-    # Preview
     with st.expander("Preview uploaded data", expanded=False):
         selected_csv.seek(0)
         preview_df = pd.read_csv(selected_csv, sep=None, engine="python", nrows=10)
@@ -193,7 +226,7 @@ if selected_csv is not None:
     if auto_start and auto_end:
         st.caption(f"Detected time range: **{auto_start}** to **{auto_end}**")
 
-    # --- Run Analysis ---
+    # ── Run Analysis ──────────────────────────────────────────
     if run_clicked:
         init_output_dirs()
 
@@ -213,38 +246,31 @@ if selected_csv is not None:
             selected_csv.seek(0)
             df_raw = load_and_prepare_csv(selected_csv, start_time=start_time, end_time=end_time)
             selected_csv.seek(0)
-
             if df_raw.empty:
-                st.error("No data found after loading/filtering. Check your CSV and time range.")
+                st.error("No data found. Check your CSV and time range.")
                 st.stop()
-
             df_proc, df_events = perform_analysis(df_raw, config)
 
-        # Store results in session state
-        st.session_state["df_raw"] = df_raw
-        st.session_state["df_proc"] = df_proc
-        st.session_state["df_events"] = df_events
-        st.session_state["client_name"] = client_name
-        st.session_state["config"] = config
-        st.session_state["analysis_done"] = True
+        st.session_state.update({
+            "df_raw": df_raw,
+            "df_proc": df_proc,
+            "df_events": df_events,
+            "client_name": client_name,
+            "config": config,
+            "analysis_done": True,
+            "generated_reports": st.session_state.get("generated_reports", []),
+        })
 
-        # --- Summary Metrics ---
-        st.subheader("Data Summary")
         mcol1, mcol2, mcol3, mcol4 = st.columns(4)
-        with mcol1:
-            st.metric("Data Points", f"{len(df_proc):,}")
-        with mcol2:
-            st.metric("Events Detected", f"{len(df_events)}")
+        with mcol1: st.metric("Data Points", f"{len(df_proc):,}")
+        with mcol2: st.metric("Events Detected", f"{len(df_events)}")
         with mcol3:
             if not df_events.empty and "Compliance_Status" in df_events.columns:
-                pass_count = (df_events["Compliance_Status"] == "Pass").sum()
-                st.metric("Pass", f"{pass_count}/{len(df_events)}")
+                st.metric("Pass", f"{(df_events['Compliance_Status']=='Pass').sum()}/{len(df_events)}")
         with mcol4:
             if not df_events.empty and "Compliance_Status" in df_events.columns:
-                fail_count = (df_events["Compliance_Status"] == "Fail").sum()
-                st.metric("Fail", f"{fail_count}/{len(df_events)}")
+                st.metric("Fail", f"{(df_events['Compliance_Status']=='Fail').sum()}/{len(df_events)}")
 
-        # --- Generate Plots ---
         with st.spinner("Generating plots..."):
             graph_paths = generate_plots(
                 df_proc, client_name, output_dir=GRAPH_DIR,
@@ -253,13 +279,11 @@ if selected_csv is not None:
             )
         st.session_state["graph_paths"] = graph_paths
 
-        # --- Generate Snapshots & Compliance Table ---
         snapshot_paths = []
         table_path = None
         if not df_events.empty:
             with st.spinner("Generating event snapshots..."):
                 snapshot_paths = generate_all_snapshots(df_raw, df_events, client_name, output_dir=SNAPSHOT_DIR)
-
             with st.spinner("Generating compliance table..."):
                 table_file = os.path.join(IMAGE_DIR, f"{client_name}_table.jpg")
                 table_path = save_compliance_table_as_image(
@@ -272,16 +296,14 @@ if selected_csv is not None:
 
         st.session_state["snapshot_paths"] = snapshot_paths
         st.session_state["table_path"] = table_path
-
-        st.success(f"Analysis complete. {len(df_events)} events detected, "
-                   f"{len(graph_paths)} plots and {len(snapshot_paths)} snapshots generated.")
+        st.success(f"Analysis complete — {len(df_events)} events, {len(graph_paths)} plots, {len(snapshot_paths)} snapshots.")
 
 else:
     st.info("Upload CSV files in the sidebar to get started.")
 
 
 # ============================================================
-# RESULTS DISPLAY (persists after button click via session_state)
+# RESULTS
 # ============================================================
 if st.session_state.get("analysis_done"):
     df_events = st.session_state["df_events"]
@@ -291,63 +313,51 @@ if st.session_state.get("analysis_done"):
     client_name_display = st.session_state["client_name"]
     config = st.session_state["config"]
 
-    # --- Compliance Table ---
+    # Compliance Table
     if not df_events.empty:
         st.header("Compliance Results")
-
-        display_df = df_events[
-            [c for c in ["Timestamp", "dKw", "V_dev", "F_dev", "V_rec_s", "F_rec_s",
-                         "Compliance_Status", "Failure_Reasons"] if c in df_events.columns]
+        disp = df_events[
+            [c for c in ["Timestamp","dKw","V_dev","F_dev","V_rec_s","F_rec_s","Compliance_Status","Failure_Reasons"]
+             if c in df_events.columns]
         ].copy()
-        if "Timestamp" in display_df.columns:
-            display_df["Timestamp"] = display_df["Timestamp"].dt.strftime("%H:%M:%S")
-        if "dKw" in display_df.columns:
-            display_df["dKw"] = display_df["dKw"].round(1)
-        if "V_dev" in display_df.columns:
-            display_df["V_dev"] = (display_df["V_dev"] / config.nominal_voltage * 100).round(1)
-        if "F_dev" in display_df.columns:
-            display_df["F_dev"] = (display_df["F_dev"] / config.nominal_frequency * 100).round(1)
-        if "V_rec_s" in display_df.columns:
-            display_df["V_rec_s"] = display_df["V_rec_s"].round(1)
-        if "F_rec_s" in display_df.columns:
-            display_df["F_rec_s"] = display_df["F_rec_s"].round(1)
-
-        display_df.columns = [
-            c.replace("dKw", "Load Change (kW)")
-             .replace("V_dev", "V Dev (%)")
-             .replace("F_dev", "F Dev (%)")
-             .replace("V_rec_s", "V Recovery (s)")
-             .replace("F_rec_s", "F Recovery (s)")
-             .replace("Compliance_Status", "Status")
-             .replace("Failure_Reasons", "Notes")
-            for c in display_df.columns
+        if "Timestamp" in disp.columns:
+            disp["Timestamp"] = disp["Timestamp"].dt.strftime("%H:%M:%S")
+        if "dKw" in disp.columns: disp["dKw"] = disp["dKw"].round(1)
+        if "V_dev" in disp.columns: disp["V_dev"] = (disp["V_dev"] / config.nominal_voltage * 100).round(1)
+        if "F_dev" in disp.columns: disp["F_dev"] = (disp["F_dev"] / config.nominal_frequency * 100).round(1)
+        if "V_rec_s" in disp.columns: disp["V_rec_s"] = disp["V_rec_s"].round(1)
+        if "F_rec_s" in disp.columns: disp["F_rec_s"] = disp["F_rec_s"].round(1)
+        disp.columns = [
+            c.replace("dKw","Load Change (kW)").replace("V_dev","V Dev (%)").replace("F_dev","F Dev (%)")
+             .replace("V_rec_s","V Recovery (s)").replace("F_rec_s","F Recovery (s)")
+             .replace("Compliance_Status","Status").replace("Failure_Reasons","Notes")
+            for c in disp.columns
         ]
 
         def color_status(val):
-            if val == "Pass":
-                return "color: #16a34a; font-weight: bold"
-            elif val == "Fail":
-                return "color: #dc2626; font-weight: bold"
+            if val == "Pass": return "color: #16a34a; font-weight: bold"
+            elif val == "Fail": return "color: #dc2626; font-weight: bold"
             return ""
 
-        styled = display_df.style.map(color_status, subset=["Status"] if "Status" in display_df.columns else [])
-        st.dataframe(styled, use_container_width=True, hide_index=True)
-
+        st.dataframe(
+            disp.style.map(color_status, subset=["Status"] if "Status" in disp.columns else []),
+            use_container_width=True, hide_index=True,
+        )
         if table_path and os.path.exists(table_path):
             with st.expander("View Compliance Table Image"):
                 st.image(table_path, use_container_width=True)
 
-    # --- Time-Series Plots ---
+    # Time-Series Plots
     st.header("Time-Series Plots")
     if graph_paths:
-        tabs = st.tabs([name.replace("Avg_", "").replace("_", " ") for name in graph_paths.keys()])
+        tabs = st.tabs([n.replace("Avg_", "").replace("_", " ") for n in graph_paths.keys()])
         for tab, (name, path) in zip(tabs, graph_paths.items()):
             with tab:
                 st.image(path, use_container_width=True)
     else:
         st.info("No plots generated.")
 
-    # --- Event Snapshots ---
+    # Event Snapshots
     st.header("Event Snapshots")
     if snapshot_paths:
         for i, path in enumerate(snapshot_paths, 1):
@@ -356,77 +366,80 @@ if st.session_state.get("analysis_done"):
     else:
         st.info("No event snapshots generated.")
 
-    # --- Report Generation ---
-    st.header("Generate Report")
+    # ── Report Generation ─────────────────────────────────────
+    if generate_clicked and selected_template is not None:
+        with st.spinner("Generating report..."):
+            os.makedirs(TEMPLATE_DIR, exist_ok=True)
+            template_path = os.path.join(TEMPLATE_DIR, selected_template.name)
+            selected_template.seek(0)
+            with open(template_path, "wb") as f:
+                f.write(selected_template.read())
 
-    rcol1, rcol2 = st.columns(2)
-    with rcol1:
-        template_file = st.file_uploader(
-            "Upload Word Template (.docx)",
-            type=["docx"],
-            help="Upload a .docx file with placeholders like {{Avg_Voltage_LL}}, {{Compliance_Table}}, etc.",
-        )
-    with rcol2:
-        report_filename = st.text_input("Report Filename", value=report_title or "PQA_Report")
+            config_values = {
+                "report_title": report_title,
+                "gen_sn": gen_sn,
+                "site_address": site_address,
+                "custom_text": custom_text,
+            }
+            p_map = get_placeholder_map(
+                client_name_display, config_values,
+                df=st.session_state.get("df_raw"),
+                graph_dir=GRAPH_DIR, snapshot_dir=SNAPSHOT_DIR, image_dir=IMAGE_DIR,
+            )
+            output_base = os.path.join(OUTPUT_BASE, report_filename)
+            result = generate_report(template_path, p_map, output_name=output_base)
 
-        with st.expander("Available Placeholders"):
-            st.markdown("""
-**Graph placeholders:** `{{Avg_Voltage_LL}}`, `{{Avg_kW}}`, `{{Avg_Current}}`, `{{Avg_Frequency}}`, `{{Avg_THD_F}}`, `{{Avg_PF}}`
+            # Read generated file bytes into memory for download
+            entry = {"name": report_filename, "format": download_format, "files": {}}
+            with open(result["docx"], "rb") as f:
+                entry["files"]["docx"] = f.read()
+            if "pdf" in result:
+                with open(result["pdf"], "rb") as f:
+                    entry["files"]["pdf"] = f.read()
 
-**Table:** `{{Compliance_Table}}`
+            reports = st.session_state.get("generated_reports", [])
+            reports.append(entry)
+            st.session_state["generated_reports"] = reports
+            st.success(f"Report '{report_filename}' generated.")
 
-**Snapshots:** `{{Snapshot_1}}`, `{{Snapshot_2}}`, ...
+    # ── Generated Reports List ────────────────────────────────
+    reports = st.session_state.get("generated_reports", [])
+    if reports:
+        st.header("Generated Reports")
+        for i, entry in enumerate(reports):
+            with st.expander(f"\U0001f4c4 {entry['name']}", expanded=True):
+                fmt = entry["format"]
+                col1, col2 = st.columns(2)
 
-**Text fields:** `{{Report_Title}}`, `{{Gen_SN}}`, `{{Site_Address}}`, `{{Custom_Field}}`, `{{Date}}`, `{{Start Time}}`, `{{End Time}}`
-            """)
+                show_docx = fmt in ("Word (.docx)", "Both")
+                show_pdf = fmt in ("PDF", "Both")
 
-    if template_file is not None:
-        if st.button("Generate PQA Report", type="primary"):
-            with st.spinner("Generating report..."):
-                os.makedirs(TEMPLATE_DIR, exist_ok=True)
-                template_path = os.path.join(TEMPLATE_DIR, template_file.name)
-                with open(template_path, "wb") as f:
-                    f.write(template_file.read())
-
-                config_values = {
-                    "report_title": report_title,
-                    "gen_sn": gen_sn,
-                    "site_address": site_address,
-                    "custom_text": custom_text,
-                }
-                df_raw = st.session_state.get("df_raw")
-                p_map = get_placeholder_map(
-                    client_name_display, config_values, df=df_raw,
-                    graph_dir=GRAPH_DIR, snapshot_dir=SNAPSHOT_DIR, image_dir=IMAGE_DIR,
-                )
-
-                output_base = os.path.join(OUTPUT_BASE, report_filename)
-                result = generate_report(template_path, p_map, output_name=output_base)
-
-                st.success("Report generated successfully!")
-
-                dcol1, dcol2 = st.columns(2)
-                with dcol1:
-                    with open(result["docx"], "rb") as f:
+                if show_docx and "docx" in entry["files"]:
+                    with col1:
                         st.download_button(
-                            "Download Word Report (.docx)",
-                            data=f.read(),
-                            file_name=f"{report_filename}.docx",
+                            "Download Word (.docx)",
+                            data=entry["files"]["docx"],
+                            file_name=f"{entry['name']}.docx",
                             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key=f"docx_{i}",
                             use_container_width=True,
                         )
-                if "pdf" in result:
-                    with dcol2:
-                        with open(result["pdf"], "rb") as f:
+                if show_pdf:
+                    if "pdf" in entry["files"]:
+                        with col2:
                             st.download_button(
-                                "Download PDF Report",
-                                data=f.read(),
-                                file_name=f"{report_filename}.pdf",
+                                "Download PDF",
+                                data=entry["files"]["pdf"],
+                                file_name=f"{entry['name']}.pdf",
                                 mime="application/pdf",
+                                key=f"pdf_{i}",
                                 use_container_width=True,
                             )
+                    else:
+                        with col2:
+                            st.warning("PDF unavailable — LibreOffice not installed on this machine.")
 
-    # --- Download All as ZIP ---
+    # Download all assets as ZIP
     st.divider()
     if st.button("Download All Results as ZIP"):
         zip_buffer = io.BytesIO()
