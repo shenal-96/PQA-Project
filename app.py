@@ -11,6 +11,7 @@ import shutil
 import zipfile
 import io
 import glob
+import datetime
 
 from analysis import AnalysisConfig, load_and_prepare_csv, perform_analysis
 from visualizations import (
@@ -18,7 +19,7 @@ from visualizations import (
     generate_all_snapshots,
     save_compliance_table_as_image,
 )
-from report import get_placeholder_map, inject_images_to_word, generate_report
+from report import get_placeholder_map, inject_images_to_word, generate_docx, convert_to_pdf
 
 # --- Page Config ---
 st.set_page_config(
@@ -34,6 +35,12 @@ GRAPH_DIR = os.path.join(OUTPUT_BASE, "Graphs")
 SNAPSHOT_DIR = os.path.join(OUTPUT_BASE, "Snapshots")
 IMAGE_DIR = os.path.join(OUTPUT_BASE, "Images")
 TEMPLATE_DIR = os.path.join(OUTPUT_BASE, "Template")
+
+# --- Persistent upload directories ---
+UPLOADS_CSV_DIR = "uploads/csv"
+UPLOADS_TEMPLATE_DIR = "uploads/templates"
+os.makedirs(UPLOADS_CSV_DIR, exist_ok=True)
+os.makedirs(UPLOADS_TEMPLATE_DIR, exist_ok=True)
 
 
 def init_output_dirs():
@@ -54,13 +61,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-def _get_csv_time_range(uploaded_file):
-    """Read a CSV and return (start_str, end_str) or (None, None)."""
+def _get_csv_time_range(path):
+    """Read a CSV file path and return (start_str, end_str) or (None, None)."""
     try:
-        pos = uploaded_file.tell()
-        uploaded_file.seek(0)
-        temp_df = load_and_prepare_csv(uploaded_file)
-        uploaded_file.seek(pos)
+        temp_df = load_and_prepare_csv(path)
         if not temp_df.empty:
             return (
                 temp_df["Timestamp"].min().strftime("%H:%M:%S"),
@@ -79,24 +83,46 @@ with st.sidebar:
 
     # ── 1. CSV Upload ──────────────────────────────────────────
     st.subheader("Data Files")
-    csv_files = st.file_uploader(
+    new_csvs = st.file_uploader(
         "Upload CSV files",
         type=["csv"],
         accept_multiple_files=True,
-        help="Upload one or more CSV files from your power quality recorder.",
+        help="Files are saved locally — no need to re-upload each session.",
     )
+    if new_csvs:
+        for f in new_csvs:
+            dest = os.path.join(UPLOADS_CSV_DIR, f.name)
+            f.seek(0)
+            with open(dest, "wb") as out:
+                out.write(f.read())
+        st.rerun()
 
-    selected_csv = None
+    saved_csvs = sorted(glob.glob(os.path.join(UPLOADS_CSV_DIR, "*.csv")))
+
+    # Show saved files with size and remove button
+    for csv_path in saved_csvs:
+        fname = os.path.basename(csv_path)
+        size = os.path.getsize(csv_path)
+        size_str = f"{size/1024:.1f}KB" if size < 1024*1024 else f"{size/1024/1024:.1f}MB"
+        c1, c2 = st.columns([5, 1])
+        c1.markdown(f"📊 **{fname}**  \n<small>{size_str}</small>", unsafe_allow_html=True)
+        if c2.button("✕", key=f"rm_csv_{fname}", help=f"Remove {fname}"):
+            os.remove(csv_path)
+            st.rerun()
+
+    saved_csvs = sorted(glob.glob(os.path.join(UPLOADS_CSV_DIR, "*.csv")))
+    all_csv_names = [os.path.basename(p) for p in saved_csvs]
+
+    selected_csv_path = None
     client_name = ""
     auto_start = ""
     auto_end = ""
 
-    if csv_files:
-        selected_name = st.selectbox("Select CSV to analyse", [f.name for f in csv_files])
-        selected_csv = next(f for f in csv_files if f.name == selected_name)
-        client_name = os.path.splitext(selected_csv.name)[0]
-        auto_start, auto_end = _get_csv_time_range(selected_csv)
-        selected_csv.seek(0)
+    if all_csv_names:
+        selected_name = st.selectbox("Select CSV to analyse", all_csv_names)
+        selected_csv_path = os.path.join(UPLOADS_CSV_DIR, selected_name)
+        client_name = os.path.splitext(selected_name)[0]
+        auto_start, auto_end = _get_csv_time_range(selected_csv_path)
 
     st.divider()
 
@@ -108,16 +134,17 @@ with st.sidebar:
         load_thresh = 50.0; v_tol = 1.0; v_rec = 4.0; v_max_dev = 15.0
         f_tol = 0.5; f_rec = 3.0; f_max_dev = 7.0
         st.info("ISO 8528 presets applied")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Load Threshold", f"{load_thresh} kW")
-            st.metric("V Tolerance", f"{v_tol}%")
-            st.metric("V Recovery", f"{v_rec}s")
-            st.metric("V Max Dev", f"{v_max_dev}%")
-        with col2:
-            st.metric("F Tolerance", f"{f_tol}%")
-            st.metric("F Recovery", f"{f_rec}s")
-            st.metric("F Max Dev", f"{f_max_dev}%")
+        st.markdown(f"""
+| Parameter | Value |
+|---|---|
+| Load Threshold | {load_thresh} kW |
+| V Tolerance | {v_tol}% |
+| V Recovery | {v_rec} s |
+| V Max Dev | {v_max_dev}% |
+| F Tolerance | {f_tol}% |
+| F Recovery | {f_rec} s |
+| F Max Dev | {f_max_dev}% |
+""")
     else:
         col1, col2 = st.columns(2)
         with col1:
@@ -142,15 +169,52 @@ with st.sidebar:
 
     # ── 4. Time Filter ────────────────────────────────────────
     st.subheader("Time Filter")
-    start_time = st.text_input("Start Time", value=auto_start or "", placeholder="HH:MM:SS")
-    end_time = st.text_input("End Time", value=auto_end or "", placeholder="HH:MM:SS")
+    start_time_text = st.text_input("Start Time", value=auto_start or "", placeholder="HH:MM:SS")
+    end_time_text = st.text_input("End Time", value=auto_end or "", placeholder="HH:MM:SS")
+
+    start_time = start_time_text
+    end_time = end_time_text
+
+    if auto_start and auto_end:
+        try:
+            def _parse_time(s):
+                parts = [int(x) for x in s.split(":")]
+                return datetime.time(*parts)
+
+            t_min = _parse_time(auto_start)
+            t_max = _parse_time(auto_end)
+
+            try: t_start_val = _parse_time(start_time_text) if start_time_text else t_min
+            except: t_start_val = t_min
+            try: t_end_val = _parse_time(end_time_text) if end_time_text else t_max
+            except: t_end_val = t_max
+
+            t_start_val = max(t_min, min(t_max, t_start_val))
+            t_end_val = max(t_min, min(t_max, t_end_val))
+
+            start_slider = st.slider(
+                "Start", min_value=t_min, max_value=t_max, value=t_start_val,
+                format="HH:mm:ss", step=datetime.timedelta(seconds=30),
+                label_visibility="collapsed",
+                key=f"start_slider_{client_name}",
+            )
+            end_slider = st.slider(
+                "End", min_value=t_min, max_value=t_max, value=t_end_val,
+                format="HH:mm:ss", step=datetime.timedelta(seconds=30),
+                label_visibility="collapsed",
+                key=f"end_slider_{client_name}",
+            )
+            start_time = start_slider.strftime("%H:%M:%S")
+            end_time = end_slider.strftime("%H:%M:%S")
+        except Exception:
+            pass
 
     st.divider()
 
     # ── 5. Run Analysis ───────────────────────────────────────
     run_clicked = False
-    if selected_csv is not None:
-        run_clicked = st.button("\u26a1 Run Analysis", type="primary", width="stretch")
+    if selected_csv_path is not None:
+        run_clicked = st.button("\u26a1 Run Analysis", type="primary", use_container_width=True)
     else:
         st.info("Upload CSV files above to begin.")
 
@@ -168,18 +232,40 @@ with st.sidebar:
     # ── 7. Report Generation ──────────────────────────────────
     st.subheader("Generate Report")
 
-    template_files = st.file_uploader(
+    new_templates = st.file_uploader(
         "Upload Word Templates (.docx)",
         type=["docx"],
         accept_multiple_files=True,
-        help="Upload one or more .docx templates with placeholders.",
+        help="Files are saved locally — no need to re-upload each session.",
     )
+    if new_templates:
+        for f in new_templates:
+            dest = os.path.join(UPLOADS_TEMPLATE_DIR, f.name)
+            f.seek(0)
+            with open(dest, "wb") as out:
+                out.write(f.read())
+        st.rerun()
 
-    selected_template = None
-    if template_files:
-        template_names = [f.name for f in template_files]
-        selected_template_name = st.selectbox("Select Template", template_names)
-        selected_template = next(f for f in template_files if f.name == selected_template_name)
+    saved_templates = sorted(glob.glob(os.path.join(UPLOADS_TEMPLATE_DIR, "*.docx")))
+
+    # Show saved templates with size and remove button
+    for tpl_path in saved_templates:
+        fname = os.path.basename(tpl_path)
+        size = os.path.getsize(tpl_path)
+        size_str = f"{size/1024:.1f}KB" if size < 1024*1024 else f"{size/1024/1024:.1f}MB"
+        c1, c2 = st.columns([5, 1])
+        c1.markdown(f"📄 **{fname}**  \n<small>{size_str}</small>", unsafe_allow_html=True)
+        if c2.button("✕", key=f"rm_tpl_{fname}", help=f"Remove {fname}"):
+            os.remove(tpl_path)
+            st.rerun()
+
+    saved_templates = sorted(glob.glob(os.path.join(UPLOADS_TEMPLATE_DIR, "*.docx")))
+    all_template_names = [os.path.basename(p) for p in saved_templates]
+
+    selected_template_path = None
+    if all_template_names:
+        selected_template_name = st.selectbox("Select Template", all_template_names)
+        selected_template_path = os.path.join(UPLOADS_TEMPLATE_DIR, selected_template_name)
 
         with st.expander("Available Placeholders"):
             st.markdown("""
@@ -204,12 +290,56 @@ with st.sidebar:
         )
 
     generate_clicked = False
-    if selected_template is not None and st.session_state.get("analysis_done"):
-        generate_clicked = st.button("\U0001f4c4 Generate Report", type="primary", width="stretch")
+    if selected_template_path is not None and st.session_state.get("analysis_done"):
+        generate_clicked = st.button("\U0001f4c4 Generate Report", type="primary", use_container_width=True)
     elif not st.session_state.get("analysis_done"):
         st.caption("Run analysis first to enable report generation.")
     else:
         st.caption("Upload a template above to generate a report.")
+
+    # ── Generated Reports List (sidebar) ──────────────────────
+    sidebar_reports = st.session_state.get("generated_reports", [])
+    if sidebar_reports:
+        st.divider()
+        st.subheader("Generated Reports")
+        for i, entry in enumerate(sidebar_reports):
+            st.markdown(f"**{entry['name']}**")
+            c1, c2 = st.columns(2)
+            if "docx" in entry["files"]:
+                c1.download_button(
+                    "⬇ .docx",
+                    data=bytes(entry["files"]["docx"]),
+                    file_name=f"{entry['name']}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    key=f"sb_dl_docx_{i}",
+                    use_container_width=True,
+                )
+            if "pdf" in entry["files"]:
+                c2.download_button(
+                    "⬇ .pdf",
+                    data=bytes(entry["files"]["pdf"]),
+                    file_name=f"{entry['name']}.pdf",
+                    mime="application/pdf",
+                    key=f"sb_dl_pdf_{i}",
+                    use_container_width=True,
+                )
+            elif "docx" in entry["files"]:
+                c2.caption("PDF n/a")
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
+            for entry in sidebar_reports:
+                if "docx" in entry["files"]:
+                    zipf.writestr(f"{entry['name']}.docx", bytes(entry["files"]["docx"]))
+                if "pdf" in entry["files"]:
+                    zipf.writestr(f"{entry['name']}.pdf", bytes(entry["files"]["pdf"]))
+        st.download_button(
+            "⬇️ Download All Reports",
+            data=zip_buffer.getvalue(),
+            file_name="PQA_Reports.zip",
+            mime="application/zip",
+            use_container_width=True,
+        )
 
 
 # ============================================================
@@ -217,12 +347,10 @@ with st.sidebar:
 # ============================================================
 st.title("\u26a1 Power Quality Analysis")
 
-if selected_csv is not None:
+if selected_csv_path is not None:
     with st.expander("Preview uploaded data", expanded=False):
-        selected_csv.seek(0)
-        preview_df = pd.read_csv(selected_csv, sep=None, engine="python", nrows=10)
+        preview_df = pd.read_csv(selected_csv_path, sep=None, engine="python", nrows=10)
         st.dataframe(preview_df, width="stretch")
-        selected_csv.seek(0)
 
     if auto_start and auto_end:
         st.caption(f"Detected time range: **{auto_start}** to **{auto_end}**")
@@ -244,9 +372,7 @@ if selected_csv is not None:
         )
 
         with st.spinner("Loading and processing data..."):
-            selected_csv.seek(0)
-            df_raw = load_and_prepare_csv(selected_csv, start_time=start_time, end_time=end_time)
-            selected_csv.seek(0)
+            df_raw = load_and_prepare_csv(selected_csv_path, start_time=start_time, end_time=end_time)
             if df_raw.empty:
                 st.error("No data found. Check your CSV and time range.")
                 st.stop()
@@ -272,19 +398,26 @@ if selected_csv is not None:
             if not df_events.empty and "Compliance_Status" in df_events.columns:
                 st.metric("Fail", f"{(df_events['Compliance_Status']=='Fail').sum()}/{len(df_events)}")
 
-        with st.spinner("Generating plots..."):
-            graph_paths = generate_plots(
-                df_proc, client_name, output_dir=GRAPH_DIR,
-                show_limits=show_limits, nom_v=nom_v, nom_f=nom_f,
-                tol_v=v_tol, tol_f=f_tol,
+        plot_kwargs = dict(
+            output_dir=GRAPH_DIR, show_limits=show_limits,
+            nom_v=nom_v, nom_f=nom_f, tol_v=v_tol, tol_f=f_tol,
+        )
+        with st.spinner("Generating voltage plot..."):
+            graph_paths = generate_plots(df_proc, client_name, metric_keys=["Avg_Voltage_LL"], **plot_kwargs)
+        st.session_state["graph_paths"] = graph_paths
+
+        with st.spinner("Generating remaining plots..."):
+            other_paths = generate_plots(
+                df_proc, client_name,
+                metric_keys=["Avg_kW", "Avg_Current", "Avg_Frequency", "Avg_PF", "Avg_THD_F"],
+                **plot_kwargs,
             )
+            graph_paths.update(other_paths)
         st.session_state["graph_paths"] = graph_paths
 
         snapshot_paths = []
         table_path = None
         if not df_events.empty:
-            with st.spinner("Generating event snapshots..."):
-                snapshot_paths = generate_all_snapshots(df_raw, df_events, client_name, output_dir=SNAPSHOT_DIR)
             with st.spinner("Generating compliance table..."):
                 table_file = os.path.join(IMAGE_DIR, f"{client_name}_table.jpg")
                 table_path = save_compliance_table_as_image(
@@ -292,6 +425,8 @@ if selected_csv is not None:
                     f"Compliance Report: {client_name}",
                     nom_v=nom_v, nom_f=nom_f,
                 )
+            with st.spinner("Generating event snapshots..."):
+                snapshot_paths = generate_all_snapshots(df_raw, df_events, client_name, output_dir=SNAPSHOT_DIR)
         else:
             st.warning("No load events detected above the threshold.")
 
@@ -346,7 +481,7 @@ if st.session_state.get("analysis_done"):
         )
         if table_path and os.path.exists(table_path):
             with st.expander("View Compliance Table Image"):
-                st.image(table_path, width="stretch")
+                st.image(table_path, use_container_width=True)
 
     # Time-Series Plots
     st.header("Time-Series Plots")
@@ -354,7 +489,7 @@ if st.session_state.get("analysis_done"):
         tabs = st.tabs([n.replace("Avg_", "").replace("_", " ") for n in graph_paths.keys()])
         for tab, (name, path) in zip(tabs, graph_paths.items()):
             with tab:
-                st.image(path, width="stretch")
+                st.image(path, use_container_width=True)
     else:
         st.info("No plots generated.")
 
@@ -363,91 +498,9 @@ if st.session_state.get("analysis_done"):
     if snapshot_paths:
         for i, path in enumerate(snapshot_paths, 1):
             with st.expander(f"Event {i}", expanded=(i == 1)):
-                st.image(path, width="stretch")
+                st.image(path, use_container_width=True)
     else:
         st.info("No event snapshots generated.")
-
-    # ── Report Generation ─────────────────────────────────────
-    if generate_clicked and selected_template is not None:
-        with st.spinner("Generating report..."):
-            os.makedirs(TEMPLATE_DIR, exist_ok=True)
-            template_path = os.path.join(TEMPLATE_DIR, selected_template.name)
-            selected_template.seek(0)
-            with open(template_path, "wb") as f:
-                f.write(selected_template.read())
-
-            config_values = {
-                "report_title": report_title,
-                "gen_sn": gen_sn,
-                "site_address": site_address,
-                "custom_text": custom_text,
-            }
-            p_map = get_placeholder_map(
-                client_name_display, config_values,
-                df=st.session_state.get("df_raw"),
-                graph_dir=GRAPH_DIR, snapshot_dir=SNAPSHOT_DIR, image_dir=IMAGE_DIR,
-            )
-            output_base = os.path.join(OUTPUT_BASE, report_filename)
-            result = generate_report(template_path, p_map, output_name=output_base)
-
-            # Read generated file bytes into memory for download
-            entry = {"name": report_filename, "format": download_format, "files": {}}
-            with open(result["docx"], "rb") as f:
-                entry["files"]["docx"] = f.read()
-            if "pdf" in result:
-                with open(result["pdf"], "rb") as f:
-                    entry["files"]["pdf"] = f.read()
-
-            reports = st.session_state.get("generated_reports", [])
-            reports.append(entry)
-            st.session_state["generated_reports"] = reports
-            st.success(f"Report '{report_filename}' generated.")
-
-    # ── Generated Reports List ────────────────────────────────
-    reports = st.session_state.get("generated_reports", [])
-    if reports:
-        st.header("Generated Reports")
-
-        # Display as a clean table
-        table_rows = []
-        for entry in reports:
-            fmt = entry["format"]
-            files_available = []
-            if "docx" in entry["files"] and fmt in ("Word (.docx)", "Both"):
-                files_available.append("Word (.docx)")
-            if "pdf" in entry["files"] and fmt in ("PDF", "Both"):
-                files_available.append("PDF")
-            elif fmt in ("PDF", "Both") and "pdf" not in entry["files"]:
-                files_available.append("PDF (unavailable — LibreOffice not installed)")
-            table_rows.append({
-                "Report Name": entry["name"],
-                "Format": fmt,
-                "Files": ", ".join(files_available) if files_available else "—",
-            })
-
-        st.dataframe(
-            pd.DataFrame(table_rows),
-            hide_index=True,
-            width="stretch",
-        )
-
-        # Build a zip of all generated reports and offer single download
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
-            for entry in reports:
-                fmt = entry["format"]
-                if "docx" in entry["files"] and fmt in ("Word (.docx)", "Both"):
-                    zipf.writestr(f"{entry['name']}.docx", bytes(entry["files"]["docx"]))
-                if "pdf" in entry["files"] and fmt in ("PDF", "Both"):
-                    zipf.writestr(f"{entry['name']}.pdf", bytes(entry["files"]["pdf"]))
-        zip_data = zip_buffer.getvalue()
-
-        st.download_button(
-            label="⬇️ Download Reports",
-            data=zip_data,
-            file_name="PQA_Reports.zip",
-            mime="application/zip",
-        )
 
     # Download all analysis assets as ZIP
     st.divider()
@@ -467,3 +520,67 @@ if st.session_state.get("analysis_done"):
         file_name="PQA_Analysis_Results.zip",
         mime="application/zip",
     )
+
+
+# ============================================================
+# REPORT GENERATION — top-level so it always runs on button click
+# ============================================================
+if generate_clicked and selected_template_path is not None:
+    import traceback as _tb
+
+    client_name_display = st.session_state.get("client_name", client_name)
+    _success = False
+    _error_tb = None
+
+    with st.sidebar:
+        with st.status("Generating report...", expanded=True) as _status:
+            try:
+                st.write("⚙️ Building content map...")
+                config_values = {
+                    "report_title": report_title,
+                    "gen_sn": gen_sn,
+                    "site_address": site_address,
+                    "custom_text": custom_text,
+                }
+                p_map = get_placeholder_map(
+                    client_name_display, config_values,
+                    df=st.session_state.get("df_raw"),
+                    graph_dir=GRAPH_DIR, snapshot_dir=SNAPSHOT_DIR, image_dir=IMAGE_DIR,
+                )
+
+                st.write("📝 Injecting content into Word template...")
+                output_base = os.path.join(OUTPUT_BASE, report_filename)
+                docx_path = generate_docx(selected_template_path, p_map, output_name=output_base)
+
+                st.write("💾 Word document ready — reading file...")
+                entry = {"name": report_filename, "files": {}}
+                with open(docx_path, "rb") as f:
+                    entry["files"]["docx"] = f.read()
+
+                st.write("🖨️ Converting to PDF (timeout: 45s)...")
+                pdf_path = f"{output_base}.pdf"
+                if convert_to_pdf(docx_path, pdf_path):
+                    with open(pdf_path, "rb") as f:
+                        entry["files"]["pdf"] = f.read()
+                    st.write("✅ PDF ready.")
+                else:
+                    st.write("⚠️ PDF conversion unavailable — .docx only.")
+
+                reports = st.session_state.get("generated_reports", [])
+                reports.append(entry)
+                st.session_state["generated_reports"] = reports
+
+                _status.update(label=f"✅ '{report_filename}' generated!", state="complete", expanded=False)
+                _success = True
+
+            except Exception as _exc:
+                _error_tb = _tb.format_exc()
+                _status.update(label=f"❌ Failed: {_exc}", state="error", expanded=True)
+                st.write(str(_exc))
+
+    if _error_tb:
+        st.error("Report generation failed — full traceback:")
+        st.code(_error_tb, language="python")
+
+    if _success:
+        st.rerun()

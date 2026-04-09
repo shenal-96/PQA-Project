@@ -16,9 +16,12 @@ import numpy as np
 
 def generate_plots(df_proc, client_name, output_dir="output/Graphs",
                    show_limits=False, nom_v=415.0, nom_f=50.0,
-                   tol_v=1.0, tol_f=0.5):
+                   tol_v=1.0, tol_f=0.5, metric_keys=None):
     """
-    Generate time-series plots for all available metrics.
+    Generate time-series plots for available metrics.
+
+    Parameters:
+        metric_keys: optional list of metric column names to generate (default: all)
 
     Returns:
         dict: mapping metric name -> file path of saved plot
@@ -34,6 +37,9 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
         "Avg_PF": ("Power Factor", "#0891b2"),
         "Avg_THD_F": ("Total Harmonic Distortion (THD)", "#9333ea"),
     }
+
+    if metric_keys is not None:
+        metrics = {k: v for k, v in metrics.items() if k in metric_keys}
 
     for col, (ylabel, color) in metrics.items():
         if col not in df_proc.columns or df_proc[col].dropna().empty:

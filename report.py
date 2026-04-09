@@ -6,11 +6,67 @@ Handles Word template injection, placeholder mapping, and PDF conversion.
 
 import os
 import glob
-import subprocess
 import io
 from docx import Document
 from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+
+_PDF_SCRIPT = """
+import sys, os
+docx_path, pdf_path = sys.argv[1], sys.argv[2]
+try:
+    import mammoth
+    with open(docx_path, 'rb') as f:
+        result = mammoth.convert_to_html(f)
+    html = (
+        '<!DOCTYPE html><html><head><meta charset="utf-8">'
+        '<style>'
+        'body{font-family:Arial,sans-serif;font-size:11pt;margin:2cm;line-height:1.4}'
+        'img{max-width:100%;height:auto;display:block;margin:10pt auto}'
+        'table{width:100%;border-collapse:collapse;margin:10pt 0}'
+        'td,th{border:1px solid #ccc;padding:4pt 6pt}'
+        'p{margin:4pt 0}'
+        '</style></head><body>' + result.value + '</body></html>'
+    )
+    import weasyprint
+    weasyprint.HTML(string=html).write_pdf(pdf_path)
+    sys.exit(0)
+except ImportError:
+    # weasyprint not available, try docx2pdf (Word)
+    try:
+        from docx2pdf import convert
+        convert(docx_path, pdf_path)
+        sys.exit(0)
+    except Exception as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
+except Exception as e:
+    print(e, file=sys.stderr)
+    sys.exit(1)
+"""
+
+
+def convert_to_pdf(docx_path, pdf_path, timeout=45):
+    """
+    Run PDF conversion in a subprocess with a timeout.
+    Returns True if a PDF was produced within the time limit.
+    """
+    import sys
+    import subprocess
+
+    try:
+        subprocess.run(
+            [sys.executable, "-c", _PDF_SCRIPT,
+             os.path.abspath(docx_path), os.path.abspath(pdf_path)],
+            timeout=timeout,
+            capture_output=True,
+        )
+        return os.path.exists(pdf_path)
+    except subprocess.TimeoutExpired:
+        return False
+    except Exception:
+        return False
 
 
 def get_placeholder_map(client_name, config_values, df=None,
@@ -117,36 +173,26 @@ def inject_images_to_word(template_stream, placeholder_map):
     return doc
 
 
-def generate_report(template_path, placeholder_map, output_name="PQA_Report"):
+def generate_docx(template_path, placeholder_map, output_name="PQA_Report"):
     """
-    Full pipeline: inject placeholders into Word template and optionally convert to PDF.
-
-    Parameters:
-        template_path: path to the .docx template
-        placeholder_map: dict of {{key}} -> value
-        output_name: base filename (without extension) for output files
-
-    Returns:
-        dict with 'docx' and optionally 'pdf' keys pointing to file paths
+    Inject placeholders into a Word template and save the .docx.
+    Returns the path to the saved .docx file.
     """
     docx_path = f"{output_name}.docx"
-
     with open(template_path, "rb") as f:
         doc = inject_images_to_word(io.BytesIO(f.read()), placeholder_map)
     doc.save(docx_path)
+    return docx_path
 
+
+def generate_report(template_path, placeholder_map, output_name="PQA_Report"):
+    """
+    Full pipeline: inject placeholders into Word template and optionally convert to PDF.
+    Returns dict with 'docx' and optionally 'pdf' keys pointing to file paths.
+    """
+    docx_path = generate_docx(template_path, placeholder_map, output_name)
     result = {"docx": docx_path}
-
-    # Try PDF conversion via LibreOffice (if available)
     pdf_path = f"{output_name}.pdf"
-    try:
-        subprocess.run(
-            ["libreoffice", "--headless", "--convert-to", "pdf", docx_path],
-            check=True, capture_output=True, timeout=60,
-        )
-        if os.path.exists(pdf_path):
-            result["pdf"] = pdf_path
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
-        pass  # PDF conversion is optional
-
+    if convert_to_pdf(docx_path, pdf_path):
+        result["pdf"] = pdf_path
     return result
