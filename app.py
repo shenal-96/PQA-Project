@@ -437,36 +437,33 @@ if st.session_state.get("analysis_done"):
             for entry in reports:
                 fmt = entry["format"]
                 if "docx" in entry["files"] and fmt in ("Word (.docx)", "Both"):
-                    zipf.writestr(f"{entry['name']}.docx", entry["files"]["docx"])
+                    zipf.writestr(f"{entry['name']}.docx", bytes(entry["files"]["docx"]))
                 if "pdf" in entry["files"] and fmt in ("PDF", "Both"):
-                    zipf.writestr(f"{entry['name']}.pdf", entry["files"]["pdf"])
-        zip_buffer.seek(0)
+                    zipf.writestr(f"{entry['name']}.pdf", bytes(entry["files"]["pdf"]))
+        zip_data = zip_buffer.getvalue()
 
         st.download_button(
-            "\u2b07\ufe0f Download Reports",
-            data=zip_buffer.getvalue(),
+            label="⬇️ Download Reports",
+            data=zip_data,
             file_name="PQA_Reports.zip",
             mime="application/zip",
-            width="stretch",
         )
 
     # Download all analysis assets as ZIP
     st.divider()
-    if st.button("Download All Analysis Assets as ZIP"):
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
-            for folder in [GRAPH_DIR, SNAPSHOT_DIR, IMAGE_DIR]:
-                if os.path.exists(folder):
-                    for root, _, files_list in os.walk(folder):
-                        for file in files_list:
-                            full_path = os.path.join(root, file)
-                            arcname = os.path.relpath(full_path, OUTPUT_BASE)
-                            zipf.write(full_path, arcname=arcname)
-        zip_buffer.seek(0)
-        st.download_button(
-            "Save ZIP File",
-            data=zip_buffer.getvalue(),
-            file_name="PQA_Analysis_Results.zip",
-            mime="application/zip",
-            width="stretch",
-        )
+    assets_zip = io.BytesIO()
+    with zipfile.ZipFile(assets_zip, "w", zipfile.ZIP_DEFLATED) as zipf:
+        for folder in [GRAPH_DIR, SNAPSHOT_DIR, IMAGE_DIR]:
+            if os.path.exists(folder):
+                for root, _, files_list in os.walk(folder):
+                    for file in files_list:
+                        full_path = os.path.join(root, file)
+                        arcname = os.path.relpath(full_path, OUTPUT_BASE)
+                        zipf.write(full_path, arcname=arcname)
+    assets_zip.seek(0)
+    st.download_button(
+        label="⬇️ Download All Analysis Assets as ZIP",
+        data=assets_zip.getvalue(),
+        file_name="PQA_Analysis_Results.zip",
+        mime="application/zip",
+    )
