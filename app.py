@@ -301,7 +301,7 @@ if st.session_state.get("analysis_done"):
                 return "color: #dc2626; font-weight: bold"
             return ""
 
-        styled = display_df.style.applymap(color_status, subset=["Status"] if "Status" in display_df.columns else [])
+        styled = display_df.style.map(color_status, subset=["Status"] if "Status" in display_df.columns else [])
         st.dataframe(styled, use_container_width=True, hide_index=True)
 
         # Show table image
