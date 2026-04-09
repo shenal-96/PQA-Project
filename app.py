@@ -150,7 +150,7 @@ with st.sidebar:
     # ── 5. Run Analysis ───────────────────────────────────────
     run_clicked = False
     if selected_csv is not None:
-        run_clicked = st.button("\u26a1 Run Analysis", type="primary", use_container_width=True)
+        run_clicked = st.button("\u26a1 Run Analysis", type="primary", width="stretch")
     else:
         st.info("Upload CSV files above to begin.")
 
@@ -204,7 +204,7 @@ with st.sidebar:
 
     generate_clicked = False
     if selected_template is not None and st.session_state.get("analysis_done"):
-        generate_clicked = st.button("\U0001f4c4 Generate Report", type="primary", use_container_width=True)
+        generate_clicked = st.button("\U0001f4c4 Generate Report", type="primary", width="stretch")
     elif not st.session_state.get("analysis_done"):
         st.caption("Run analysis first to enable report generation.")
     else:
@@ -220,7 +220,7 @@ if selected_csv is not None:
     with st.expander("Preview uploaded data", expanded=False):
         selected_csv.seek(0)
         preview_df = pd.read_csv(selected_csv, sep=None, engine="python", nrows=10)
-        st.dataframe(preview_df, use_container_width=True)
+        st.dataframe(preview_df, width="stretch")
         selected_csv.seek(0)
 
     if auto_start and auto_end:
@@ -341,11 +341,11 @@ if st.session_state.get("analysis_done"):
 
         st.dataframe(
             disp.style.map(color_status, subset=["Status"] if "Status" in disp.columns else []),
-            use_container_width=True, hide_index=True,
+            width="stretch", hide_index=True,
         )
         if table_path and os.path.exists(table_path):
             with st.expander("View Compliance Table Image"):
-                st.image(table_path, use_container_width=True)
+                st.image(table_path, width="stretch")
 
     # Time-Series Plots
     st.header("Time-Series Plots")
@@ -353,7 +353,7 @@ if st.session_state.get("analysis_done"):
         tabs = st.tabs([n.replace("Avg_", "").replace("_", " ") for n in graph_paths.keys()])
         for tab, (name, path) in zip(tabs, graph_paths.items()):
             with tab:
-                st.image(path, use_container_width=True)
+                st.image(path, width="stretch")
     else:
         st.info("No plots generated.")
 
@@ -362,7 +362,7 @@ if st.session_state.get("analysis_done"):
     if snapshot_paths:
         for i, path in enumerate(snapshot_paths, 1):
             with st.expander(f"Event {i}", expanded=(i == 1)):
-                st.image(path, use_container_width=True)
+                st.image(path, width="stretch")
     else:
         st.info("No event snapshots generated.")
 
@@ -422,7 +422,7 @@ if st.session_state.get("analysis_done"):
                             file_name=f"{entry['name']}.docx",
                             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                             key=f"docx_{i}",
-                            use_container_width=True,
+                            width="stretch",
                         )
                 if show_pdf:
                     if "pdf" in entry["files"]:
@@ -433,7 +433,7 @@ if st.session_state.get("analysis_done"):
                                 file_name=f"{entry['name']}.pdf",
                                 mime="application/pdf",
                                 key=f"pdf_{i}",
-                                use_container_width=True,
+                                width="stretch",
                             )
                     else:
                         with col2:
@@ -457,5 +457,5 @@ if st.session_state.get("analysis_done"):
             data=zip_buffer.getvalue(),
             file_name="PQA_Analysis_Results.zip",
             mime="application/zip",
-            use_container_width=True,
+            width="stretch",
         )
