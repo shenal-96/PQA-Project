@@ -447,7 +447,6 @@ if st.session_state.get("analysis_done"):
             data=zip_buffer.getvalue(),
             file_name="PQA_Reports.zip",
             mime="application/zip",
-            type="primary",
             width="stretch",
         )
 
