@@ -197,10 +197,11 @@ with st.sidebar:
         placeholder="Enter filename (no extension)",
     )
 
-    download_format = st.selectbox(
-        "Download Format",
-        ["Word (.docx)", "PDF", "Both"],
-    )
+    with st.expander("⬇️ Download Options"):
+        download_format = st.selectbox(
+            "Download Format",
+            ["Word (.docx)", "PDF", "Both"],
+        )
 
     generate_clicked = False
     if selected_template is not None and st.session_state.get("analysis_done"):
