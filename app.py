@@ -406,42 +406,53 @@ if st.session_state.get("analysis_done"):
     reports = st.session_state.get("generated_reports", [])
     if reports:
         st.header("Generated Reports")
-        for i, entry in enumerate(reports):
-            with st.expander(f"\U0001f4c4 {entry['name']}", expanded=True):
+
+        # Display as a clean table
+        table_rows = []
+        for entry in reports:
+            fmt = entry["format"]
+            files_available = []
+            if "docx" in entry["files"] and fmt in ("Word (.docx)", "Both"):
+                files_available.append("Word (.docx)")
+            if "pdf" in entry["files"] and fmt in ("PDF", "Both"):
+                files_available.append("PDF")
+            elif fmt in ("PDF", "Both") and "pdf" not in entry["files"]:
+                files_available.append("PDF (unavailable — LibreOffice not installed)")
+            table_rows.append({
+                "Report Name": entry["name"],
+                "Format": fmt,
+                "Files": ", ".join(files_available) if files_available else "—",
+            })
+
+        st.dataframe(
+            pd.DataFrame(table_rows),
+            hide_index=True,
+            width="stretch",
+        )
+
+        # Build a zip of all generated reports and offer single download
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
+            for entry in reports:
                 fmt = entry["format"]
-                col1, col2 = st.columns(2)
+                if "docx" in entry["files"] and fmt in ("Word (.docx)", "Both"):
+                    zipf.writestr(f"{entry['name']}.docx", entry["files"]["docx"])
+                if "pdf" in entry["files"] and fmt in ("PDF", "Both"):
+                    zipf.writestr(f"{entry['name']}.pdf", entry["files"]["pdf"])
+        zip_buffer.seek(0)
 
-                show_docx = fmt in ("Word (.docx)", "Both")
-                show_pdf = fmt in ("PDF", "Both")
+        st.download_button(
+            "\u2b07\ufe0f Download Reports",
+            data=zip_buffer.getvalue(),
+            file_name="PQA_Reports.zip",
+            mime="application/zip",
+            type="primary",
+            width="stretch",
+        )
 
-                if show_docx and "docx" in entry["files"]:
-                    with col1:
-                        st.download_button(
-                            "Download Word (.docx)",
-                            data=entry["files"]["docx"],
-                            file_name=f"{entry['name']}.docx",
-                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            key=f"docx_{i}",
-                            width="stretch",
-                        )
-                if show_pdf:
-                    if "pdf" in entry["files"]:
-                        with col2:
-                            st.download_button(
-                                "Download PDF",
-                                data=entry["files"]["pdf"],
-                                file_name=f"{entry['name']}.pdf",
-                                mime="application/pdf",
-                                key=f"pdf_{i}",
-                                width="stretch",
-                            )
-                    else:
-                        with col2:
-                            st.warning("PDF unavailable — LibreOffice not installed on this machine.")
-
-    # Download all assets as ZIP
+    # Download all analysis assets as ZIP
     st.divider()
-    if st.button("Download All Results as ZIP"):
+    if st.button("Download All Analysis Assets as ZIP"):
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
             for folder in [GRAPH_DIR, SNAPSHOT_DIR, IMAGE_DIR]:
