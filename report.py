@@ -12,11 +12,47 @@ from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 
-_PDF_SCRIPT = """
-import sys, os
+_PDF_SCRIPT = r"""
+import sys, os, io, tempfile
 docx_path, pdf_path = sys.argv[1], sys.argv[2]
-try:
-    import mammoth
+
+def try_libreoffice():
+    import shutil as _shutil
+    import subprocess as _sp
+
+    candidates = [
+        'libreoffice',
+        'soffice',
+        '/Applications/LibreOffice.app/Contents/MacOS/soffice',
+        '/usr/bin/libreoffice',
+        '/usr/bin/soffice',
+        '/snap/bin/libreoffice',
+    ]
+    lo_bin = None
+    for c in candidates:
+        try:
+            r = _sp.run([c, '--version'], capture_output=True, timeout=5)
+            if r.returncode == 0:
+                lo_bin = c
+                break
+        except Exception:
+            continue
+    if not lo_bin:
+        raise RuntimeError('LibreOffice not found')
+
+    out_dir = os.path.dirname(os.path.abspath(pdf_path))
+    _sp.run(
+        [lo_bin, '--headless', '--convert-to', 'pdf', '--outdir', out_dir,
+         os.path.abspath(docx_path)],
+        check=True, capture_output=True, timeout=90,
+    )
+    # LibreOffice names the output after the input basename
+    expected = os.path.join(out_dir, os.path.splitext(os.path.basename(docx_path))[0] + '.pdf')
+    if os.path.exists(expected) and os.path.abspath(expected) != os.path.abspath(pdf_path):
+        _shutil.move(expected, pdf_path)
+
+def try_weasyprint():
+    import mammoth, weasyprint
     with open(docx_path, 'rb') as f:
         result = mammoth.convert_to_html(f)
     html = (
@@ -29,18 +65,109 @@ try:
         'p{margin:4pt 0}'
         '</style></head><body>' + result.value + '</body></html>'
     )
-    import weasyprint
     weasyprint.HTML(string=html).write_pdf(pdf_path)
-    sys.exit(0)
-except ImportError:
-    # weasyprint not available, try docx2pdf (Word)
+
+def try_fpdf2():
+    from docx import Document
+    from docx.oxml.ns import qn
+    from fpdf import FPDF
+    from PIL import Image
+
+    doc = Document(docx_path)
+    pdf = FPDF(format='A4')
+    pdf.set_margins(20, 20, 20)
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=20)
+
+    # Extract embedded images from the docx zip
+    import zipfile
+    img_map = {}
+    with zipfile.ZipFile(docx_path) as z:
+        for name in z.namelist():
+            if name.startswith('word/media/'):
+                ext = os.path.splitext(name)[1].lower()
+                if ext in ('.png', '.jpg', '.jpeg', '.gif', '.bmp'):
+                    img_map[name] = z.read(name)
+
+    # Map relationship IDs to image data
+    rel_to_img = {}
+    with zipfile.ZipFile(docx_path) as z:
+        if 'word/_rels/document.xml.rels' in z.namelist():
+            import xml.etree.ElementTree as ET
+            rels_xml = z.read('word/_rels/document.xml.rels')
+            root = ET.fromstring(rels_xml)
+            for rel in root:
+                target = rel.get('Target', '')
+                if 'media/' in target:
+                    rid = rel.get('Id')
+                    img_key = 'word/' + target.lstrip('/')
+                    if img_key in img_map:
+                        rel_to_img[rid] = img_map[img_key]
+
+    tmp_imgs = []
+    page_w = pdf.w - pdf.l_margin - pdf.r_margin
+
+    for para in doc.paragraphs:
+        # Check for inline images
+        for elem in para._element.iter():
+            if elem.tag.endswith('}blip'):
+                rid = elem.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed')
+                if rid and rid in rel_to_img:
+                    tmp = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+                    tmp.write(rel_to_img[rid])
+                    tmp.close()
+                    tmp_imgs.append(tmp.name)
+                    try:
+                        with Image.open(tmp.name) as im:
+                            w, h = im.size
+                        ratio = h / w if w > 0 else 1
+                        img_w = min(page_w, page_w)
+                        img_h = img_w * ratio
+                        if pdf.get_y() + img_h > pdf.page_break_trigger:
+                            pdf.add_page()
+                        pdf.image(tmp.name, x=pdf.l_margin, w=img_w)
+                        pdf.ln(3)
+                    except Exception:
+                        pass
+
+        text = para.text.strip()
+        if not text:
+            pdf.ln(3)
+            continue
+
+        style = para.style.name if para.style else ''
+        if 'Heading 1' in style:
+            pdf.set_font('Helvetica', 'B', 16)
+        elif 'Heading 2' in style:
+            pdf.set_font('Helvetica', 'B', 13)
+        elif 'Heading' in style:
+            pdf.set_font('Helvetica', 'B', 11)
+        else:
+            pdf.set_font('Helvetica', '', 11)
+
+        pdf.multi_cell(0, 6, text)
+        pdf.ln(1)
+
+    pdf.output(pdf_path)
+
+    for t in tmp_imgs:
+        try: os.unlink(t)
+        except: pass
+
+# Try converters in order
+for converter in [try_libreoffice, try_weasyprint, try_fpdf2]:
     try:
-        from docx2pdf import convert
-        convert(docx_path, pdf_path)
-        sys.exit(0)
+        converter()
+        if os.path.exists(pdf_path):
+            sys.exit(0)
     except Exception as e:
-        print(e, file=sys.stderr)
-        sys.exit(1)
+        print(f'{converter.__name__} failed: {e}', file=sys.stderr)
+
+# Last resort: docx2pdf (Word on Windows)
+try:
+    from docx2pdf import convert
+    convert(docx_path, pdf_path)
+    sys.exit(0 if os.path.exists(pdf_path) else 1)
 except Exception as e:
     print(e, file=sys.stderr)
     sys.exit(1)

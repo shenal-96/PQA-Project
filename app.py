@@ -129,39 +129,30 @@ with st.sidebar:
     # ── 2. Acceptance Criteria ────────────────────────────────
     st.subheader("Acceptance Criteria")
     apply_iso = st.checkbox("Apply ISO 8528 Presets", value=False)
+    show_limits = st.checkbox("Show Limits on Graphs", value=False)
 
     if apply_iso:
         load_thresh = 50.0; v_tol = 1.0; v_rec = 4.0; v_max_dev = 15.0
         f_tol = 0.5; f_rec = 3.0; f_max_dev = 7.0
-        st.info("ISO 8528 presets applied")
-        st.markdown(f"""
-| Parameter | Value |
-|---|---|
-| Load Threshold | {load_thresh} kW |
-| V Tolerance | {v_tol}% |
-| V Recovery | {v_rec} s |
-| V Max Dev | {v_max_dev}% |
-| F Tolerance | {f_tol}% |
-| F Recovery | {f_rec} s |
-| F Max Dev | {f_max_dev}% |
-""")
     else:
-        col1, col2 = st.columns(2)
-        with col1:
-            load_thresh = st.number_input("Load Threshold (kW)", value=50.0, min_value=0.0, step=10.0)
-            v_tol = st.number_input("Voltage Tolerance (%)", value=1.0, min_value=0.0, step=0.5)
-            v_rec = st.number_input("Voltage Recovery (s)", value=4.0, min_value=0.0, step=0.5)
-            v_max_dev = st.number_input("Max Voltage Dev (%)", value=15.0, min_value=0.0, step=1.0)
-        with col2:
-            f_tol = st.number_input("Frequency Tolerance (%)", value=0.5, min_value=0.0, step=0.1)
-            f_rec = st.number_input("Frequency Recovery (s)", value=3.0, min_value=0.0, step=0.5)
-            f_max_dev = st.number_input("Max Frequency Dev (%)", value=7.0, min_value=0.0, step=1.0)
+        load_thresh = 50.0; v_tol = 1.0; v_rec = 4.0; v_max_dev = 15.0
+        f_tol = 0.5; f_rec = 3.0; f_max_dev = 7.0
+
+    col1, col2 = st.columns(2)
+    with col1:
+        load_thresh = st.number_input("Load Threshold (kW)", value=load_thresh, min_value=0.0, step=10.0, disabled=apply_iso)
+        v_tol = st.number_input("Voltage Tolerance (%)", value=v_tol, min_value=0.0, step=0.5, disabled=apply_iso)
+        v_rec = st.number_input("Voltage Recovery (s)", value=v_rec, min_value=0.0, step=0.5, disabled=apply_iso)
+        v_max_dev = st.number_input("Max Voltage Dev (%)", value=v_max_dev, min_value=0.0, step=1.0, disabled=apply_iso)
+    with col2:
+        f_tol = st.number_input("Frequency Tolerance (%)", value=f_tol, min_value=0.0, step=0.1, disabled=apply_iso)
+        f_rec = st.number_input("Frequency Recovery (s)", value=f_rec, min_value=0.0, step=0.5, disabled=apply_iso)
+        f_max_dev = st.number_input("Max Frequency Dev (%)", value=f_max_dev, min_value=0.0, step=1.0, disabled=apply_iso)
 
     st.divider()
 
     # ── 3. Display Options ────────────────────────────────────
     st.subheader("Display Options")
-    show_limits = st.checkbox("Show Limits on Graphs", value=False)
     nom_v = st.number_input("Nominal Voltage (V)", value=415.0, step=1.0)
     nom_f = st.number_input("Nominal Frequency (Hz)", value=50.0, step=0.5)
 
