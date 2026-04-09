@@ -51,28 +51,73 @@ st.markdown("""
     div[data-testid="stSidebar"] { background-color: #f8fafc; }
     div[data-testid="stSidebar"] h1 { font-size: 1.3rem; }
     .stMetric { background-color: #f0f9ff; padding: 12px; border-radius: 8px; border: 1px solid #e0e7ff; }
-    .pass-badge { color: #16a34a; font-weight: bold; font-size: 1.1em; }
-    .fail-badge { color: #dc2626; font-weight: bold; font-size: 1.1em; }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ============================================================
-# SIDEBAR - Configuration
+# Helper: scan a CSV to get its time range
+# ============================================================
+def _get_csv_time_range(uploaded_file):
+    """Read a CSV and return (start_time_str, end_time_str) or (None, None)."""
+    try:
+        pos = uploaded_file.tell()
+        uploaded_file.seek(0)
+        temp_df = load_and_prepare_csv(uploaded_file)
+        uploaded_file.seek(pos)
+        if not temp_df.empty:
+            return (
+                temp_df["Timestamp"].min().strftime("%H:%M:%S"),
+                temp_df["Timestamp"].max().strftime("%H:%M:%S"),
+            )
+    except Exception:
+        pass
+    return (None, None)
+
+
+# ============================================================
+# SIDEBAR - Everything: Upload, Config, Run
 # ============================================================
 with st.sidebar:
     st.title("\u2699\ufe0f Configuration")
 
-    # --- Report Info ---
+    # --- 1. CSV Upload (top of sidebar) ---
+    st.subheader("Data Files")
+    csv_files = st.file_uploader(
+        "Upload CSV files",
+        type=["csv"],
+        accept_multiple_files=True,
+        help="Upload one or more CSV files from your power quality recorder.",
+    )
+
+    # Build file selection dropdown
+    selected_csv = None
+    client_name = ""
+    auto_start = ""
+    auto_end = ""
+
+    if csv_files:
+        file_names = [f.name for f in csv_files]
+        selected_name = st.selectbox("Select CSV to analyse", file_names)
+        selected_csv = next(f for f in csv_files if f.name == selected_name)
+        client_name = os.path.splitext(selected_csv.name)[0]
+
+        # Auto-detect time range for selected file
+        auto_start, auto_end = _get_csv_time_range(selected_csv)
+        selected_csv.seek(0)
+
+    st.divider()
+
+    # --- 2. Report Details ---
     st.subheader("Report Details")
-    report_title = st.text_input("Report Title", placeholder="Enter report/client name")
+    report_title = st.text_input("Report Title", value=client_name, placeholder="Enter report/client name")
     gen_sn = st.text_input("Generator Serial Number", placeholder="Enter Gen S/N")
     site_address = st.text_input("Site Address", placeholder="Enter site address")
     custom_text = st.text_input("Custom Text Field", placeholder="Enter custom info")
 
     st.divider()
 
-    # --- Standards ---
+    # --- 3. Acceptance Criteria ---
     st.subheader("Acceptance Criteria")
     apply_iso = st.checkbox("Apply ISO 8528 Presets", value=False)
 
@@ -85,7 +130,6 @@ with st.sidebar:
         f_rec = 3.0
         f_max_dev = 7.0
         st.info("ISO 8528 presets applied")
-        # Show values as read-only
         col1, col2 = st.columns(2)
         with col1:
             st.metric("Load Threshold", f"{load_thresh} kW")
@@ -110,7 +154,7 @@ with st.sidebar:
 
     st.divider()
 
-    # --- Display Options ---
+    # --- 4. Display Options ---
     st.subheader("Display Options")
     show_limits = st.checkbox("Show Limits on Graphs", value=False)
     nom_v = st.number_input("Nominal Voltage (V)", value=415.0, step=1.0)
@@ -118,57 +162,39 @@ with st.sidebar:
 
     st.divider()
 
-    # --- Time Filtering ---
+    # --- 5. Time Filter (auto-populated from selected CSV) ---
     st.subheader("Time Filter")
-    start_time = st.text_input("Start Time", placeholder="HH:MM:SS")
-    end_time = st.text_input("End Time", placeholder="HH:MM:SS")
+    start_time = st.text_input("Start Time", value=auto_start or "", placeholder="HH:MM:SS")
+    end_time = st.text_input("End Time", value=auto_end or "", placeholder="HH:MM:SS")
+
+    st.divider()
+
+    # --- 6. Run Analysis Button (bottom of sidebar) ---
+    run_clicked = False
+    if selected_csv is not None:
+        run_clicked = st.button("\u26a1 Run Analysis", type="primary", use_container_width=True)
+    else:
+        st.info("Upload CSV files above to begin.")
 
 
 # ============================================================
 # MAIN AREA
 # ============================================================
 st.title("\u26a1 Power Quality Analysis")
-st.caption("Upload your CSV data, configure the acceptance criteria, and run the analysis.")
 
-# --- Step 1: Upload CSV ---
-st.header("1. Upload Data")
-csv_file = st.file_uploader(
-    "Upload CSV file from power quality recorder",
-    type=["csv"],
-    help="Supported formats: CSV files with columns like U1_rms_AVG, Freq_AVG, P_sum_AVG, etc.",
-)
-
-if csv_file is not None:
-    client_name = os.path.splitext(csv_file.name)[0]
-    if not report_title:
-        report_title = client_name
-
+if selected_csv is not None:
     # Preview
     with st.expander("Preview uploaded data", expanded=False):
-        preview_df = pd.read_csv(csv_file, sep=None, engine="python", nrows=10)
+        selected_csv.seek(0)
+        preview_df = pd.read_csv(selected_csv, sep=None, engine="python", nrows=10)
         st.dataframe(preview_df, use_container_width=True)
-        csv_file.seek(0)  # Reset for actual processing
+        selected_csv.seek(0)
 
-    # Auto-detect time range
-    if not start_time or not end_time:
-        try:
-            temp_df = load_and_prepare_csv(csv_file)
-            csv_file.seek(0)
-            if not temp_df.empty:
-                detected_start = temp_df["Timestamp"].min().strftime("%H:%M:%S")
-                detected_end = temp_df["Timestamp"].max().strftime("%H:%M:%S")
-                st.info(f"Detected time range: **{detected_start}** to **{detected_end}**")
-                if not start_time:
-                    start_time = detected_start
-                if not end_time:
-                    end_time = detected_end
-        except Exception:
-            pass
+    if auto_start and auto_end:
+        st.caption(f"Detected time range: **{auto_start}** to **{auto_end}**")
 
-    # --- Step 2: Run Analysis ---
-    st.header("2. Run Analysis")
-
-    if st.button("Run Analysis", type="primary", use_container_width=True):
+    # --- Run Analysis ---
+    if run_clicked:
         init_output_dirs()
 
         config = AnalysisConfig(
@@ -184,8 +210,9 @@ if csv_file is not None:
         )
 
         with st.spinner("Loading and processing data..."):
-            df_raw = load_and_prepare_csv(csv_file, start_time=start_time, end_time=end_time)
-            csv_file.seek(0)
+            selected_csv.seek(0)
+            df_raw = load_and_prepare_csv(selected_csv, start_time=start_time, end_time=end_time)
+            selected_csv.seek(0)
 
             if df_raw.empty:
                 st.error("No data found after loading/filtering. Check your CSV and time range.")
@@ -249,6 +276,9 @@ if csv_file is not None:
         st.success(f"Analysis complete. {len(df_events)} events detected, "
                    f"{len(graph_paths)} plots and {len(snapshot_paths)} snapshots generated.")
 
+else:
+    st.info("Upload CSV files in the sidebar to get started.")
+
 
 # ============================================================
 # RESULTS DISPLAY (persists after button click via session_state)
@@ -258,14 +288,13 @@ if st.session_state.get("analysis_done"):
     graph_paths = st.session_state.get("graph_paths", {})
     snapshot_paths = st.session_state.get("snapshot_paths", [])
     table_path = st.session_state.get("table_path")
-    client_name = st.session_state["client_name"]
+    client_name_display = st.session_state["client_name"]
     config = st.session_state["config"]
 
     # --- Compliance Table ---
     if not df_events.empty:
-        st.header("3. Compliance Results")
+        st.header("Compliance Results")
 
-        # Interactive table
         display_df = df_events[
             [c for c in ["Timestamp", "dKw", "V_dev", "F_dev", "V_rec_s", "F_rec_s",
                          "Compliance_Status", "Failure_Reasons"] if c in df_events.columns]
@@ -304,13 +333,12 @@ if st.session_state.get("analysis_done"):
         styled = display_df.style.map(color_status, subset=["Status"] if "Status" in display_df.columns else [])
         st.dataframe(styled, use_container_width=True, hide_index=True)
 
-        # Show table image
         if table_path and os.path.exists(table_path):
             with st.expander("View Compliance Table Image"):
                 st.image(table_path, use_container_width=True)
 
     # --- Time-Series Plots ---
-    st.header("4. Time-Series Plots")
+    st.header("Time-Series Plots")
     if graph_paths:
         tabs = st.tabs([name.replace("Avg_", "").replace("_", " ") for name in graph_paths.keys()])
         for tab, (name, path) in zip(tabs, graph_paths.items()):
@@ -320,7 +348,7 @@ if st.session_state.get("analysis_done"):
         st.info("No plots generated.")
 
     # --- Event Snapshots ---
-    st.header("5. Event Snapshots")
+    st.header("Event Snapshots")
     if snapshot_paths:
         for i, path in enumerate(snapshot_paths, 1):
             with st.expander(f"Event {i}", expanded=(i == 1)):
@@ -329,7 +357,7 @@ if st.session_state.get("analysis_done"):
         st.info("No event snapshots generated.")
 
     # --- Report Generation ---
-    st.header("6. Generate Report")
+    st.header("Generate Report")
 
     rcol1, rcol2 = st.columns(2)
     with rcol1:
@@ -341,7 +369,6 @@ if st.session_state.get("analysis_done"):
     with rcol2:
         report_filename = st.text_input("Report Filename", value=report_title or "PQA_Report")
 
-        # Show available tags
         with st.expander("Available Placeholders"):
             st.markdown("""
 **Graph placeholders:** `{{Avg_Voltage_LL}}`, `{{Avg_kW}}`, `{{Avg_Current}}`, `{{Avg_Frequency}}`, `{{Avg_THD_F}}`, `{{Avg_PF}}`
@@ -356,13 +383,11 @@ if st.session_state.get("analysis_done"):
     if template_file is not None:
         if st.button("Generate PQA Report", type="primary"):
             with st.spinner("Generating report..."):
-                # Save template temporarily
                 os.makedirs(TEMPLATE_DIR, exist_ok=True)
                 template_path = os.path.join(TEMPLATE_DIR, template_file.name)
                 with open(template_path, "wb") as f:
                     f.write(template_file.read())
 
-                # Build placeholder map
                 config_values = {
                     "report_title": report_title,
                     "gen_sn": gen_sn,
@@ -371,15 +396,13 @@ if st.session_state.get("analysis_done"):
                 }
                 df_raw = st.session_state.get("df_raw")
                 p_map = get_placeholder_map(
-                    client_name, config_values, df=df_raw,
+                    client_name_display, config_values, df=df_raw,
                     graph_dir=GRAPH_DIR, snapshot_dir=SNAPSHOT_DIR, image_dir=IMAGE_DIR,
                 )
 
-                # Generate report
                 output_base = os.path.join(OUTPUT_BASE, report_filename)
                 result = generate_report(template_path, p_map, output_name=output_base)
 
-                # Offer downloads
                 st.success("Report generated successfully!")
 
                 dcol1, dcol2 = st.columns(2)
@@ -423,8 +446,3 @@ if st.session_state.get("analysis_done"):
             mime="application/zip",
             use_container_width=True,
         )
-
-else:
-    # No analysis run yet - show instructions
-    if csv_file is None:
-        st.info("Upload a CSV file to get started.")
