@@ -24,6 +24,9 @@ class AnalysisConfig:
     frequency_recovery_time_s: float = 3.0
     frequency_max_deviation_pct: float = 7.0
     detection_window_s: float = 5.0
+    # Seconds either side of each event used for snapshots AND peak-deviation lookup.
+    # Increase if the generator response is slow and the nadir falls outside the window.
+    snapshot_window_s: float = 10.0
     # How to interpret voltage columns from the CSV:
     #   "auto"     — detect by column names (U1/U2/U3 = L-N, U12/U23/U31 = L-L)
     #   "force_ll" — treat whatever columns are found as L-L (no scaling)
@@ -233,11 +236,15 @@ def calculate_exit_time(df_interp, event_timestamp, metric_column,
     return None
 
 
-def _peak_deviation(df, event_ts, column, nominal, window_s=30):
+def _measured_extreme(df, event_ts, column, dkw, window_s=5):
     """
-    Return the signed peak deviation (largest absolute excursion from nominal)
-    in the `window_s` seconds after event_ts.  Pass df_proc for measured-only
-    values, or df_interp for sub-second interpolated values.
+    Return the actual measured extreme value of `column` in the `window_s`
+    seconds after event_ts, chosen by load direction:
+      - Load increase (dKw > 0): frequency/voltage drops → return min value
+      - Load decrease (dKw <= 0): frequency/voltage rises → return max value
+
+    Returns the raw measured value (e.g. Volts or Hz), not a deviation.
+    Pass df_proc for measured-only values.
     """
     end_ts = event_ts + pd.Timedelta(seconds=window_s)
     subset = df[
@@ -249,9 +256,7 @@ def _peak_deviation(df, event_ts, column, nominal, window_s=30):
     vals = pd.to_numeric(subset[column], errors="coerce").dropna()
     if vals.empty:
         return np.nan
-    deviations = vals - nominal
-    peak_idx = deviations.abs().idxmax()
-    return deviations[peak_idx]
+    return vals.min() if dkw > 0 else vals.max()
 
 
 def check_compliance(row, config: AnalysisConfig):
@@ -267,9 +272,9 @@ def check_compliance(row, config: AnalysisConfig):
     nom_v = config.nominal_voltage
     nom_f = config.nominal_frequency
 
-    # Voltage checks
+    # Voltage checks — V_dev is the actual measured value (V), not a signed deviation
     if pd.notnull(row["V_dev"]):
-        v_dev_pct = (abs(row["V_dev"]) / nom_v) * 100
+        v_dev_pct = (abs(row["V_dev"] - nom_v) / nom_v) * 100
         if v_dev_pct > config.voltage_max_deviation_pct:
             status = "Fail"
             reasons.append(f"Voltage Dev {v_dev_pct:.1f}% > {config.voltage_max_deviation_pct}%")
@@ -284,8 +289,8 @@ def check_compliance(row, config: AnalysisConfig):
                 status = "Fail"
                 reasons.append(f"V Recovery {row['V_rec_s']:.1f}s > {config.voltage_recovery_time_s}s")
 
-    # Frequency checks
-    f_dev_pct = (abs(row["F_dev"]) / nom_f) * 100
+    # Frequency checks — F_dev is the actual measured value (Hz), not a signed deviation
+    f_dev_pct = (abs(row["F_dev"] - nom_f) / nom_f) * 100
     if f_dev_pct > config.frequency_max_deviation_pct:
         status = "Fail"
         reasons.append(f"Freq Dev {f_dev_pct:.1f}% > {config.frequency_max_deviation_pct}%")
@@ -431,8 +436,10 @@ def perform_analysis(df, config: AnalysisConfig):
             events["V_exit_ts"] = events["Timestamp"].apply(
                 lambda x: calculate_exit_time(df_interp, x, "Avg_Voltage_LL", v_upper, v_lower)
             )
-            events["V_dev"] = events["Timestamp"].apply(
-                lambda x: _peak_deviation(df_proc, x, "Avg_Voltage_LL", nom_v)
+            events["V_dev"] = events.apply(
+                lambda row: _measured_extreme(df_proc, row["Timestamp"], "Avg_Voltage_LL",
+                                              row["dKw"], window_s=config.snapshot_window_s),
+                axis=1,
             )
             events["V_rec_s"] = events.apply(
                 lambda row: calculate_recovery_time(
@@ -471,8 +478,10 @@ def perform_analysis(df, config: AnalysisConfig):
                 ),
                 axis=1,
             )
-            events["F_dev"] = events["Timestamp"].apply(
-                lambda x: _peak_deviation(df_proc, x, "Avg_Frequency", nom_f)
+            events["F_dev"] = events.apply(
+                lambda row: _measured_extreme(df_proc, row["Timestamp"], "Avg_Frequency",
+                                              row["dKw"], window_s=config.snapshot_window_s),
+                axis=1,
             )
             events["F_rec_s"] = events.apply(
                 lambda row: calculate_recovery_time(

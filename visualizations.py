@@ -150,7 +150,7 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
                     # Amber vertical at load-change detection point
                     ax.axvline(ev["Timestamp"], color=_AMBER, **ev_line_kw)
                     v_dev = ev.get("V_dev", np.nan)
-                    band_val = upper if (pd.notnull(v_dev) and v_dev > 0) else lower
+                    band_val = upper if (pd.notnull(v_dev) and v_dev > nom_v) else lower
                     # Orange ★ at exact V exit crossing
                     v_exit = ev.get("V_exit_ts")
                     if pd.notnull(v_exit):
@@ -201,7 +201,7 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
 
                     f_dev = ev.get("F_dev", np.nan)
                     # Determine which boundary the signal crossed at exit/re-entry
-                    band_val = f_upper if (pd.notnull(f_dev) and f_dev > 0) else f_lower
+                    band_val = f_upper if (pd.notnull(f_dev) and f_dev > nom_f) else f_lower
 
                     ax.axvline(ev["Timestamp"], color=_AMBER, **ev_line_kw)
                     f_exit = ev.get("F_exit_ts")
@@ -262,7 +262,8 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
 def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_after,
                               client_name, output_dir="output/Snapshots",
                               show_limits=False, nom_v=415.0, nom_f=50.0, tol_v=1.0, tol_f=0.5,
-                              show_debug=False, event_row=None, rated_load_kw=None):
+                              show_debug=False, event_row=None, rated_load_kw=None,
+                              window_s=10):
     """
     Generate a +-5 second snapshot around a load event showing V, I, F, kW.
 
@@ -277,8 +278,8 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
     os.makedirs(output_dir, exist_ok=True)
 
     df_win = df_raw[
-        (df_raw["Timestamp"] >= event_ts - pd.Timedelta(seconds=5)) &
-        (df_raw["Timestamp"] <= event_ts + pd.Timedelta(seconds=5))
+        (df_raw["Timestamp"] >= event_ts - pd.Timedelta(seconds=window_s)) &
+        (df_raw["Timestamp"] <= event_ts + pd.Timedelta(seconds=window_s))
     ].copy()
 
     if df_win.empty:
@@ -420,7 +421,7 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
             axes[0].axhline(v_upper_band, color=_AMBER, lw=1.1, ls=":", alpha=0.7)
             axes[0].axhline(v_lower_band, color=_AMBER, lw=1.1, ls=":", alpha=0.7)
 
-        v_band_val = v_upper_band if (pd.notnull(v_dev) and v_dev > 0) else v_lower_band
+        v_band_val = v_upper_band if (pd.notnull(v_dev) and v_dev > nom_v) else v_lower_band
         axes[0].axvline(event_ts, color=_AMBER, **ev_kw)
 
         if pd.notnull(v_exit):
@@ -451,7 +452,7 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
             axes[2].axhline(f_upper, color=_AMBER, lw=1.1, ls=":", alpha=0.7)
             axes[2].axhline(f_lower, color=_AMBER, lw=1.1, ls=":", alpha=0.7)
 
-        f_band_val = f_upper if (pd.notnull(f_dev) and f_dev > 0) else f_lower
+        f_band_val = f_upper if (pd.notnull(f_dev) and f_dev > nom_f) else f_lower
         axes[2].axvline(event_ts, color=_AMBER, **ev_kw)
 
         if pd.notnull(f_exit):
@@ -498,7 +499,7 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
 
 def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Snapshots",
                            show_limits=False, nom_v=415.0, nom_f=50.0, tol_v=1.0, tol_f=0.5,
-                           show_debug=False, rated_load_kw=None):
+                           show_debug=False, rated_load_kw=None, window_s=10):
     """Generate snapshots for all detected events in parallel. Returns list of file paths."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -519,6 +520,7 @@ def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Sn
             show_debug=show_debug,
             event_row=row,
             rated_load_kw=rated_load_kw,
+            window_s=window_s,
         )
 
     rows = [row for _, row in df_events.iterrows()]
@@ -581,18 +583,18 @@ def save_compliance_table_as_image(df, filename, title_text, nom_v=415.0, nom_f=
             return kw_str
         plot_data["dKw"] = dkw_num.map(_fmt_dkw)
 
-    # Voltage Deviation — actual peak value + percentage on second line.
+    # Voltage Deviation — V_dev is the actual measured voltage (V)
     if "V_dev" in plot_data.columns:
         v_dev_raw = pd.to_numeric(df["V_dev"], errors="coerce")
         plot_data["V_dev"] = v_dev_raw.apply(
-            lambda x: f"{nom_v + x:.1f} V\n({x / nom_v * 100:+.2f}%)" if pd.notnull(x) else "—"
+            lambda x: f"{x:.1f} V\n({(x - nom_v) / nom_v * 100:+.2f}%)" if pd.notnull(x) else "—"
         )
 
-    # Frequency Deviation — actual peak value + percentage on second line.
+    # Frequency Deviation — F_dev is the actual measured frequency (Hz)
     if "F_dev" in plot_data.columns:
         f_dev_raw = pd.to_numeric(df["F_dev"], errors="coerce")
         plot_data["F_dev"] = f_dev_raw.apply(
-            lambda x: f"{nom_f + x:.3f} Hz\n({x / nom_f * 100:+.2f}%)" if pd.notnull(x) else "—"
+            lambda x: f"{x:.3f} Hz\n({(x - nom_f) / nom_f * 100:+.2f}%)" if pd.notnull(x) else "—"
         )
 
     if "V_rec_s" in plot_data.columns:

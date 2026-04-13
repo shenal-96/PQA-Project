@@ -44,16 +44,20 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Pin all paths to the script's directory so the app works regardless of
+# which directory Streamlit is launched from (important for remote access).
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # --- Output directories ---
-OUTPUT_BASE = "output"
+OUTPUT_BASE = os.path.join(_APP_DIR, "output")
 GRAPH_DIR = os.path.join(OUTPUT_BASE, "Graphs")
 SNAPSHOT_DIR = os.path.join(OUTPUT_BASE, "Snapshots")
 IMAGE_DIR = os.path.join(OUTPUT_BASE, "Images")
 TEMPLATE_DIR = os.path.join(OUTPUT_BASE, "Template")
 
 # --- Persistent upload directories ---
-UPLOADS_CSV_DIR = "uploads/csv"
-UPLOADS_TEMPLATE_DIR = "uploads/templates"
+UPLOADS_CSV_DIR = os.path.join(_APP_DIR, "uploads", "csv")
+UPLOADS_TEMPLATE_DIR = os.path.join(_APP_DIR, "uploads", "templates")
 os.makedirs(UPLOADS_CSV_DIR, exist_ok=True)
 os.makedirs(UPLOADS_TEMPLATE_DIR, exist_ok=True)
 
@@ -70,6 +74,7 @@ _DEV_DEFAULTS: dict = {
     "show_limits_snapshots": False,
     "show_debug": False,
     "detection_window": 5.0,
+    "snapshot_window": 10.0,
     "load_thresh": 50.0,
     "v_tol": 1.0,
     "v_rec": 4.0,
@@ -392,6 +397,7 @@ def _render_intersection_footer(overrides):
                 tol_f=cfg.frequency_tolerance_pct,
                 show_debug=st.session_state.get("show_debug", False),
                 rated_load_kw=st.session_state.get("rated_load_kw"),
+                window_s=cfg.snapshot_window_s,
             )
             st.session_state["snapshot_paths"] = new_snap_paths
         except Exception:
@@ -692,12 +698,24 @@ with st.sidebar:
         help="Files are saved locally — no need to re-upload each session.",
     )
     if new_csvs:
+        _saved, _failed = [], []
         for f in new_csvs:
             dest = os.path.join(UPLOADS_CSV_DIR, f.name)
-            f.seek(0)
-            with open(dest, "wb") as out:
-                out.write(f.read())
-        st.rerun()
+            try:
+                f.seek(0)
+                with open(dest, "wb") as out:
+                    out.write(f.read())
+                _saved.append(f.name)
+                log.info(f"CSV saved: {dest}")
+            except Exception as e:
+                _failed.append(f.name)
+                log.error(f"Failed to save CSV {f.name}: {e}")
+        if _saved:
+            st.toast(f"Saved: {', '.join(_saved)}", icon="✅")
+        if _failed:
+            st.error(f"Failed to save: {', '.join(_failed)} — check Debug Log")
+        # No st.rerun() — files are saved before saved_csvs is built below,
+        # so they appear in the dropdown immediately on this render pass.
 
     saved_csvs = sorted(glob.glob(os.path.join(UPLOADS_CSV_DIR, "*.csv")))
 
@@ -743,11 +761,18 @@ with st.sidebar:
         min_value=1.0, max_value=30.0, step=1.0,
         help="Time window used to group consecutive load step rows into a single event.",
     )
+    snapshot_window = st.number_input(
+        "Snapshot Window (s)",
+        value=float(_ds.get("snapshot_window", 10.0)),
+        min_value=3.0, max_value=60.0, step=1.0,
+        help="Seconds shown either side of each event in snapshots. Also sets the window used to find peak voltage/frequency deviation.",
+    )
     _ds["apply_iso"] = apply_iso
     _ds["show_limits"] = show_limits
     _ds["show_limits_snapshots"] = show_limits_snapshots
     _ds["show_debug"] = show_debug
     _ds["detection_window"] = detection_window
+    _ds["snapshot_window"] = snapshot_window
 
     if apply_iso:
         load_thresh = 50.0; v_tol = 1.0; v_rec = 4.0; v_max_dev = 15.0
@@ -950,10 +975,14 @@ with st.sidebar:
         if new_templates:
             for f in new_templates:
                 dest = os.path.join(UPLOADS_TEMPLATE_DIR, f.name)
-                f.seek(0)
-                with open(dest, "wb") as out:
-                    out.write(f.read())
-            st.rerun()
+                try:
+                    f.seek(0)
+                    with open(dest, "wb") as out:
+                        out.write(f.read())
+                    log.info(f"Template saved: {dest}")
+                except Exception as e:
+                    log.error(f"Failed to save template {f.name}: {e}")
+                    st.error(f"Failed to save {f.name} — check Debug Log")
 
         saved_templates = sorted(glob.glob(os.path.join(UPLOADS_TEMPLATE_DIR, "*.docx")))
 
@@ -1136,6 +1165,7 @@ if selected_csv_path is not None:
             freq_recovery_upper_decrease=f_rec_upper_dec,
             freq_recovery_lower_decrease=f_rec_lower_dec,
             detection_window_s=detection_window,
+            snapshot_window_s=snapshot_window,
             ln_to_ll_mode=ln_to_ll_mode,
         )
 
@@ -1228,6 +1258,7 @@ if selected_csv_path is not None:
                         nom_v=nom_v, nom_f=nom_f, tol_v=v_tol, tol_f=f_tol,
                         show_debug=show_debug,
                         rated_load_kw=rated_load_kw,
+                        window_s=snapshot_window,
                     )
                 log.info(f"{len(snapshot_paths)} snapshots generated")
             except Exception:
@@ -1288,11 +1319,11 @@ if st.session_state.get("analysis_done"):
                 return line1
             disp["Load Change"] = dkw.map(_fmt_dkw)
 
-        # Voltage Deviation
+        # Voltage Deviation — V_dev is the actual measured voltage (V)
         if "V_dev" in src.columns:
             v_dev = pd.to_numeric(src["V_dev"], errors="coerce")
             disp["Voltage Deviation"] = v_dev.map(
-                lambda x: f"{nom_v + x:.1f} V<br><small>({x / nom_v * 100:+.2f}%)</small>"
+                lambda x: f"{x:.1f} V<br><small>({(x - nom_v) / nom_v * 100:+.2f}%)</small>"
                 if pd.notnull(x) else "—"
             )
 
@@ -1302,11 +1333,11 @@ if st.session_state.get("analysis_done"):
                 lambda x: f"{x:.2f} s" if pd.notnull(x) else "—"
             )
 
-        # Frequency Deviation
+        # Frequency Deviation — F_dev is the actual measured frequency (Hz)
         if "F_dev" in src.columns:
             f_dev = pd.to_numeric(src["F_dev"], errors="coerce")
             disp["Frequency Deviation"] = f_dev.map(
-                lambda x: f"{nom_f + x:.3f} Hz<br><small>({x / nom_f * 100:+.2f}%)</small>"
+                lambda x: f"{x:.3f} Hz<br><small>({(x - nom_f) / nom_f * 100:+.2f}%)</small>"
                 if pd.notnull(x) else "—"
             )
 
