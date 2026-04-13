@@ -587,14 +587,14 @@ def save_compliance_table_as_image(df, filename, title_text, nom_v=415.0, nom_f=
     if "V_dev" in plot_data.columns:
         v_dev_raw = pd.to_numeric(df["V_dev"], errors="coerce")
         plot_data["V_dev"] = v_dev_raw.apply(
-            lambda x: f"{x:.1f} V" if pd.notnull(x) else "—"
+            lambda x: f"{x:.1f} V\n({(x - nom_v) / nom_v * 100:+.2f}%)" if pd.notnull(x) else "—"
         )
 
     # Frequency Deviation — actual measured min/max frequency (Hz)
     if "F_dev" in plot_data.columns:
         f_dev_raw = pd.to_numeric(df["F_dev"], errors="coerce")
         plot_data["F_dev"] = f_dev_raw.apply(
-            lambda x: f"{x:.3f} Hz" if pd.notnull(x) else "—"
+            lambda x: f"{x:.3f} Hz\n({(x - nom_f) / nom_f * 100:+.2f}%)" if pd.notnull(x) else "—"
         )
 
     if "V_rec_s" in plot_data.columns:

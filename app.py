@@ -1323,7 +1323,8 @@ if st.session_state.get("analysis_done"):
         if "V_dev" in src.columns:
             v_dev = pd.to_numeric(src["V_dev"], errors="coerce")
             disp["Voltage Deviation"] = v_dev.map(
-                lambda x: f"{x:.1f} V" if pd.notnull(x) else "—"
+                lambda x: f"{x:.1f} V<br><small>({(x - nom_v) / nom_v * 100:+.2f}%)</small>"
+                if pd.notnull(x) else "—"
             )
 
         # Voltage Recovery
@@ -1336,7 +1337,8 @@ if st.session_state.get("analysis_done"):
         if "F_dev" in src.columns:
             f_dev = pd.to_numeric(src["F_dev"], errors="coerce")
             disp["Frequency Deviation"] = f_dev.map(
-                lambda x: f"{x:.3f} Hz" if pd.notnull(x) else "—"
+                lambda x: f"{x:.3f} Hz<br><small>({(x - nom_f) / nom_f * 100:+.2f}%)</small>"
+                if pd.notnull(x) else "—"
             )
 
         # Frequency Recovery
