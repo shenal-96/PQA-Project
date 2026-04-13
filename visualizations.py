@@ -417,9 +417,12 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         if pd.isnull(f_lower): f_lower = nom_f * (1 - tol_f / 100)
 
         # ── Voltage panel ────────────────────────────────────────────────
-        if not show_limits:
-            axes[0].axhline(v_upper_band, color=_AMBER, lw=1.1, ls=":", alpha=0.7)
-            axes[0].axhline(v_lower_band, color=_AMBER, lw=1.1, ls=":", alpha=0.7)
+        # Always draw the actual compliance limits when debug is on (amber dashed).
+        lkw_dbg = dict(lw=1.2, ls="--", alpha=0.85, zorder=4)
+        axes[0].axhline(v_upper_band, color=_AMBER,
+                        label=f"V limit +{tol_v}% ({v_upper_band:.1f} V)", **lkw_dbg)
+        axes[0].axhline(v_lower_band, color=_AMBER,
+                        label=f"V limit -{tol_v}% ({v_lower_band:.1f} V)", **lkw_dbg)
 
         v_band_val = v_upper_band if (pd.notnull(v_dev) and v_dev > nom_v) else v_lower_band
         axes[0].axvline(event_ts, color=_AMBER, **ev_kw)
@@ -440,7 +443,8 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                                  fontsize=7, color=_LIME, fontweight="700")
 
         v_legend = [
-            Line2D([0], [0], color=_AMBER,  ls=":",    lw=1.1,      label="band"),
+            Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.2,      label=f"+{tol_v}% ({v_upper_band:.1f} V)"),
+            Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.2,      label=f"-{tol_v}% ({v_lower_band:.1f} V)"),
             Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=8, label="exit"),
             Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=8, label="recovery"),
         ]
@@ -448,9 +452,12 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                        loc="upper right", edgecolor=_GRID, facecolor=_BG)
 
         # ── Frequency panel ──────────────────────────────────────────────
-        if not show_limits:
-            axes[2].axhline(f_upper, color=_AMBER, lw=1.1, ls=":", alpha=0.7)
-            axes[2].axhline(f_lower, color=_AMBER, lw=1.1, ls=":", alpha=0.7)
+        # Draw the per-event asymmetric recovery band (amber dashed) — these are the
+        # actual limits used for compliance, direction-dependent per event.
+        axes[2].axhline(f_upper, color=_AMBER,
+                        label=f"F limit upper ({f_upper:.3f} Hz)", **lkw_dbg)
+        axes[2].axhline(f_lower, color=_AMBER,
+                        label=f"F limit lower ({f_lower:.3f} Hz)", **lkw_dbg)
 
         f_band_val = f_upper if (pd.notnull(f_dev) and f_dev > nom_f) else f_lower
         axes[2].axvline(event_ts, color=_AMBER, **ev_kw)
@@ -471,7 +478,8 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                                  fontsize=7, color=_LIME, fontweight="700")
 
         f_legend = [
-            Line2D([0], [0], color=_AMBER,  ls=":",    lw=1.1,      label="band"),
+            Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.2,      label=f"upper ({f_upper:.3f} Hz)"),
+            Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.2,      label=f"lower ({f_lower:.3f} Hz)"),
             Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=8, label="exit"),
             Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=8, label="recovery"),
         ]
