@@ -7,4 +7,5 @@ mammoth>=1.6.0
 weasyprint>=60.0
 docx2pdf>=0.1.8
 fpdf2>=2.7.0
+reportlab>=4.0.4
 Pillow>=10.0.0

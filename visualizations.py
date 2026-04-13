@@ -10,18 +10,56 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import matplotlib.ticker as mticker
+from matplotlib.patches import FancyArrowPatch
 import pandas as pd
 import numpy as np
 
 
+# ── Design tokens (match app CSS) ────────────────────────────────────────────
+_NAVY       = "#0f172a"
+_SLATE      = "#1e293b"
+_BLUE       = "#2563eb"
+_BLUE_LIGHT = "#93c5fd"
+_GREEN      = "#16a34a"
+_RED        = "#dc2626"
+_ORANGE     = "#ea580c"
+_CYAN       = "#0891b2"
+_PURPLE     = "#9333ea"
+_AMBER      = "#f59e0b"   # debug: event detection markers
+_LIME       = "#10b981"   # debug: recovery crossing markers
+_GRID       = "#e2e8f0"
+_TEXT_MAIN  = "#0f172a"
+_TEXT_SUB   = "#64748b"
+_BG         = "#ffffff"
+
+def _style_ax(ax, ylabel, color):
+    """Apply consistent axis styling."""
+    ax.set_facecolor(_BG)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_color(_GRID)
+    ax.spines["bottom"].set_color(_GRID)
+    ax.tick_params(colors=_TEXT_SUB, labelsize=9)
+    ax.set_ylabel(ylabel, fontsize=10, color=_TEXT_SUB, labelpad=8)
+    ax.yaxis.set_label_position("left")
+    ax.grid(True, color=_GRID, linewidth=0.8, linestyle="-", alpha=0.8)
+    ax.grid(True, which="minor", color=_GRID, linewidth=0.4, alpha=0.4)
+    ax.set_axisbelow(True)
+
+
 def generate_plots(df_proc, client_name, output_dir="output/Graphs",
                    show_limits=False, nom_v=415.0, nom_f=50.0,
-                   tol_v=1.0, tol_f=0.5, metric_keys=None):
+                   tol_v=1.0, tol_f=0.5, metric_keys=None,
+                   show_debug=False, df_events=None, thresh_kw=50.0):
     """
     Generate time-series plots for available metrics.
 
     Parameters:
-        metric_keys: optional list of metric column names to generate (default: all)
+        metric_keys:  optional list of metric column names to generate (default: all)
+        show_debug:   overlay event-detection and recovery-crossing markers for debugging
+        df_events:    events DataFrame (required when show_debug=True)
+        thresh_kw:    load detection threshold in kW (shown on Avg_kW plot when debugging)
 
     Returns:
         dict: mapping metric name -> file path of saved plot
@@ -30,12 +68,12 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
     paths = {}
 
     metrics = {
-        "Avg_Voltage_LL": ("Voltage (V)", "#2563eb"),
-        "Avg_kW": ("Power (kW)", "#16a34a"),
-        "Avg_Current": ("Current (A)", "#dc2626"),
-        "Avg_Frequency": ("Frequency (Hz)", "#ea580c"),
-        "Avg_PF": ("Power Factor", "#0891b2"),
-        "Avg_THD_F": ("Total Harmonic Distortion (THD)", "#9333ea"),
+        "Avg_Voltage_LL": ("Line to Line Voltage trend", _BLUE),
+        "Avg_kW":          ("Active Power (kW)",  _GREEN),
+        "Avg_Current":     ("Current (A)",        _RED),
+        "Avg_Frequency":   ("Frequency (Hz)",     _ORANGE),
+        "Avg_PF":          ("Power Factor",       _CYAN),
+        "Avg_THD_F":       ("THD (%)",            _PURPLE),
     }
 
     if metric_keys is not None:
@@ -45,28 +83,176 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
         if col not in df_proc.columns or df_proc[col].dropna().empty:
             continue
 
-        fig, ax = plt.subplots(figsize=(12, 4))
-        ax.plot(df_proc["Timestamp"], df_proc[col], color=color, linewidth=0.8)
-        ax.set_title(f"{client_name} - {ylabel}", fontsize=13, fontweight="bold")
-        ax.set_ylabel(ylabel, fontsize=11)
-        ax.set_xlabel("")
-        ax.grid(True, alpha=0.3)
+        fig, ax = plt.subplots(figsize=(14, 4))
+        fig.patch.set_facecolor(_BG)
+
+        y = df_proc[col]
+        x = df_proc["Timestamp"]
+
+        # Area fill
+        ax.fill_between(x, y, y.min(), color=color, alpha=0.08)
+        # Main line
+        ax.plot(x, y, color=color, linewidth=1.5, solid_capstyle="round")
+
+        _style_ax(ax, ylabel, color)
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
-        fig.autofmt_xdate(rotation=30)
+        fig.autofmt_xdate(rotation=0, ha="center")
+        ax.tick_params(axis="x", labelsize=9, colors=_TEXT_SUB)
 
         if show_limits:
+            limit_kw = dict(linewidth=1.2, alpha=0.7, zorder=3)
             if col == "Avg_Voltage_LL":
-                ax.axhline(nom_v * (1 + tol_v / 100), color="red", ls="--", alpha=0.5, label="Upper Limit")
-                ax.axhline(nom_v * (1 - tol_v / 100), color="red", ls="--", alpha=0.5, label="Lower Limit")
-                ax.legend(fontsize="small")
+                upper = nom_v * (1 + tol_v / 100)
+                lower = nom_v * (1 - tol_v / 100)
+                ax.axhline(upper, color=_RED, ls="--", label=f"+{tol_v}% ({upper:.1f}V)", **limit_kw)
+                ax.axhline(lower, color=_RED, ls="--", label=f"-{tol_v}% ({lower:.1f}V)", **limit_kw)
+                ax.legend(fontsize=8, framealpha=0.9, loc="upper right")
             elif col == "Avg_Frequency":
-                ax.axhline(nom_f * (1 + tol_f / 100), color="red", ls="--", alpha=0.5, label="Upper Limit")
-                ax.axhline(nom_f * (1 - tol_f / 100), color="red", ls="--", alpha=0.5, label="Lower Limit")
-                ax.legend(fontsize="small")
+                upper = nom_f * (1 + tol_f / 100)
+                lower = nom_f * (1 - tol_f / 100)
+                ax.axhline(upper, color=_RED, ls="--", label=f"+{tol_f}% ({upper:.3f}Hz)", **limit_kw)
+                ax.axhline(lower, color=_RED, ls="--", label=f"-{tol_f}% ({lower:.3f}Hz)", **limit_kw)
+                ax.legend(fontsize=8, framealpha=0.9, loc="upper right")
 
-        plt.tight_layout()
-        fname = os.path.join(output_dir, f"{client_name}_{col}.jpeg")
-        fig.savefig(fname, dpi=150, bbox_inches="tight")
+        # ── Debug overlay ────────────────────────────────────────────────────
+        if show_debug and df_events is not None and not df_events.empty:
+            ev_line_kw  = dict(linewidth=1.0, linestyle=":", zorder=5, alpha=0.85)
+            cross_line_kw = dict(linewidth=1.0, linestyle=":", zorder=5, alpha=0.85)
+
+            if col == "Avg_kW":
+                # Dotted horizontal threshold band centred on each event's pre-event kW.
+                # Also mark each event with a vertical amber line and dKw annotation.
+                ax.axhline(thresh_kw, color=_AMBER, linewidth=1.0, linestyle=":",
+                           alpha=0.6, label=f"±{thresh_kw:.0f} kW threshold")
+                ax.axhline(-thresh_kw, color=_AMBER, linewidth=1.0, linestyle=":",
+                           alpha=0.6)
+                for _, ev in df_events.iterrows():
+                    ax.axvline(ev["Timestamp"], color=_AMBER, **ev_line_kw)
+                    ylim = ax.get_ylim()
+                    ax.text(
+                        ev["Timestamp"], ylim[1] * 0.92,
+                        f"  dKw={ev.get('dKw', 0):+.0f}kW",
+                        fontsize=7, color=_AMBER, va="top", rotation=90,
+                        fontweight="600",
+                    )
+                ax.legend(fontsize=7, framealpha=0.9, loc="upper right")
+
+            elif col == "Avg_Voltage_LL":
+                upper = nom_v * (1 + tol_v / 100)
+                lower = nom_v * (1 - tol_v / 100)
+                # Always draw the band limits in debug mode (dotted amber)
+                if not show_limits:
+                    ax.axhline(upper, color=_AMBER, linewidth=1.1, linestyle=":",
+                               alpha=0.7, label=f"+{tol_v}% ({upper:.1f}V)")
+                    ax.axhline(lower, color=_AMBER, linewidth=1.1, linestyle=":",
+                               alpha=0.7, label=f"-{tol_v}% ({lower:.1f}V)")
+                for _, ev in df_events.iterrows():
+                    # Amber vertical at load-change detection point
+                    ax.axvline(ev["Timestamp"], color=_AMBER, **ev_line_kw)
+                    v_dev = ev.get("V_dev", np.nan)
+                    band_val = upper if (pd.notnull(v_dev) and v_dev > 0) else lower
+                    # Orange ★ at exact V exit crossing
+                    v_exit = ev.get("V_exit_ts")
+                    if pd.notnull(v_exit):
+                        ax.axvline(v_exit, color=_ORANGE, **ev_line_kw)
+                        ax.scatter([v_exit], [band_val],
+                                   color=_ORANGE, marker="*", s=120, zorder=7,
+                                   label="V exit band")
+                        ax.annotate(
+                            "exit",
+                            xy=(v_exit, band_val),
+                            xytext=(4, -12), textcoords="offset points",
+                            fontsize=7, color=_ORANGE, fontweight="700",
+                        )
+                    # Lime ★ at exact V re-entry crossing
+                    v_rec = ev.get("V_rec_s")
+                    if pd.notnull(v_rec) and pd.notnull(v_exit):
+                        cross_ts = v_exit + pd.Timedelta(seconds=float(v_rec))
+                        ax.axvline(cross_ts, color=_LIME, **cross_line_kw)
+                        ax.scatter([cross_ts], [band_val],
+                                   color=_LIME, marker="*", s=120, zorder=7,
+                                   label=f"V recovery {v_rec:.2f}s")
+                        ax.annotate(
+                            f"{v_rec:.2f}s",
+                            xy=(cross_ts, band_val),
+                            xytext=(4, 6), textcoords="offset points",
+                            fontsize=7, color=_LIME, fontweight="700",
+                        )
+                ax.legend(fontsize=7, framealpha=0.9, loc="upper right")
+
+            elif col == "Avg_Frequency":
+                # In debug mode draw the per-event asymmetric recovery bands.
+                # Each event may have a different upper/lower depending on load direction,
+                # so draw individual band lines per event rather than a single global pair.
+                for _, ev in df_events.iterrows():
+                    f_upper = ev.get("F_rec_upper", nom_f * (1 + tol_f / 100))
+                    f_lower = ev.get("F_rec_lower", nom_f * (1 - tol_f / 100))
+                    if pd.isnull(f_upper):
+                        f_upper = nom_f * (1 + tol_f / 100)
+                    if pd.isnull(f_lower):
+                        f_lower = nom_f * (1 - tol_f / 100)
+
+                    # Show band limits as amber dotted lines if not already via show_limits
+                    if not show_limits:
+                        ax.axhline(f_upper, color=_AMBER, linewidth=1.1, linestyle=":",
+                                   alpha=0.6)
+                        ax.axhline(f_lower, color=_AMBER, linewidth=1.1, linestyle=":",
+                                   alpha=0.6)
+
+                    f_dev = ev.get("F_dev", np.nan)
+                    # Determine which boundary the signal crossed at exit/re-entry
+                    band_val = f_upper if (pd.notnull(f_dev) and f_dev > 0) else f_lower
+
+                    ax.axvline(ev["Timestamp"], color=_AMBER, **ev_line_kw)
+                    f_exit = ev.get("F_exit_ts")
+                    if pd.notnull(f_exit):
+                        ax.axvline(f_exit, color=_ORANGE, **ev_line_kw)
+                        ax.scatter([f_exit], [band_val],
+                                   color=_ORANGE, marker="*", s=120, zorder=7)
+                        ax.annotate(
+                            "exit",
+                            xy=(f_exit, band_val),
+                            xytext=(4, -12), textcoords="offset points",
+                            fontsize=7, color=_ORANGE, fontweight="700",
+                        )
+                    f_rec = ev.get("F_rec_s")
+                    if pd.notnull(f_rec) and pd.notnull(f_exit):
+                        cross_ts = f_exit + pd.Timedelta(seconds=float(f_rec))
+                        ax.axvline(cross_ts, color=_LIME, **cross_line_kw)
+                        ax.scatter([cross_ts], [band_val],
+                                   color=_LIME, marker="*", s=120, zorder=7)
+                        ax.annotate(
+                            f"{f_rec:.2f}s",
+                            xy=(cross_ts, band_val),
+                            xytext=(4, 6), textcoords="offset points",
+                            fontsize=7, color=_LIME, fontweight="700",
+                        )
+
+                # Single legend entry showing which band applies to which direction
+                from matplotlib.lines import Line2D
+                legend_items = [
+                    Line2D([0], [0], color=_AMBER, ls=":", lw=1.1, label="recovery band"),
+                    Line2D([0], [0], color=_ORANGE, marker="*", ls="none",
+                           markersize=8, label="F exit band"),
+                    Line2D([0], [0], color=_LIME, marker="*", ls="none",
+                           markersize=8, label="F recovery"),
+                ]
+                ax.legend(handles=legend_items, fontsize=7, framealpha=0.9, loc="upper right")
+
+            else:
+                # All other metrics: just amber vertical lines at event timestamps
+                for _, ev in df_events.iterrows():
+                    ax.axvline(ev["Timestamp"], color=_AMBER, **ev_line_kw)
+
+        # Title block — main title sits above the client name subtitle
+        ax.set_title(ylabel, fontsize=13, fontweight="700",
+                     color=_TEXT_MAIN, pad=22, loc="left")
+        fig.text(0.01, 1.01, client_name, transform=ax.transAxes,
+                 fontsize=9, color=_TEXT_SUB, va="bottom")
+
+        plt.tight_layout(pad=1.2)
+        fname = os.path.join(output_dir, f"{client_name}_{col}.svg")
+        fig.savefig(fname, format="svg", bbox_inches="tight", facecolor=_BG)
         plt.close(fig)
         paths[col] = fname
 
@@ -74,9 +260,16 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
 
 
 def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_after,
-                              client_name, output_dir="output/Snapshots"):
+                              client_name, output_dir="output/Snapshots",
+                              show_limits=False, nom_v=415.0, nom_f=50.0, tol_v=1.0, tol_f=0.5,
+                              show_debug=False, event_row=None, rated_load_kw=None):
     """
     Generate a +-5 second snapshot around a load event showing V, I, F, kW.
+
+    Parameters:
+        show_debug:  overlay band-exit (orange ★) and recovery (lime ★) crossings.
+        event_row:   Series/dict with V_exit_ts, V_rec_s, F_exit_ts, F_rec_s,
+                     V_dev, F_dev, F_rec_upper, F_rec_lower (required when show_debug=True).
 
     Returns:
         str: file path of saved snapshot image
@@ -91,12 +284,47 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
     if df_win.empty:
         return None
 
-    fig, axes = plt.subplots(4, 1, figsize=(12, 13), sharex=True)
-    fig.suptitle(
-        f"Event: {event_ts.strftime('%H:%M:%S')} | "
-        f"Load: {load_before:.0f} \u2192 {load_after:.0f} kW ({load_change:+.0f} kW)",
-        fontsize=13, fontweight="bold"
+    # Derive actual before/after load from the data window for an accurate title.
+    if "P_sum_AVG" in df_win.columns:
+        kw_win = pd.to_numeric(df_win["P_sum_AVG"], errors="coerce") / 1000
+        pre_mask  = df_win["Timestamp"] < event_ts
+        post_mask = df_win["Timestamp"] > event_ts + pd.Timedelta(seconds=1)
+        pre_vals  = kw_win[pre_mask]
+        post_vals = kw_win[post_mask]
+        if not pre_vals.empty and not post_vals.empty:
+            load_before = pre_vals.mean()
+            load_after  = post_vals.mean()
+            load_change = load_after - load_before
+
+    fig, axes = plt.subplots(4, 1, figsize=(13, 14), sharex=True, dpi=150)
+    fig.patch.set_facecolor(_BG)
+
+    direction = "▲" if load_change > 0 else "▼"
+    _pct_str = (
+        f"  ({load_change / rated_load_kw * 100:+.1f}% rated)"
+        if rated_load_kw and rated_load_kw > 0 else ""
     )
+    title_str = (
+        f"Event: {event_ts.strftime('%H:%M:%S')}   |   "
+        f"Load: {load_before:.0f} → {load_after:.0f} kW   "
+        f"{direction} {abs(load_change):.0f} kW{_pct_str}"
+    )
+    fig.suptitle(title_str, fontsize=13, fontweight="700",
+                 color=_TEXT_MAIN, y=0.995, x=0.01, ha="left")
+
+    panel_cfg = [
+        ("Voltage (V)",   _BLUE),
+        ("Current (A)",   _RED),
+        ("Frequency (Hz)", _ORANGE),
+        ("Power (kW)",    _GREEN),
+    ]
+
+    def _draw_panel(ax, x, y, label, color, multi=False):
+        _style_ax(ax, label, color)
+        if multi:
+            return
+        ax.fill_between(x, y, y.min(), color=color, alpha=0.1)
+        ax.plot(x, y, color=color, linewidth=1.5, solid_capstyle="round")
 
     # 1. Voltage
     v_cols_ln = ["U1_rms_AVG", "U2_rms_AVG", "U3_rms_AVG"]
@@ -105,60 +333,180 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
     scale = np.sqrt(3) if v_to_plot else 1.0
     if not v_to_plot:
         v_to_plot = [c for c in v_cols_ll if c in df_win.columns]
-    colors_v = ["#2563eb", "#dc2626", "#16a34a"]
-    for i, c in enumerate(v_to_plot):
-        axes[0].plot(df_win["Timestamp"], pd.to_numeric(df_win[c], errors="coerce") * scale,
-                     label=c.split("_")[0], color=colors_v[i % 3], linewidth=0.8)
-    if v_to_plot:
-        axes[0].legend(loc="upper right", fontsize="small")
-    axes[0].set_ylabel("Voltage (V)")
-    axes[0].grid(True, alpha=0.3)
+    use_avg = not v_to_plot and "U_avg_AVG" in df_win.columns
+
+    _style_ax(axes[0], "Voltage (V LL)", _BLUE)
+    phase_colors = [_BLUE, _RED, _GREEN]
+    if use_avg:
+        y = pd.to_numeric(df_win["U_avg_AVG"], errors="coerce")
+        axes[0].fill_between(df_win["Timestamp"], y, y.min(), color=_BLUE, alpha=0.1)
+        axes[0].plot(df_win["Timestamp"], y, color=_BLUE, linewidth=1.5,
+                     solid_capstyle="round", label="V avg")
+        axes[0].legend(loc="upper right", fontsize=8, framealpha=0.9,
+                       edgecolor=_GRID, facecolor=_BG)
+    else:
+        for i, c in enumerate(v_to_plot):
+            y = pd.to_numeric(df_win[c], errors="coerce") * scale
+            axes[0].plot(df_win["Timestamp"], y,
+                         label=c.split("_")[0], color=phase_colors[i % 3],
+                         linewidth=1.5, solid_capstyle="round")
+        if v_to_plot:
+            axes[0].legend(loc="upper right", fontsize=8, framealpha=0.9,
+                           edgecolor=_GRID, facecolor=_BG)
+    if show_limits:
+        lkw = dict(linewidth=1.2, linestyle="--", alpha=0.75, zorder=4)
+        axes[0].axhline(nom_v * (1 + tol_v / 100), color=_RED, label=f"+{tol_v}%", **lkw)
+        axes[0].axhline(nom_v * (1 - tol_v / 100), color=_RED, label=f"-{tol_v}%", **lkw)
+        axes[0].legend(loc="upper right", fontsize=8, framealpha=0.9,
+                       edgecolor=_GRID, facecolor=_BG)
 
     # 2. Current
     i_cols = ["I1_rms_AVG", "I2_rms_AVG", "I3_rms_AVG"]
-    colors_i = ["#2563eb", "#dc2626", "#16a34a"]
+    _style_ax(axes[1], "Current (A)", _RED)
     for i, c in enumerate(i_cols):
         if c in df_win.columns:
-            axes[1].plot(df_win["Timestamp"], pd.to_numeric(df_win[c], errors="coerce"),
-                         label=c.split("_")[0], color=colors_i[i], linewidth=0.8)
+            axes[1].plot(df_win["Timestamp"],
+                         pd.to_numeric(df_win[c], errors="coerce"),
+                         label=c.split("_")[0], color=phase_colors[i],
+                         linewidth=1.5, solid_capstyle="round")
     if any(c in df_win.columns for c in i_cols):
-        axes[1].legend(loc="upper right", fontsize="small")
-    axes[1].set_ylabel("Current (A)")
-    axes[1].grid(True, alpha=0.3)
+        axes[1].legend(loc="upper right", fontsize=8, framealpha=0.9,
+                       edgecolor=_GRID, facecolor=_BG)
 
     # 3. Frequency
+    _style_ax(axes[2], "Frequency (Hz)", _ORANGE)
     if "Freq_AVG" in df_win.columns:
-        axes[2].plot(df_win["Timestamp"], pd.to_numeric(df_win["Freq_AVG"], errors="coerce"),
-                     color="#ea580c", linewidth=0.8, label="Frequency")
-        axes[2].legend(loc="upper right", fontsize="small")
-    axes[2].set_ylabel("Freq (Hz)")
-    axes[2].grid(True, alpha=0.3)
+        y = pd.to_numeric(df_win["Freq_AVG"], errors="coerce")
+        axes[2].fill_between(df_win["Timestamp"], y, y.min(), color=_ORANGE, alpha=0.1)
+        axes[2].plot(df_win["Timestamp"], y,
+                     color=_ORANGE, linewidth=1.5, solid_capstyle="round")
+    if show_limits:
+        lkw = dict(linewidth=1.2, linestyle="--", alpha=0.75, zorder=4)
+        axes[2].axhline(nom_f * (1 + tol_f / 100), color=_RED, label=f"+{tol_f}%", **lkw)
+        axes[2].axhline(nom_f * (1 - tol_f / 100), color=_RED, label=f"-{tol_f}%", **lkw)
+        axes[2].legend(loc="upper right", fontsize=8, framealpha=0.9,
+                       edgecolor=_GRID, facecolor=_BG)
 
     # 4. Power
+    _style_ax(axes[3], "Power (kW)", _GREEN)
     if "P_sum_AVG" in df_win.columns:
-        axes[3].plot(df_win["Timestamp"], pd.to_numeric(df_win["P_sum_AVG"], errors="coerce") / 1000,
-                     color="#16a34a", linewidth=0.8, label="Power")
-        axes[3].legend(loc="upper right", fontsize="small")
-    axes[3].set_ylabel("Power (kW)")
-    axes[3].grid(True, alpha=0.3)
+        y = pd.to_numeric(df_win["P_sum_AVG"], errors="coerce") / 1000
+        axes[3].fill_between(df_win["Timestamp"], y, y.min(), color=_GREEN, alpha=0.1)
+        axes[3].plot(df_win["Timestamp"], y,
+                     color=_GREEN, linewidth=1.5, solid_capstyle="round")
+
+    # ── Debug overlay (band-exit / recovery crossings) ───────────────────
+    if show_debug and event_row is not None:
+        from matplotlib.lines import Line2D
+        ev_kw    = dict(linewidth=1.0, linestyle=":", zorder=5, alpha=0.85)
+        cross_kw = dict(linewidth=1.0, linestyle=":", zorder=5, alpha=0.85)
+
+        v_upper_band = nom_v * (1 + tol_v / 100)
+        v_lower_band = nom_v * (1 - tol_v / 100)
+
+        v_dev   = event_row.get("V_dev",       np.nan)
+        v_exit  = event_row.get("V_exit_ts")
+        v_rec_s = event_row.get("V_rec_s")
+        f_dev   = event_row.get("F_dev",       np.nan)
+        f_exit  = event_row.get("F_exit_ts")
+        f_rec_s = event_row.get("F_rec_s")
+        f_upper = event_row.get("F_rec_upper", nom_f * (1 + tol_f / 100))
+        f_lower = event_row.get("F_rec_lower", nom_f * (1 - tol_f / 100))
+        if pd.isnull(f_upper): f_upper = nom_f * (1 + tol_f / 100)
+        if pd.isnull(f_lower): f_lower = nom_f * (1 - tol_f / 100)
+
+        # ── Voltage panel ────────────────────────────────────────────────
+        if not show_limits:
+            axes[0].axhline(v_upper_band, color=_AMBER, lw=1.1, ls=":", alpha=0.7)
+            axes[0].axhline(v_lower_band, color=_AMBER, lw=1.1, ls=":", alpha=0.7)
+
+        v_band_val = v_upper_band if (pd.notnull(v_dev) and v_dev > 0) else v_lower_band
+        axes[0].axvline(event_ts, color=_AMBER, **ev_kw)
+
+        if pd.notnull(v_exit):
+            vx = pd.Timestamp(v_exit)
+            axes[0].axvline(vx, color=_ORANGE, **cross_kw)
+            axes[0].scatter([vx], [v_band_val], color=_ORANGE, marker="*", s=140, zorder=7)
+            axes[0].annotate("exit", xy=(vx, v_band_val), xytext=(4, -14),
+                             textcoords="offset points",
+                             fontsize=7, color=_ORANGE, fontweight="700")
+            if pd.notnull(v_rec_s):
+                vr = vx + pd.Timedelta(seconds=float(v_rec_s))
+                axes[0].axvline(vr, color=_LIME, **cross_kw)
+                axes[0].scatter([vr], [v_band_val], color=_LIME, marker="*", s=140, zorder=7)
+                axes[0].annotate(f"{v_rec_s:.2f}s", xy=(vr, v_band_val), xytext=(4, 6),
+                                 textcoords="offset points",
+                                 fontsize=7, color=_LIME, fontweight="700")
+
+        v_legend = [
+            Line2D([0], [0], color=_AMBER,  ls=":",    lw=1.1,      label="band"),
+            Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=8, label="exit"),
+            Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=8, label="recovery"),
+        ]
+        axes[0].legend(handles=v_legend, fontsize=7, framealpha=0.9,
+                       loc="upper right", edgecolor=_GRID, facecolor=_BG)
+
+        # ── Frequency panel ──────────────────────────────────────────────
+        if not show_limits:
+            axes[2].axhline(f_upper, color=_AMBER, lw=1.1, ls=":", alpha=0.7)
+            axes[2].axhline(f_lower, color=_AMBER, lw=1.1, ls=":", alpha=0.7)
+
+        f_band_val = f_upper if (pd.notnull(f_dev) and f_dev > 0) else f_lower
+        axes[2].axvline(event_ts, color=_AMBER, **ev_kw)
+
+        if pd.notnull(f_exit):
+            fx = pd.Timestamp(f_exit)
+            axes[2].axvline(fx, color=_ORANGE, **cross_kw)
+            axes[2].scatter([fx], [f_band_val], color=_ORANGE, marker="*", s=140, zorder=7)
+            axes[2].annotate("exit", xy=(fx, f_band_val), xytext=(4, -14),
+                             textcoords="offset points",
+                             fontsize=7, color=_ORANGE, fontweight="700")
+            if pd.notnull(f_rec_s):
+                fr = fx + pd.Timedelta(seconds=float(f_rec_s))
+                axes[2].axvline(fr, color=_LIME, **cross_kw)
+                axes[2].scatter([fr], [f_band_val], color=_LIME, marker="*", s=140, zorder=7)
+                axes[2].annotate(f"{f_rec_s:.2f}s", xy=(fr, f_band_val), xytext=(4, 6),
+                                 textcoords="offset points",
+                                 fontsize=7, color=_LIME, fontweight="700")
+
+        f_legend = [
+            Line2D([0], [0], color=_AMBER,  ls=":",    lw=1.1,      label="band"),
+            Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=8, label="exit"),
+            Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=8, label="recovery"),
+        ]
+        axes[2].legend(handles=f_legend, fontsize=7, framealpha=0.9,
+                       loc="upper right", edgecolor=_GRID, facecolor=_BG)
 
     axes[3].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
-    fig.autofmt_xdate(rotation=30)
-    plt.tight_layout()
+    fig.autofmt_xdate(rotation=0, ha="center")
+    axes[3].tick_params(axis="x", labelsize=9, colors=_TEXT_SUB)
+
+    # Panel labels
+    labels = ["V", "I", "f", "P"]
+    for ax, lbl in zip(axes, labels):
+        ax.text(0.005, 0.92, lbl, transform=ax.transAxes,
+                fontsize=9, fontweight="600", color=_TEXT_SUB,
+                va="top", ha="left")
+
+    plt.tight_layout(rect=[0, 0, 1, 0.995], h_pad=0.4)
 
     fname = os.path.join(output_dir, f"snap_{client_name}_{event_ts.strftime('%Y%m%d_%H%M%S')}.jpeg")
-    fig.savefig(fname, dpi=150, bbox_inches="tight")
+    fig.savefig(fname, dpi=150, bbox_inches="tight", facecolor=_BG)
     plt.close(fig)
     return fname
 
 
-def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Snapshots"):
-    """Generate snapshots for all detected events. Returns list of file paths."""
-    paths = []
+def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Snapshots",
+                           show_limits=False, nom_v=415.0, nom_f=50.0, tol_v=1.0, tol_f=0.5,
+                           show_debug=False, rated_load_kw=None):
+    """Generate snapshots for all detected events in parallel. Returns list of file paths."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     if df_events.empty:
-        return paths
-    for _, row in df_events.iterrows():
-        path = plot_load_change_snapshot(
+        return []
+
+    def _render(row):
+        return plot_load_change_snapshot(
             df_raw,
             event_ts=row["Timestamp"],
             load_change=row["dKw"],
@@ -166,13 +514,27 @@ def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Sn
             load_after=row["Avg_kW"],
             client_name=client_name,
             output_dir=output_dir,
+            show_limits=show_limits,
+            nom_v=nom_v, nom_f=nom_f, tol_v=tol_v, tol_f=tol_f,
+            show_debug=show_debug,
+            event_row=row,
+            rated_load_kw=rated_load_kw,
         )
-        if path:
-            paths.append(path)
+
+    rows = [row for _, row in df_events.iterrows()]
+    paths = []
+    with ThreadPoolExecutor() as executor:
+        futures = {executor.submit(_render, row): row["Timestamp"] for row in rows}
+        for future in as_completed(futures):
+            path = future.result()
+            if path:
+                paths.append(path)
+    # Sort by filename so order matches event order
+    paths.sort()
     return paths
 
 
-def save_compliance_table_as_image(df, filename, title_text, nom_v=415.0, nom_f=50.0):
+def save_compliance_table_as_image(df, filename, title_text, nom_v=415.0, nom_f=50.0, rated_load_kw=None):
     """
     Render the compliance DataFrame as a styled JPEG table image.
 
@@ -184,14 +546,21 @@ def save_compliance_table_as_image(df, filename, title_text, nom_v=415.0, nom_f=
 
     os.makedirs(os.path.dirname(filename) or ".", exist_ok=True)
 
+    import textwrap
+
+    def _wrap(text, width):
+        s = str(text).strip()
+        if not s or s == "nan":
+            return "—"
+        return "\n".join(textwrap.wrap(s, width=width))
+
     display_cols = [
-        "Timestamp", "dKw", "V_dev", "F_dev", "V_rec_s", "F_rec_s",
+        "Timestamp", "dKw", "V_dev", "V_rec_s", "F_dev", "F_rec_s",
         "Compliance_Status", "Failure_Reasons",
     ]
     avail_cols = [c for c in display_cols if c in df.columns]
     plot_data = df[avail_cols].copy()
 
-    # Format timestamps
     def format_range(row):
         s = row["Timestamp"]
         e = row.get("End_Timestamp", s)
@@ -201,29 +570,71 @@ def save_compliance_table_as_image(df, filename, title_text, nom_v=415.0, nom_f=
 
     plot_data["Timestamp"] = df.apply(format_range, axis=1)
     if "dKw" in plot_data.columns:
-        plot_data["dKw"] = pd.to_numeric(plot_data["dKw"]).map("{:,.1f} kW".format)
+        dkw_num = pd.to_numeric(plot_data["dKw"], errors="coerce")
+        def _fmt_dkw(x):
+            if pd.isnull(x):
+                return "—"
+            kw_str = f"{x:+,.1f} kW"
+            if rated_load_kw and rated_load_kw > 0:
+                pct = x / rated_load_kw * 100
+                return f"{kw_str}\n({pct:+.1f}% rated)"
+            return kw_str
+        plot_data["dKw"] = dkw_num.map(_fmt_dkw)
+
+    # Voltage Deviation — actual peak value + percentage on second line.
     if "V_dev" in plot_data.columns:
-        plot_data["V_dev"] = (pd.to_numeric(plot_data["V_dev"]) / nom_v * 100).map("{:+.1f}%".format)
+        v_dev_raw = pd.to_numeric(df["V_dev"], errors="coerce")
+        plot_data["V_dev"] = v_dev_raw.apply(
+            lambda x: f"{nom_v + x:.1f} V\n({x / nom_v * 100:+.2f}%)" if pd.notnull(x) else "—"
+        )
+
+    # Frequency Deviation — actual peak value + percentage on second line.
     if "F_dev" in plot_data.columns:
-        plot_data["F_dev"] = (pd.to_numeric(plot_data["F_dev"]) / nom_f * 100).map("{:+.1f}%".format)
+        f_dev_raw = pd.to_numeric(df["F_dev"], errors="coerce")
+        plot_data["F_dev"] = f_dev_raw.apply(
+            lambda x: f"{nom_f + x:.3f} Hz\n({x / nom_f * 100:+.2f}%)" if pd.notnull(x) else "—"
+        )
+
     if "V_rec_s" in plot_data.columns:
-        plot_data["V_rec_s"] = pd.to_numeric(plot_data["V_rec_s"]).map("{:,.1f}s".format)
+        plot_data["V_rec_s"] = pd.to_numeric(plot_data["V_rec_s"]).map(
+            lambda x: f"{x:.2f} s" if pd.notnull(x) else "—")
     if "F_rec_s" in plot_data.columns:
-        plot_data["F_rec_s"] = pd.to_numeric(plot_data["F_rec_s"]).map("{:,.1f}s".format)
+        plot_data["F_rec_s"] = pd.to_numeric(plot_data["F_rec_s"]).map(
+            lambda x: f"{x:.2f} s" if pd.notnull(x) else "—")
+    if "Failure_Reasons" in plot_data.columns:
+        plot_data["Failure_Reasons"] = plot_data["Failure_Reasons"].apply(
+            lambda x: _wrap(x, width=38))
 
     rename_map = {
-        "Timestamp": "Event\nTime",
-        "dKw": "Load\nChange\n(kW)",
-        "V_dev": "Voltage\nDeviation\n(%)",
-        "F_dev": "Frequency\nDeviation\n(%)",
-        "V_rec_s": "Voltage\nRecovery\nTime (s)",
-        "F_rec_s": "Frequency\nRecovery\nTime (s)",
-        "Compliance_Status": "Status",
-        "Failure_Reasons": "Compliance\nNotes",
+        "Timestamp":          "Event Time",
+        "dKw":                "Load Change",
+        "V_dev":              "Voltage Deviation",
+        "F_dev":              "Frequency Deviation",
+        "V_rec_s":            "Voltage Recovery",
+        "F_rec_s":            "Frequency Recovery",
+        "Compliance_Status":  "Compliance Status",
+        "Failure_Reasons":    "Failure Reasons",
     }
     plot_data.columns = [rename_map.get(c, c) for c in plot_data.columns]
 
-    fig, ax = plt.subplots(figsize=(16, len(plot_data) * 0.8 + 2))
+    n_cols = len(plot_data.columns)
+
+    # Per-row line counts drive individual row heights.
+    base_row_h = 0.55
+    extra_per_line = 0.28
+    header_h_in = 0.48
+    row_line_counts = []
+    for _, row in plot_data.iterrows():
+        max_lines = max(str(v).count("\n") + 1 for v in row)
+        row_line_counts.append(max_lines)
+
+    total_data_h = sum(base_row_h + extra_per_line * (lc - 1) for lc in row_line_counts)
+    fig_h = max(3.5, total_data_h + header_h_in + 0.8)
+    fig_w = 22
+
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    fig.patch.set_facecolor(_BG)
+    ax.set_facecolor(_BG)
     ax.axis("off")
 
     tbl = ax.table(
@@ -233,30 +644,74 @@ def save_compliance_table_as_image(df, filename, title_text, nom_v=415.0, nom_f=
         cellLoc="center",
     )
     tbl.auto_set_font_size(False)
-    tbl.set_fontsize(10)
-    tbl.scale(1, 3.5)
 
-    # Find status column index
-    status_col_idx = -1
-    for i, col_name in enumerate(plot_data.columns):
-        if "Status" in col_name:
-            status_col_idx = i
-            break
+    # Per-row heights in figure-fraction units.
+    for col_idx in range(n_cols):
+        tbl[0, col_idx].set_height(header_h_in / fig_h)
+    for row_idx, lc in enumerate(row_line_counts, start=1):
+        rh = (base_row_h + extra_per_line * (lc - 1)) / fig_h
+        for col_idx in range(n_cols):
+            tbl[row_idx, col_idx].set_height(rh)
 
-    for k, cell in tbl.get_celld().items():
-        if k[0] == 0:
-            cell.set_text_props(weight="bold", color="white")
-            cell.set_facecolor("#003366")
-        elif k[0] % 2 == 0:
-            cell.set_facecolor("#f2f2f2")
-        if k[1] == status_col_idx and k[0] > 0:
-            cell_val = plot_data.iloc[k[0] - 1, status_col_idx]
-            cell.set_text_props(
-                color="green" if "Pass" in str(cell_val) else "red",
-                weight="bold",
-            )
+    # Column index lookups for conditional styling.
+    cols = list(plot_data.columns)
+    status_idx  = next((i for i, c in enumerate(cols) if c == "Compliance Status"), -1)
+    notes_idx   = next((i for i, c in enumerate(cols) if c == "Failure Reasons"),   -1)
+    numeric_idx = {i for i, c in enumerate(cols)
+                   if c in ("Load Change", "Voltage Deviation", "Frequency Deviation",
+                             "Voltage Recovery", "Frequency Recovery")}
 
-    plt.title(title_text, fontsize=15, weight="bold", pad=30)
-    plt.savefig(filename, dpi=150, bbox_inches="tight")
+    # Palette
+    _HDR_BG   = _NAVY
+    _HDR_FG   = "#ffffff"
+    _ROW_ODD  = "#ffffff"
+    _ROW_EVEN = "#f0f4f8"
+    _ACCENT   = "#2563eb"
+    _PASS_BG  = "#dcfce7"
+    _FAIL_BG  = "#fee2e2"
+    _BORDER   = "#cbd5e1"
+
+    for (row, col), cell in tbl.get_celld().items():
+        cell.set_linewidth(0)          # remove default borders; we'll draw selectively
+        cell.PAD = 0.10
+
+        if row == 0:
+            # Header
+            cell.set_facecolor(_HDR_BG)
+            cell.set_text_props(color=_HDR_FG, weight="bold", fontsize=12)
+            cell.set_edgecolor(_ACCENT)
+            cell.set_linewidth(1.5)
+        else:
+            is_even = (row % 2 == 0)
+            cell.set_facecolor(_ROW_EVEN if is_even else _ROW_ODD)
+            cell.set_edgecolor(_BORDER)
+            cell.set_linewidth(0.4)
+            cell.set_text_props(fontsize=12, color=_TEXT_MAIN)
+
+            # Numeric / data columns: slightly muted colour
+            if col in numeric_idx:
+                cell.set_text_props(fontsize=12, color=_TEXT_SUB)
+
+            # Compliance Status — coloured badge background
+            if col == status_idx:
+                val = str(plot_data.iloc[row - 1, status_idx])
+                is_pass = "Pass" in val
+                cell.set_facecolor(_PASS_BG if is_pass else _FAIL_BG)
+                cell.set_text_props(
+                    fontsize=13, weight="bold",
+                    color=_GREEN if is_pass else _RED,
+                )
+
+            # Failure Reasons — left-aligned for readability
+            if col == notes_idx:
+                cell.set_text_props(fontsize=11, color="#64748b", ha="left")
+
+    # Title block
+    fig.text(0.5, 0.995, "ISO 8528 Compliance Report", ha="center", va="top",
+             fontsize=15, fontweight="800", color=_TEXT_MAIN)
+
+    plt.tight_layout(rect=[0.005, 0.005, 0.995, 0.955])
+    svg_path = os.path.splitext(filename)[0] + ".svg"
+    plt.savefig(svg_path, format="svg", bbox_inches="tight", facecolor=_BG)
     plt.close(fig)
-    return filename
+    return svg_path

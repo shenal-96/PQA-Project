@@ -159,6 +159,7 @@ for converter in [try_libreoffice, try_weasyprint, try_fpdf2]:
     try:
         converter()
         if os.path.exists(pdf_path):
+            print(f'PDF conversion succeeded via {converter.__name__}')
             sys.exit(0)
     except Exception as e:
         print(f'{converter.__name__} failed: {e}', file=sys.stderr)
@@ -177,23 +178,34 @@ except Exception as e:
 def convert_to_pdf(docx_path, pdf_path, timeout=45):
     """
     Run PDF conversion in a subprocess with a timeout.
-    Returns True if a PDF was produced within the time limit.
+    Returns (success: bool, log: str) — log contains converter diagnostics
+    whether conversion succeeded or failed.
     """
     import sys
     import subprocess
 
     try:
-        subprocess.run(
+        result = subprocess.run(
             [sys.executable, "-c", _PDF_SCRIPT,
              os.path.abspath(docx_path), os.path.abspath(pdf_path)],
             timeout=timeout,
             capture_output=True,
+            text=True,
         )
-        return os.path.exists(pdf_path)
+        success = os.path.exists(pdf_path)
+        log_lines = []
+        if result.stdout.strip():
+            log_lines.append(result.stdout.strip())
+        if result.stderr.strip():
+            log_lines.append(result.stderr.strip())
+        if not log_lines:
+            log_lines.append("(no output from converter)")
+        log = "\n".join(log_lines)
+        return success, log
     except subprocess.TimeoutExpired:
-        return False
-    except Exception:
-        return False
+        return False, f"Timed out after {timeout}s — converter hung."
+    except Exception as e:
+        return False, f"Subprocess error: {e}"
 
 
 def get_placeholder_map(client_name, config_values, df=None,
@@ -212,7 +224,7 @@ def get_placeholder_map(client_name, config_values, df=None,
     placeholder_map = {}
 
     # Compliance table
-    table_path = os.path.join(image_dir, f"{client_name}_table.jpg")
+    table_path = os.path.join(image_dir, f"{client_name}_table.png")
     if os.path.exists(table_path):
         placeholder_map["{{Compliance_Table}}"] = table_path
 
