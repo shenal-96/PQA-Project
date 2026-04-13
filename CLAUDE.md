@@ -10,6 +10,11 @@ recovery times, and generates Word/PDF compliance reports (ISO 8528).
 streamlit run app.py --server.port 8502
 ```
 
+For remote access from another device:
+```bash
+streamlit run app.py --server.port 8502 --server.address 0.0.0.0
+```
+
 Logs to `/tmp/pqa_debug.log` (also printed to terminal).
 
 ## File Map
@@ -22,6 +27,7 @@ Logs to `/tmp/pqa_debug.log` (also printed to terminal).
 | `report.py` | Word template injection + PDF conversion via LibreOffice |
 | `html_report.py` | HTML template injection + PDF conversion (alternative pipeline) |
 | `uploads/` | Persisted CSV and Word template uploads (survive reruns) |
+| `uploads/dev_settings.json` | Dev mode persisted sidebar settings (survive restarts) |
 | `output/` | Ephemeral per-run artefacts (Graphs/, Snapshots/, Images/, Template/) |
 
 ## Architecture
@@ -32,17 +38,37 @@ Logs to `/tmp/pqa_debug.log` (also printed to terminal).
 - `app.py` calls `_recompute_df_interp(df_proc)` when it needs the interpolated
   frame outside of `perform_analysis` (e.g. after override recalculation).
   This function must stay in sync with the interpolation logic in `perform_analysis`.
+- All paths are pinned to the script directory via
+  `_APP_DIR = os.path.dirname(os.path.abspath(__file__))` in `app.py`.
+  This ensures uploads and output dirs resolve correctly regardless of the
+  working directory from which Streamlit is launched.
 
 ## Key Decisions
 
 ### df_interp — compliance uses 100 ms interpolated data
-Raw CSV is ~1 s/sample. Recovery times and peak deviations are measured on
-`df_interp` (100 ms linear interpolation). **df_interp is never used for
-plots or snapshot displays** — only for numeric compliance calculations.
+Raw CSV is ~1 s/sample. Recovery times are measured on `df_interp`
+(100 ms linear interpolation). **df_interp is never used for plots,
+snapshot displays, or deviation values** — only for recovery/exit time
+calculations.
+
+### V_dev / F_dev — actual measured extreme, not signed deviation
+`V_dev` holds the actual measured voltage (V), `F_dev` the actual measured
+frequency (Hz), taken from `df_proc` (raw measured data only):
+- Load increase (dKw > 0): signal drops → store `vals.min()`
+- Load decrease (dKw ≤ 0): signal rises → store `vals.max()`
+
+Compliance check: `abs(V_dev - nom_v) / nom_v * 100`
+Display format: `"406.2 V (-2.12%)"` — the actual value plus its % deviation.
+This is implemented in `_measured_extreme()` in `analysis.py`.
 
 ### detection_window_s (default 5 s)
 Load-step events within this window are merged into one grouped event.
 Prevents double-counting ramp-style load changes.
+
+### snapshot_window_s (default 10 s, user-configurable 3–60 s)
+The time window used both for snapshot plots (±window_s around the event)
+and for the `_measured_extreme` lookup. Keeping both in sync means the
+table value always reflects exactly what the snapshot shows.
 
 ### Recovery requires 0.3 s sustained in-band
 `calculate_recovery_time` requires `sustain_s=0.3` (3 consecutive 100 ms
@@ -50,15 +76,37 @@ points) all within the band before declaring recovery. Prevents declaring
 recovery on a brief transient re-entry.
 
 ### Asymmetric frequency recovery bands
-Load increase (dKw > 0): freq drops → band `[49.75, 50.50]` Hz  
-Load decrease (dKw ≤ 0): freq rises → band `[49.50, 50.25]` Hz  
+Load increase (dKw > 0): freq drops → band `[49.75, 50.50]` Hz
+Load decrease (dKw ≤ 0): freq rises → band `[49.50, 50.25]` Hz
 Rationale: generator governor response is asymmetric; ISO 8528 recovery
 tolerance is not simply ±0.5 Hz around nominal.
 
+### Multi-voltage support
+`nom_v` is configurable in the sidebar (415 V, 690 V, 11000 V presets or
+custom input). The `AnalysisConfig.nominal_voltage` field carries this into
+analysis. All compliance checks and display formatting are relative to the
+configured nominal.
+
 ### Voltage: L-N columns scaled to L-L
-If logger provides `U1/U2/U3_rms_AVG` (line-to-neutral), multiply average
-by √3 to get `Avg_Voltage_LL`. Compliance is always checked against L-L.
+Controlled by `AnalysisConfig.ln_to_ll_mode`:
+- `"auto"` — detect by column name: `U1/U2/U3_rms_AVG` = L-N (×√3), `U12/U23/U31_rms_AVG` = L-L
+- `"force_ll"` — treat all voltage columns as L-L (no scaling)
+- `"force_ln"` — treat all voltage columns as L-N (×√3 applied)
 `U_avg_AVG` (ROMP4 format) is treated directly as L-L.
+Compliance is always checked against L-L.
+
+### Recovery time calculation
+**`calculate_exit_time(df_interp, event_ts, col, upper, lower)`** — scans
+backwards from event timestamp to find the exact moment the signal crossed
+out of band (linear interpolation between last in-band / first out-of-band
+points). Returns `None` if the signal was never in-band during the lookback.
+
+**`calculate_recovery_time(df_interp, start_ts, col, upper, lower)`** — scans
+forward from `start_ts`, finds first sustained in-band window (0.3 s), linearly
+interpolates exact re-entry crossing.
+
+**Recovery time = exit crossing → re-entry crossing** (not load-change → re-entry).
+Recovery is only calculated and checked when `V_exit_ts` / `F_exit_ts` is non-null.
 
 ### PDF conversion — two parallel pipelines
 
@@ -66,7 +114,6 @@ by √3 to get `Avg_Voltage_LL`. Compliance is always checked against L-L.
 1. LibreOffice headless (preferred — installed via `packages.txt` on Cloud)
 2. WeasyPrint fallback (lower fidelity, needs cairo/pango system libs)
 3. fpdf2 last resort (plain text dump)
-Converter that succeeds is logged: "PDF conversion succeeded via try_libreoffice"
 
 **HTML Template pipeline (html_report.py):**
 1. WeasyPrint (best for Cloud — cairo/pango in packages.txt)
@@ -87,6 +134,14 @@ All parameters live in `AnalysisConfig` (dataclass). `iso_8528_defaults()`
 returns the standard preset. UI sliders write directly to this config object
 before calling `perform_analysis`.
 
+### Dev Mode — persist sidebar settings
+A "🛠 Dev Mode" expander at the top of the sidebar saves all sidebar selections
+(checkboxes, sliders, nominal voltage, load threshold, freq bands, etc.) to
+`uploads/dev_settings.json` on every Run Analysis. On cold start, the loader
+pre-populates `st.session_state` from this file before widgets are rendered.
+**Important:** keyed widgets must NOT also have a `value=` argument — Streamlit
+raises a duplicate-key conflict. Only pre-populate via `session_state`.
+
 ## Deploy Target
 
 **Streamlit Cloud.** `packages.txt` installs system packages including
@@ -104,11 +159,39 @@ before calling `perform_analysis`.
 - Use `pd.to_numeric(..., errors="coerce")` before any arithmetic on CSV
   columns — logger data frequently contains null strings.
 
+## Design Tokens (visualizations.py)
+
+```python
+_NAVY   = "#0f172a"   _BLUE   = "#2563eb"   _GREEN  = "#16a34a"
+_RED    = "#dc2626"   _ORANGE = "#ea580c"   _CYAN   = "#0891b2"
+_PURPLE = "#9333ea"   _AMBER  = "#f59e0b"   _LIME   = "#10b981"
+_GRID   = "#e2e8f0"   _TEXT_MAIN = "#0f172a"  _TEXT_SUB = "#64748b"
+_BG     = "#ffffff"
+```
+
+Fonts: Inter (UI) + JetBrains Mono (data/inputs). Sidebar: deep navy `#0f172a`.
+Main time-series plots use `%H:%M:%S` time format on the x-axis.
+
+## Debug Overlay (`show_debug=True` in `generate_plots()`)
+
+| Element | Colour | Meaning |
+|---|---|---|
+| Vertical `⋯` line | Amber | Load-change detection timestamp |
+| `±thresh_kw` horizontal lines + dKw labels | Amber | On kW graph |
+| Vertical `⋯` + orange ★ | Orange | Exact V/F **exit** crossing |
+| Vertical `⋯` + lime ★ + time label | Lime | Exact V/F **re-entry** crossing |
+| Asymmetric dotted band lines | Amber | Per-event frequency bounds (F graph) |
+
+Band boundary marker selection: `v_dev > nom_v` → upper band (voltage rose);
+otherwise lower band (voltage dropped). Same logic for frequency.
+
 ## Known Gotchas
 
 - **Do not restart Streamlit** to pick up code changes when running locally;
   use the browser "Rerun" button or `st.rerun()` in code. A full restart loses
   `st.session_state` and breaks the override workflow.
+  **Exception:** changes to `analysis.py`, `visualizations.py`, or `report.py`
+  require a full restart — hot-reload only applies to `app.py`.
 - `calculate_exit_time` scans *backwards* from the event timestamp. If the
   signal was out-of-band for the entire 30 s lookback, it returns `None` —
   this is intentional (can't determine when the excursion began).
@@ -125,3 +208,10 @@ before calling `perform_analysis`.
 - WeasyPrint imports will fail on local Mac without `brew install cairo pango
   gobject-introspection` — this is expected. LibreOffice and reportlab are the
   fallbacks and require no extra system packages (beyond LibreOffice itself).
+- `st.dataframe` uses `width='stretch'` — **not** `use_container_width=True`
+  (Streamlit version quirk).
+- `shutil.rmtree` on macOS may fail with `OSError: Directory not empty` due to
+  `.DS_Store` files — use `ignore_errors=True` in `init_output_dirs`.
+- CSV upload does **not** call `st.rerun()` after saving — files appear in the
+  dropdown on the next natural rerun. Forcing a rerun caused remote browsers to
+  not refresh correctly.
