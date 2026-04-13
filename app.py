@@ -88,6 +88,7 @@ _DEV_DEFAULTS: dict = {
     "frd_lower": 49.50,
     # Rated load
     "rated_load_input": "",
+    "expected_steps_input": "",
     # Display Options
     "nom_v_preset": "415 V  (LV — AU/UK)",
     "nom_v_custom": 415.0,
@@ -653,7 +654,8 @@ if "_ds" not in st.session_state:
     # Pre-populate keyed widgets that have NO value= parameter (safe — no conflict).
     # Widgets with key= + value= are handled by passing value=_ds.get(...) instead.
     for _k in ("fri_upper", "fri_lower", "frd_upper", "frd_lower",
-                "nom_v_preset", "nom_v_custom", "rated_load_input", "report_format"):
+                "nom_v_preset", "nom_v_custom", "rated_load_input",
+                "expected_steps_input", "report_format"):
         if _k not in st.session_state:
             st.session_state[_k] = _loaded.get(_k, _DEV_DEFAULTS[_k])
     # Time filter: restore only if the saved CSV path still matches
@@ -831,6 +833,18 @@ with st.sidebar:
         st.warning("Rated Load must be a number.")
         rated_load_kw = None
     st.session_state["rated_load_kw"] = rated_load_kw
+
+    expected_steps_str = st.text_input(
+        "No. Expected Load Steps",
+        help="Optional. If set, an error is shown when detected events don't match this count.",
+        key="expected_steps_input",
+    )
+    try:
+        expected_steps = int(expected_steps_str) if expected_steps_str.strip() else None
+    except ValueError:
+        st.warning("Expected Load Steps must be a whole number.")
+        expected_steps = None
+    st.session_state["expected_steps"] = expected_steps
 
     st.divider()
 
@@ -1289,6 +1303,16 @@ if st.session_state.get("analysis_done"):
     if not df_events.empty:
         st.header("Compliance Results")
 
+        # Expected load steps check
+        _expected = st.session_state.get("expected_steps")
+        _detected = len(df_events)
+        if _expected is not None and _detected != _expected:
+            st.error(
+                f"Expected {_expected} load step{'s' if _expected != 1 else ''} "
+                f"but detected {_detected}. "
+                "Adjust the Detection Window or review the CSV data."
+            )
+
         nom_v = config.nominal_voltage
         nom_f = config.nominal_frequency
         rated_load_kw = st.session_state.get("rated_load_kw")
@@ -1598,7 +1622,8 @@ if generate_clicked and (selected_template_path is not None or html_template_str
 if _ds.get("dev_mode"):
     # Collect values from already-keyed widgets via session_state
     for _k in ("fri_upper", "fri_lower", "frd_upper", "frd_lower",
-                "rated_load_input", "nom_v_preset", "nom_v_custom", "report_format"):
+                "rated_load_input", "expected_steps_input",
+                "nom_v_preset", "nom_v_custom", "report_format"):
         _ds[_k] = st.session_state.get(_k, _DEV_DEFAULTS.get(_k))
     _ds["_tf_csv_path"] = st.session_state.get("_tf_csv_path", "")
     _ds["tf_start_text"] = st.session_state.get(_TF_START_TEXT, "")
