@@ -381,12 +381,9 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         axes[2].fill_between(df_win["Timestamp"], y, y.min(), color=_ORANGE, alpha=0.1)
         axes[2].plot(df_win["Timestamp"], y,
                      color=_ORANGE, linewidth=1.5, solid_capstyle="round")
-    if show_limits:
-        lkw = dict(linewidth=1.2, linestyle="--", alpha=0.75, zorder=4)
-        axes[2].axhline(nom_f * (1 + tol_f / 100), color=_RED, label=f"+{tol_f}%", **lkw)
-        axes[2].axhline(nom_f * (1 - tol_f / 100), color=_RED, label=f"-{tol_f}%", **lkw)
-        axes[2].legend(loc="upper right", fontsize=8, framealpha=0.9,
-                       edgecolor=_GRID, facecolor=_BG)
+    # Frequency: symmetric ±tol_f% lines are NOT drawn here because the actual
+    # compliance limits are asymmetric and direction-dependent (shown by debug mode).
+    # Drawing symmetric lines would be misleading.
 
     # 4. Power
     _style_ax(axes[3], "Power (kW)", _GREEN)
