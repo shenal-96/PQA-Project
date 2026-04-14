@@ -68,8 +68,8 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
     paths = {}
 
     metrics = {
-        "Avg_Voltage_LL": ("Line to Line Voltage trend", _BLUE),
         "Avg_kW":          ("Active Power (kW)",  _GREEN),
+        "Avg_Voltage_LL": ("Line to Line Voltage trend", _BLUE),
         "Avg_Current":     ("Current (A)",        _RED),
         "Avg_Frequency":   ("Frequency (Hz)",     _ORANGE),
         "Avg_PF":          ("Power Factor",       _CYAN),
@@ -253,6 +253,14 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
         plt.tight_layout(pad=1.2)
         fname = os.path.join(output_dir, f"{client_name}_{col}.svg")
         fig.savefig(fname, format="svg", bbox_inches="tight", facecolor=_BG)
+        # Save a taller JPEG for Word/PDF report insertion (SVG cannot be embedded in docx).
+        # Re-render at a 16×6 figure — wider aspect ratio reads much better on paper
+        # than the 14×4 screen ratio. tight_layout is re-applied after the resize so
+        # axis labels and titles re-flow correctly at the new dimensions.
+        fig.set_size_inches(16, 6)
+        plt.tight_layout(pad=1.2)
+        jpeg_fname = os.path.join(output_dir, f"{client_name}_{col}.jpeg")
+        fig.savefig(jpeg_fname, format="jpeg", dpi=200, bbox_inches="tight", facecolor=_BG)
         plt.close(fig)
         paths[col] = fname
 
@@ -277,9 +285,29 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
     """
     os.makedirs(output_dir, exist_ok=True)
 
+    # Determine time bounds: default ±window_s, but extend if debug markers
+    # (exit / recovery) fall outside the default window.
+    left_s = window_s
+    right_s = window_s
+    if show_debug and event_row is not None:
+        for exit_key, rec_key in [("V_exit_ts", "V_rec_s"), ("F_exit_ts", "F_rec_s")]:
+            ex = event_row.get(exit_key)
+            rc = event_row.get(rec_key)
+            # Extend left to include exit marker
+            if pd.notnull(ex):
+                needed_left = (event_ts - pd.Timestamp(ex)).total_seconds() + 2
+                if needed_left > left_s:
+                    left_s = needed_left
+            # Extend right to include recovery marker
+            if pd.notnull(ex) and pd.notnull(rc):
+                marker_ts = pd.Timestamp(ex) + pd.Timedelta(seconds=float(rc))
+                needed_right = (marker_ts - event_ts).total_seconds() + 2
+                if needed_right > right_s:
+                    right_s = needed_right
+
     df_win = df_raw[
-        (df_raw["Timestamp"] >= event_ts - pd.Timedelta(seconds=window_s)) &
-        (df_raw["Timestamp"] <= event_ts + pd.Timedelta(seconds=window_s))
+        (df_raw["Timestamp"] >= event_ts - pd.Timedelta(seconds=left_s)) &
+        (df_raw["Timestamp"] <= event_ts + pd.Timedelta(seconds=right_s))
     ].copy()
 
     if df_win.empty:
@@ -487,6 +515,27 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
     fig.autofmt_xdate(rotation=0, ha="center")
     axes[3].tick_params(axis="x", labelsize=9, colors=_TEXT_SUB)
 
+    # ── Not-recovered highlighting ──────────────────────────────────────
+    if event_row is not None:
+        v_nr = bool(event_row.get("V_not_recovered", False))
+        f_nr = bool(event_row.get("F_not_recovered", False))
+        if v_nr:
+            axes[0].set_facecolor("#fef2f2")  # light red tint
+            axes[0].text(
+                0.5, 0.5, "VOLTAGE NOT RECOVERED FROM PREVIOUS STEP",
+                transform=axes[0].transAxes, fontsize=10, fontweight="700",
+                color="#dc2626", alpha=0.35, ha="center", va="center",
+                zorder=1,
+            )
+        if f_nr:
+            axes[2].set_facecolor("#fef2f2")
+            axes[2].text(
+                0.5, 0.5, "FREQUENCY NOT RECOVERED FROM PREVIOUS STEP",
+                transform=axes[2].transAxes, fontsize=10, fontweight="700",
+                color="#dc2626", alpha=0.35, ha="center", va="center",
+                zorder=1,
+            )
+
     # Panel labels
     labels = ["V", "I", "f", "P"]
     for ax, lbl in zip(axes, labels):
@@ -561,10 +610,17 @@ def save_compliance_table_as_image(df, filename, title_text, nom_v=415.0, nom_f=
             return "—"
         return "\n".join(textwrap.wrap(s, width=width))
 
+    # Drop Failure Reasons column when every event passed — it only adds noise.
+    has_failures = (
+        "Failure_Reasons" in df.columns
+        and df["Failure_Reasons"].astype(str).str.strip().replace("nan", "").ne("").any()
+    )
     display_cols = [
         "Timestamp", "dKw", "V_dev", "V_rec_s", "F_dev", "F_rec_s",
-        "Compliance_Status", "Failure_Reasons",
+        "Compliance_Status",
     ]
+    if has_failures:
+        display_cols.append("Failure_Reasons")
     avail_cols = [c for c in display_cols if c in df.columns]
     plot_data = df[avail_cols].copy()
 
@@ -627,16 +683,16 @@ def save_compliance_table_as_image(df, filename, title_text, nom_v=415.0, nom_f=
     n_cols = len(plot_data.columns)
 
     # Per-row line counts drive individual row heights.
-    base_row_h = 0.55
-    extra_per_line = 0.28
-    header_h_in = 0.48
+    base_row_h = 0.72
+    extra_per_line = 0.38
+    header_h_in = 0.60
     row_line_counts = []
     for _, row in plot_data.iterrows():
         max_lines = max(str(v).count("\n") + 1 for v in row)
         row_line_counts.append(max_lines)
 
     total_data_h = sum(base_row_h + extra_per_line * (lc - 1) for lc in row_line_counts)
-    fig_h = max(3.5, total_data_h + header_h_in + 0.8)
+    fig_h = max(4.0, total_data_h + header_h_in + 1.0)
     fig_w = 22
 
     fig, ax = plt.subplots(figsize=(fig_w, fig_h))
@@ -685,7 +741,7 @@ def save_compliance_table_as_image(df, filename, title_text, nom_v=415.0, nom_f=
         if row == 0:
             # Header
             cell.set_facecolor(_HDR_BG)
-            cell.set_text_props(color=_HDR_FG, weight="bold", fontsize=12)
+            cell.set_text_props(color=_HDR_FG, weight="bold", fontsize=14)
             cell.set_edgecolor(_ACCENT)
             cell.set_linewidth(1.5)
         else:
@@ -693,11 +749,11 @@ def save_compliance_table_as_image(df, filename, title_text, nom_v=415.0, nom_f=
             cell.set_facecolor(_ROW_EVEN if is_even else _ROW_ODD)
             cell.set_edgecolor(_BORDER)
             cell.set_linewidth(0.4)
-            cell.set_text_props(fontsize=12, color=_TEXT_MAIN)
+            cell.set_text_props(fontsize=14, color=_TEXT_MAIN)
 
             # Numeric / data columns: slightly muted colour
             if col in numeric_idx:
-                cell.set_text_props(fontsize=12, color=_TEXT_SUB)
+                cell.set_text_props(fontsize=14, color=_TEXT_SUB)
 
             # Compliance Status — coloured badge background
             if col == status_idx:
@@ -705,20 +761,23 @@ def save_compliance_table_as_image(df, filename, title_text, nom_v=415.0, nom_f=
                 is_pass = "Pass" in val
                 cell.set_facecolor(_PASS_BG if is_pass else _FAIL_BG)
                 cell.set_text_props(
-                    fontsize=13, weight="bold",
+                    fontsize=15, weight="bold",
                     color=_GREEN if is_pass else _RED,
                 )
 
             # Failure Reasons — left-aligned for readability
             if col == notes_idx:
-                cell.set_text_props(fontsize=11, color="#64748b", ha="left")
+                cell.set_text_props(fontsize=13, color="#64748b", ha="left")
 
     # Title block
     fig.text(0.5, 0.995, "ISO 8528 Compliance Report", ha="center", va="top",
-             fontsize=15, fontweight="800", color=_TEXT_MAIN)
+             fontsize=18, fontweight="800", color=_TEXT_MAIN)
 
     plt.tight_layout(rect=[0.005, 0.005, 0.995, 0.955])
     svg_path = os.path.splitext(filename)[0] + ".svg"
     plt.savefig(svg_path, format="svg", bbox_inches="tight", facecolor=_BG)
+    # Also save a PNG for Word/PDF report insertion (SVG cannot be embedded in docx).
+    png_path = os.path.splitext(filename)[0] + ".png"
+    plt.savefig(png_path, format="png", dpi=250, bbox_inches="tight", facecolor=_BG)
     plt.close(fig)
     return svg_path

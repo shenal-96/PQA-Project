@@ -51,6 +51,12 @@ def try_libreoffice():
     if os.path.exists(expected) and os.path.abspath(expected) != os.path.abspath(pdf_path):
         _shutil.move(expected, pdf_path)
 
+def try_docx2pdf():
+    from docx2pdf import convert
+    convert(docx_path, pdf_path)
+    if not os.path.exists(pdf_path):
+        raise RuntimeError('docx2pdf ran but no output file produced')
+
 def try_weasyprint():
     import mammoth, weasyprint
     with open(docx_path, 'rb') as f:
@@ -155,7 +161,7 @@ def try_fpdf2():
         except: pass
 
 # Try converters in order
-for converter in [try_libreoffice, try_weasyprint, try_fpdf2]:
+for converter in [try_libreoffice, try_docx2pdf, try_weasyprint, try_fpdf2]:
     try:
         converter()
         if os.path.exists(pdf_path):
@@ -164,14 +170,7 @@ for converter in [try_libreoffice, try_weasyprint, try_fpdf2]:
     except Exception as e:
         print(f'{converter.__name__} failed: {e}', file=sys.stderr)
 
-# Last resort: docx2pdf (Word on Windows)
-try:
-    from docx2pdf import convert
-    convert(docx_path, pdf_path)
-    sys.exit(0 if os.path.exists(pdf_path) else 1)
-except Exception as e:
-    print(e, file=sys.stderr)
-    sys.exit(1)
+sys.exit(1)
 """
 
 
@@ -249,6 +248,7 @@ def get_placeholder_map(client_name, config_values, df=None,
 
     # Text fields
     placeholder_map["{{Report_Title}}"] = config_values.get("report_title", "")
+    placeholder_map["{{PQID}}"] = config_values.get("pqa_serial", "")
     placeholder_map["{{Gen_SN}}"] = config_values.get("gen_sn", "")
     placeholder_map["{{Site_Address}}"] = config_values.get("site_address", "")
     placeholder_map["{{Custom_Field}}"] = config_values.get("custom_text", "")
@@ -278,12 +278,23 @@ def inject_images_to_word(template_stream, placeholder_map):
     """
     doc = Document(template_stream)
 
+    # Derive usable content width from the first section's page geometry.
+    # This ensures images never overflow the right margin regardless of template margins.
+    try:
+        _sec = doc.sections[0]
+        _content_width = _sec.page_width - _sec.left_margin - _sec.right_margin
+    except Exception:
+        _content_width = Inches(6.5)  # safe fallback
+
     def apply_strict_formatting(paragraph):
         p_format = paragraph.paragraph_format
         p_format.line_spacing = 1.0
         p_format.space_before = Pt(0)
         p_format.space_after = Pt(0)
         p_format.keep_with_next = True
+        p_format.left_indent = Inches(0)
+        p_format.right_indent = Inches(0)
+        p_format.first_line_indent = Inches(0)
 
     def process_paragraphs(paragraphs):
         for paragraph in paragraphs:
@@ -295,7 +306,7 @@ def inject_images_to_word(template_stream, placeholder_map):
                     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     apply_strict_formatting(paragraph)
                     run = paragraph.add_run()
-                    run.add_picture(value, width=Inches(6.5))
+                    run.add_picture(value, width=_content_width)
                 else:
                     new_text = paragraph.text.replace(key, str(value))
                     paragraph.text = ""

@@ -70,10 +70,15 @@ The time window used both for snapshot plots (±window_s around the event)
 and for the `_measured_extreme` lookup. Keeping both in sync means the
 table value always reflects exactly what the snapshot shows.
 
-### Recovery requires 0.3 s sustained in-band
-`calculate_recovery_time` requires `sustain_s=0.3` (3 consecutive 100 ms
-points) all within the band before declaring recovery. Prevents declaring
-recovery on a brief transient re-entry.
+### Recovery requires sustained in-band with oscillation handling
+`calculate_recovery_time` uses a candidate-invalidation approach: when a
+sustained in-band window (sustain_s=0.3, 3 consecutive 100 ms points) is
+found, it is recorded as a *candidate* and verification continues for
+verify_s=10.0 seconds. If the signal exits the band again during that
+verification window (oscillation), the candidate is discarded and the
+search resumes. This correctly handles waveforms that oscillate in and
+out of the recovery band before final settlement, without being
+affected by subsequent unrelated load events.
 
 ### Asymmetric frequency recovery bands
 Load increase (dKw > 0): freq drops → band `[49.75, 50.50]` Hz
@@ -99,7 +104,16 @@ Compliance is always checked against L-L.
 **`calculate_exit_time(df_interp, event_ts, col, upper, lower)`** — scans
 backwards from event timestamp to find the exact moment the signal crossed
 out of band (linear interpolation between last in-band / first out-of-band
-points). Returns `None` if the signal was never in-band during the lookback.
+points). Returns `None` if the signal was in-band at the event time (no
+excursion) or out of band for the entire 30 s lookback.
+
+### Not-recovered detection
+After computing exit/recovery times, `perform_analysis` checks whether the
+signal was already out of band at each event's timestamp. If so, the event
+gets `V_not_recovered=True` or `F_not_recovered=True`. The snapshot expands
+its time window to show exit and recovery markers from the previous event,
+the affected panel gets a red tint with a watermark, and the event expander
+in the UI shows a warning banner.
 
 **`calculate_recovery_time(df_interp, start_ts, col, upper, lower)`** — scans
 forward from `start_ts`, finds first sustained in-band window (0.3 s), linearly

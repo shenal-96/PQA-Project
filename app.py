@@ -9,6 +9,7 @@ import pandas as pd
 import os
 import shutil
 import zipfile
+import base64
 import io
 import glob
 import datetime
@@ -19,6 +20,7 @@ from analysis import AnalysisConfig, load_and_prepare_csv, perform_analysis, che
 from visualizations import (
     generate_plots,
     generate_all_snapshots,
+    plot_load_change_snapshot,
     save_compliance_table_as_image,
 )
 from report import get_placeholder_map, inject_images_to_word, generate_docx, convert_to_pdf
@@ -74,6 +76,7 @@ _DEV_DEFAULTS: dict = {
     "show_limits_snapshots": False,
     "show_debug": False,
     "detection_window": 5.0,
+    "recovery_verify_s": 6.0,
     "snapshot_window": 10.0,
     "load_thresh": 50.0,
     "v_tol": 1.0,
@@ -769,12 +772,21 @@ with st.sidebar:
         min_value=3.0, max_value=60.0, step=1.0,
         help="Seconds shown either side of each event in snapshots. Also sets the window used to find peak voltage/frequency deviation.",
     )
+    recovery_verify_s = 6.0
+    if dev_mode:
+        recovery_verify_s = st.number_input(
+            "Recovery Verify Window (s)",
+            value=float(_ds.get("recovery_verify_s", 6.0)),
+            min_value=1.0, max_value=30.0, step=1.0,
+            help="After a recovery candidate is found, verify the signal stays in-band for this many seconds. Handles oscillating waveforms.",
+        )
     _ds["apply_iso"] = apply_iso
     _ds["show_limits"] = show_limits
     _ds["show_limits_snapshots"] = show_limits_snapshots
     _ds["show_debug"] = show_debug
     _ds["detection_window"] = detection_window
     _ds["snapshot_window"] = snapshot_window
+    _ds["recovery_verify_s"] = recovery_verify_s
 
     if apply_iso:
         load_thresh = 50.0; v_tol = 1.0; v_rec = 4.0; v_max_dev = 15.0
@@ -956,10 +968,14 @@ with st.sidebar:
 
     # ── 6. Report Details ─────────────────────────────────────
     st.subheader("Report Details")
-    report_title = st.text_input("Report Title", value=client_name, placeholder="Enter report/client name")
+    if "report_title" not in st.session_state:
+        st.session_state["report_title"] = client_name
+    report_title = st.text_input("Report Title", key="report_title", placeholder="Enter report/client name")
+    pqa_serial = st.text_input("PQA Serial No.", value=_ds.get("pqa_serial", ""), placeholder="Enter PQA serial number")
     gen_sn = st.text_input("Generator Serial Number", value=_ds.get("gen_sn", ""), placeholder="Enter Gen S/N")
     site_address = st.text_input("Site Address", value=_ds.get("site_address", ""), placeholder="Enter site address")
     custom_text = st.text_input("Custom Text Field", value=_ds.get("custom_text", ""), placeholder="Enter custom info")
+    _ds["pqa_serial"] = pqa_serial
     _ds["gen_sn"] = gen_sn
     _ds["site_address"] = site_address
     _ds["custom_text"] = custom_text
@@ -1058,36 +1074,64 @@ with st.sidebar:
             """)
         st.caption("PDF: WeasyPrint (Cloud) → LibreOffice → reportlab fallback.")
 
+    if "report_filename" not in st.session_state:
+        st.session_state["report_filename"] = client_name or "PQA_Report"
     report_filename = st.text_input(
         "Report Filename",
-        value=client_name or "PQA_Report",
+        key="report_filename",
         placeholder="Enter filename (no extension)",
     )
 
-    with st.expander("⬇️ Download Options"):
-        if report_format == "Word Template":
-            download_format = st.selectbox(
-                "Download Format",
-                ["Word (.docx)", "PDF", "Both"],
-            )
-        else:
-            download_format = st.selectbox(
-                "Download Format",
-                ["HTML", "PDF", "Both"],
-            )
+    if report_format == "Word Template":
+        download_format = st.selectbox(
+            "Download Format",
+            ["PDF", "Word (.docx)", "Word+PDF"],
+            key="download_format_word",
+        )
+    else:
+        download_format = st.selectbox(
+            "Download Format",
+            ["PDF", "HTML", "HTML+PDF"],
+            key="download_format_html",
+        )
+
+    # ── Not-recovered warning ──────────────────────────────────
+    _df_ev_check = st.session_state.get("df_events")
+    _has_nr = False
+    if _df_ev_check is not None and not _df_ev_check.empty:
+        _has_nr = bool(
+            _df_ev_check.get("V_not_recovered", False).any()
+            or _df_ev_check.get("F_not_recovered", False).any()
+        )
+
+    if _has_nr:
+        st.warning(
+            "⚠️ One or more events have voltage or frequency that did not recover "
+            "from the previous step. The report will include these flags unless removed."
+        )
+        remove_nr_warnings = st.checkbox(
+            "Remove warnings from report", key="remove_nr_warnings"
+        )
+    else:
+        remove_nr_warnings = False
+        st.session_state.pop("remove_nr_warnings", None)
+
+    _btn_disabled = _has_nr and not remove_nr_warnings
 
     generate_clicked = False
     analysis_ready = st.session_state.get("analysis_done")
     if report_format == "Word Template":
         if selected_template_path is not None and analysis_ready:
-            generate_clicked = st.button("\U0001f4c4 Generate Report", type="primary", use_container_width=True)
+            generate_clicked = st.button("\U0001f4c4 Generate Report", type="primary",
+                                         use_container_width=True, disabled=_btn_disabled)
         elif not analysis_ready:
             st.caption("Run analysis first to enable report generation.")
         else:
             st.caption("Upload a template above to generate a report.")
     else:  # HTML Template
         if analysis_ready:
-            generate_clicked = st.button("\U0001f4c4 Generate Report", type="primary", use_container_width=True)
+            generate_clicked = st.button("\U0001f4c4 Generate Report", type="primary",
+                                         use_container_width=True, disabled=_btn_disabled)
         else:
             st.caption("Run analysis first to enable report generation.")
 
@@ -1098,7 +1142,7 @@ with st.sidebar:
         st.subheader("Generated Reports")
         for i, entry in enumerate(sidebar_reports):
             st.markdown(f"**{entry['name']}**")
-            c1, c2 = st.columns(2)
+            c1, c2, c3 = st.columns([5, 5, 2])
             if "docx" in entry["files"]:
                 c1.download_button(
                     "⬇ .docx",
@@ -1128,23 +1172,35 @@ with st.sidebar:
                 )
             elif "docx" in entry["files"] or "html" in entry["files"]:
                 c2.caption("PDF n/a")
+            if c3.button("🗑", key=f"sb_del_{i}", help="Remove this report", use_container_width=True):
+                st.session_state["generated_reports"].pop(i)
+                st.rerun()
 
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
+        if st.button("⬇️ Download All Reports", use_container_width=True, key="dl_all_reports"):
+            parts = []
             for entry in sidebar_reports:
-                if "docx" in entry["files"]:
-                    zipf.writestr(f"{entry['name']}.docx", bytes(entry["files"]["docx"]))
-                if "html" in entry["files"]:
-                    zipf.writestr(f"{entry['name']}.html", bytes(entry["files"]["html"]))
-                if "pdf" in entry["files"]:
-                    zipf.writestr(f"{entry['name']}.pdf", bytes(entry["files"]["pdf"]))
-        st.download_button(
-            "⬇️ Download All Reports",
-            data=zip_buffer.getvalue(),
-            file_name="PQA_Reports.zip",
-            mime="application/zip",
-            use_container_width=True,
-        )
+                for fmt, mime in [
+                    ("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+                    ("pdf", "application/pdf"),
+                    ("html", "text/html"),
+                ]:
+                    if fmt in entry["files"]:
+                        b64 = base64.b64encode(bytes(entry["files"][fmt])).decode()
+                        fname = f"{entry['name']}.{fmt}"
+                        parts.append(f'{{name:"{fname}",data:"{b64}",mime:"{mime}"}}')
+            files_js = "[" + ",".join(parts) + "]"
+            st.session_state["_dl_all_html"] = (
+                f"<script>var _f={files_js};"
+                "_f.forEach(function(f,i){setTimeout(function(){"
+                'var a=document.createElement("a");'
+                'a.href="data:"+f.mime+";base64,"+f.data;'
+                "a.download=f.name;document.body.appendChild(a);a.click();document.body.removeChild(a);"
+                "},i*500);});</script>"
+            )
+
+        if st.session_state.get("_dl_all_html"):
+            st.components.v1.html(st.session_state["_dl_all_html"], height=0)
+            st.session_state["_dl_all_html"] = None
 
 
 # ============================================================
@@ -1181,6 +1237,7 @@ if selected_csv_path is not None:
             detection_window_s=detection_window,
             snapshot_window_s=snapshot_window,
             ln_to_ll_mode=ln_to_ll_mode,
+            recovery_verify_s=recovery_verify_s,
         )
 
         try:
@@ -1208,6 +1265,7 @@ if selected_csv_path is not None:
             "analysis_done": True,
             "generated_reports": st.session_state.get("generated_reports", []),
             "intersection_overrides": {},   # clear any overrides from previous run
+            "event_window_overrides": {},   # clear per-event snapshot window overrides
             "show_debug": show_debug,
             "show_limits_snapshots": show_limits_snapshots,
         })
@@ -1311,6 +1369,32 @@ if st.session_state.get("analysis_done"):
                 f"Expected {_expected} load step{'s' if _expected != 1 else ''} "
                 f"but detected {_detected}. "
                 "Adjust the Detection Window or review the CSV data."
+            )
+
+        # Missing recovery time warnings — flag events where the signal left
+        # the band but no recovery was recorded (data ended before recovery,
+        # or recovery could not be determined).
+        _v_no_rec = []
+        _f_no_rec = []
+        for _ei, (_eidx, _erow) in enumerate(df_events.iterrows()):
+            _ev_label = f"Event {_ei + 1} ({_erow['Timestamp'].strftime('%H:%M:%S')})"
+            if pd.notnull(_erow.get("V_exit_ts")) and pd.isna(_erow.get("V_rec_s")):
+                _v_no_rec.append(_ev_label)
+            if pd.notnull(_erow.get("F_exit_ts")) and pd.isna(_erow.get("F_rec_s")):
+                _f_no_rec.append(_ev_label)
+        if _v_no_rec:
+            st.error(
+                "**Voltage recovery not detected** for: "
+                + ", ".join(_v_no_rec)
+                + ". The voltage left the tolerance band but did not recover within "
+                "the recorded data. Check the CSV length or review the snapshot."
+            )
+        if _f_no_rec:
+            st.error(
+                "**Frequency recovery not detected** for: "
+                + ", ".join(_f_no_rec)
+                + ". The frequency left the tolerance band but did not recover within "
+                "the recorded data. Check the CSV length or review the snapshot."
             )
 
         nom_v = config.nominal_voltage
@@ -1419,7 +1503,14 @@ if st.session_state.get("analysis_done"):
             </table>
             """
 
-        table_height = 100 + len(disp) * 56
+        # Height: header (~50px) + per row (~80px base for 2-line cells) +
+        # extra for any rows with failure reasons (up to 3 wrapped lines).
+        _row_heights = []
+        for _, _r in disp.iterrows():
+            _fr = str(_r.get("Failure Reasons", ""))
+            _extra_lines = _fr.count("<br>") if _fr not in ("", "nan") else 0
+            _row_heights.append(80 + _extra_lines * 20)
+        table_height = 60 + sum(_row_heights)
         st.components.v1.html(_render_compliance_html(disp), height=table_height, scrolling=False)
         if table_path and os.path.exists(table_path):
             with st.expander("View Compliance Table Image"):
@@ -1478,12 +1569,67 @@ if st.session_state.get("analysis_done"):
                 f"  ({dkw / _rated * 100:+.1f}% rated)"
                 if _rated and _rated > 0 else ""
             )
+            v_nr = bool(row.get("V_not_recovered", False))
+            f_nr = bool(row.get("F_not_recovered", False))
+            nr_badge = "⚠️ " if (v_nr or f_nr) else ""
             label = (
-                f"{badge}Event {snap_i + 1} — {ev_ts.strftime('%H:%M:%S')}  "
+                f"{nr_badge}{badge}Event {snap_i + 1} — {ev_ts.strftime('%H:%M:%S')}  "
                 f"|  {direction} {abs(dkw):.0f} kW{_pct_str}"
             )
 
             with st.expander(label, expanded=(snap_i == 0)):
+                # Not-recovered warning
+                if v_nr and f_nr:
+                    st.error("Voltage and Frequency did not recover from the previous step.")
+                elif v_nr:
+                    st.error("Voltage did not recover from the previous step.")
+                elif f_nr:
+                    st.error("Frequency did not recover from the previous step.")
+
+                # Dev Mode — per-event snapshot window override
+                if dev_mode:
+                    _win_overrides = st.session_state.setdefault("event_window_overrides", {})
+                    _cur_win = float(_win_overrides.get(idx, config.snapshot_window_s))
+                    _col_w, _col_btn = st.columns([3, 1])
+                    with _col_w:
+                        _new_win = st.number_input(
+                            "Snapshot window (s)",
+                            min_value=3.0, max_value=120.0, step=1.0,
+                            value=_cur_win,
+                            key=f"snap_window_{idx}",
+                            help="Seconds shown either side of this event. Click Regenerate to apply.",
+                        )
+                    with _col_btn:
+                        st.write("")
+                        _regen = st.button("↺ Regenerate", key=f"regen_snap_{idx}", use_container_width=True)
+                    if _regen:
+                        _win_overrides[idx] = _new_win
+                        _new_path = plot_load_change_snapshot(
+                            st.session_state["df_raw"],
+                            event_ts=row["Timestamp"],
+                            load_change=row["dKw"],
+                            load_before=row["Avg_kW"] - row["dKw"],
+                            load_after=row["Avg_kW"],
+                            client_name=client_name_display,
+                            output_dir=SNAPSHOT_DIR,
+                            show_limits=st.session_state.get("show_limits_snapshots", False),
+                            nom_v=config.nominal_voltage,
+                            nom_f=config.nominal_frequency,
+                            tol_v=config.voltage_tolerance_pct,
+                            tol_f=config.frequency_tolerance_pct,
+                            show_debug=st.session_state.get("show_debug", False),
+                            event_row=row,
+                            rated_load_kw=st.session_state.get("rated_load_kw"),
+                            window_s=_new_win,
+                        )
+                        _paths = list(st.session_state.get("snapshot_paths", []))
+                        if snap_i < len(_paths):
+                            _paths[snap_i] = _new_path
+                        else:
+                            _paths.append(_new_path)
+                        st.session_state["snapshot_paths"] = _paths
+                        st.rerun()
+
                 # Snapshot image (if generated)
                 if snap_i < len(snapshot_paths) and os.path.exists(snapshot_paths[snap_i]):
                     st.image(snapshot_paths[snap_i], use_container_width=True)
@@ -1531,73 +1677,112 @@ if generate_clicked and (selected_template_path is not None or html_template_str
                 st.write("⚙️ Building content map...")
                 config_values = {
                     "report_title": report_title,
+                    "pqa_serial": pqa_serial,
                     "gen_sn": gen_sn,
                     "site_address": site_address,
                     "custom_text": custom_text,
                 }
+                # If removing not-recovered warnings, regenerate snapshots without flags
+                _snap_dir = SNAPSHOT_DIR
+                if st.session_state.get("remove_nr_warnings") and _has_nr:
+                    _cfg = st.session_state.get("config")
+                    _snap_dir_clean = os.path.join(OUTPUT_BASE, "Snapshots_clean")
+                    os.makedirs(_snap_dir_clean, exist_ok=True)
+                    _df_ev_clean = df_events.copy()
+                    _df_ev_clean["V_not_recovered"] = False
+                    _df_ev_clean["F_not_recovered"] = False
+                    st.write("🧹 Regenerating clean snapshots (removing flags)...")
+                    generate_all_snapshots(
+                        st.session_state["df_raw"], _df_ev_clean, client_name_display,
+                        output_dir=_snap_dir_clean,
+                        show_limits=st.session_state.get("show_limits_snapshots", False),
+                        nom_v=_cfg.nominal_voltage if _cfg else 415.0,
+                        nom_f=_cfg.nominal_frequency if _cfg else 50.0,
+                        tol_v=_cfg.voltage_tolerance_pct if _cfg else 1.0,
+                        tol_f=_cfg.frequency_tolerance_pct if _cfg else 0.5,
+                        show_debug=False,
+                        rated_load_kw=st.session_state.get("rated_load_kw"),
+                        window_s=_cfg.snapshot_window_s if _cfg else 10.0,
+                    )
+                    _snap_dir = _snap_dir_clean
+
                 p_map = get_placeholder_map(
                     client_name_display, config_values,
                     df=st.session_state.get("df_raw"),
-                    graph_dir=GRAPH_DIR, snapshot_dir=SNAPSHOT_DIR, image_dir=IMAGE_DIR,
+                    graph_dir=GRAPH_DIR, snapshot_dir=_snap_dir, image_dir=IMAGE_DIR,
                 )
                 log.info(f"Placeholder map built: {list(p_map.keys())}")
+
+                # Warn if fewer snapshot placeholders were mapped than events detected.
+                _n_events = len(st.session_state.get("df_events", pd.DataFrame()))
+                _n_snaps_mapped = sum(1 for k in p_map if k.startswith("{{Snapshot_"))
+                if _n_snaps_mapped < _n_events:
+                    st.warning(
+                        f"Template has placeholders for {_n_snaps_mapped} snapshot(s) "
+                        f"but {_n_events} events were detected. "
+                        f"Add `{{{{Snapshot_{_n_snaps_mapped + 1}}}}}` … "
+                        f"`{{{{Snapshot_{_n_events}}}}}` to your template to include all snapshots."
+                    )
 
                 output_base = os.path.join(OUTPUT_BASE, report_filename)
                 entry = {"name": report_filename, "files": {}}
 
                 if report_format == "Word Template":
-                    log.info(f"Word report — template: {selected_template_path}, output: {report_filename}")
+                    log.info(f"Word report — template: {selected_template_path}, output: {report_filename}, format: {download_format}")
                     st.write("📝 Injecting content into Word template...")
                     docx_path = generate_docx(selected_template_path, p_map, output_name=output_base)
                     log.info(f"DOCX generated: {docx_path}")
 
-                    st.write("💾 Word document ready — reading file...")
-                    with open(docx_path, "rb") as f:
-                        entry["files"]["docx"] = f.read()
+                    if download_format in ("Word (.docx)", "Word+PDF"):
+                        with open(docx_path, "rb") as f:
+                            entry["files"]["docx"] = f.read()
+                        st.write("💾 Word document ready.")
 
-                    st.write("🖨️ Converting to PDF (timeout: 45s)...")
-                    pdf_path = f"{output_base}.pdf"
-                    pdf_ok, pdf_log = convert_to_pdf(docx_path, pdf_path)
-                    log.info(f"PDF conversion {'succeeded' if pdf_ok else 'failed'}:\n{pdf_log}")
-                    with st.expander("PDF converter log", expanded=not pdf_ok):
-                        st.code(pdf_log, language="text")
-                    if pdf_ok:
-                        with open(pdf_path, "rb") as f:
-                            entry["files"]["pdf"] = f.read()
-                        st.write("✅ PDF ready.")
-                    else:
-                        st.warning(
-                            "**PDF conversion failed** — only the Word (.docx) file is available.\n\n"
-                            "**Converters tried:** LibreOffice → WeasyPrint → fpdf2\n\n"
-                            "**To fix on macOS:** `brew install --cask libreoffice` then restart the app.\n\n"
-                            "See the **PDF converter log** expander above for per-converter error details."
-                        )
+                    if download_format in ("PDF", "Word+PDF"):
+                        st.write("🖨️ Converting to PDF (timeout: 45s)...")
+                        pdf_path = f"{output_base}.pdf"
+                        pdf_ok, pdf_log = convert_to_pdf(docx_path, pdf_path)
+                        log.info(f"PDF conversion {'succeeded' if pdf_ok else 'failed'}:\n{pdf_log}")
+                        with st.expander("PDF converter log", expanded=not pdf_ok):
+                            st.code(pdf_log, language="text")
+                        if pdf_ok:
+                            with open(pdf_path, "rb") as f:
+                                entry["files"]["pdf"] = f.read()
+                            st.write("✅ PDF ready.")
+                        else:
+                            st.warning(
+                                "**PDF conversion failed.**\n\n"
+                                "**Converters tried:** LibreOffice → docx2pdf → WeasyPrint → fpdf2\n\n"
+                                "**To fix on macOS:** `brew install --cask libreoffice` then restart the app.\n\n"
+                                "See the **PDF converter log** expander above for per-converter error details."
+                            )
 
                 else:  # HTML Template
-                    log.info(f"HTML report — output: {report_filename}")
+                    log.info(f"HTML report — output: {report_filename}, format: {download_format}")
                     st.write("📝 Injecting content into HTML template...")
                     html_result = generate_html_report(p_map, html_template_str, output_name=output_base)
 
-                    with open(html_result["html"], "rb") as f:
-                        entry["files"]["html"] = f.read()
-                    st.write("💾 HTML ready.")
+                    if download_format in ("HTML", "HTML+PDF"):
+                        with open(html_result["html"], "rb") as f:
+                            entry["files"]["html"] = f.read()
+                        st.write("💾 HTML ready.")
 
-                    pdf_log = html_result.get("pdf_log", "")
-                    with st.expander("PDF converter log", expanded="pdf" not in html_result):
-                        st.code(pdf_log, language="text")
-
-                    if "pdf" in html_result:
-                        with open(html_result["pdf"], "rb") as f:
-                            entry["files"]["pdf"] = f.read()
-                        st.write("✅ PDF ready.")
-                    else:
-                        st.warning(
-                            "**PDF conversion failed** — only the HTML file is available.\n\n"
-                            "**Converters tried:** WeasyPrint → LibreOffice → reportlab\n\n"
-                            "**To fix on macOS:** `brew install --cask libreoffice` then restart the app,\n"
-                            "or `brew install cairo pango` for WeasyPrint.\n\n"
-                            "See the **PDF converter log** expander above for details."
-                        )
+                    if download_format in ("PDF", "HTML+PDF"):
+                        pdf_log = html_result.get("pdf_log", "")
+                        with st.expander("PDF converter log", expanded="pdf" not in html_result):
+                            st.code(pdf_log, language="text")
+                        if "pdf" in html_result:
+                            with open(html_result["pdf"], "rb") as f:
+                                entry["files"]["pdf"] = f.read()
+                            st.write("✅ PDF ready.")
+                        else:
+                            st.warning(
+                                "**PDF conversion failed.**\n\n"
+                                "**Converters tried:** WeasyPrint → LibreOffice → reportlab\n\n"
+                                "**To fix on macOS:** `brew install --cask libreoffice` then restart the app,\n"
+                                "or `brew install cairo pango` for WeasyPrint.\n\n"
+                                "See the **PDF converter log** expander above for details."
+                            )
 
                 reports = st.session_state.get("generated_reports", [])
                 reports.append(entry)

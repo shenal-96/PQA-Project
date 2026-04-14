@@ -39,6 +39,10 @@ class AnalysisConfig:
     freq_recovery_lower_increase: float = 49.75
     freq_recovery_upper_decrease: float = 50.25
     freq_recovery_lower_decrease: float = 49.50
+    # After a sustained in-band window is found, keep verifying for this many
+    # seconds.  If the signal exits the band again during verification
+    # (oscillation), the candidate is discarded and the search resumes.
+    recovery_verify_s: float = 6.0
 
     @classmethod
     def iso_8528_defaults(cls):
@@ -109,21 +113,27 @@ def load_and_prepare_csv(file_path_or_buffer, start_time=None, end_time=None):
 
 
 def calculate_recovery_time(df_interp, start_timestamp, metric_column,
-                            upper, lower, sustain_s=0.3):
+                            upper, lower, sustain_s=0.3, verify_s=10.0):
     """
     Calculate recovery time using 100ms-interpolated data with exact crossing detection.
 
     Measures from start_timestamp (typically the band-exit crossing) to the
-    moment the signal re-enters [lower, upper] and stays there for sustain_s.
+    moment the signal re-enters [lower, upper] and stays there stably.
 
     Algorithm:
-    1. Scan the 100ms grid for the first grid point that begins a sustained
-       in-band window (sustain_s seconds of consecutive in-band points).
-    2. Once found, linearly interpolate between that point and the preceding
-       out-of-band point to find the exact crossing time.
+    1. Scan the 100ms grid for a grid point that begins a sustained in-band
+       window (sustain_s seconds of consecutive in-band points).
+    2. Record that crossing as a *candidate* recovery — do NOT return yet.
+    3. Continue scanning for verify_s seconds after the candidate: if the
+       signal exits the band again, invalidate and search for the next
+       sustained re-entry. This handles oscillating waveforms that briefly
+       re-enter the band before the final settlement.
+    4. Once a candidate survives verify_s of continuous in-band data, or the
+       data ends while the candidate is still valid, return it.
 
     Parameters:
         upper / lower: absolute band boundaries in signal units (V or Hz).
+        verify_s: seconds to keep verifying after a candidate is found (default 10).
 
     Returns:
         float or None: recovery time in seconds (to ~1ms precision), or None
@@ -137,10 +147,26 @@ def calculate_recovery_time(df_interp, start_timestamp, metric_column,
     within = (values >= lower) & (values <= upper)
 
     sustain_pts = max(1, int(sustain_s / 0.1))  # 0.1s = 100ms interval
+    verify_pts = max(1, int(verify_s / 0.1))
+
+    candidate_time = None
+    candidate_idx = None  # grid index where the candidate was set
 
     for i in range(len(within)):
         if not within[i]:
+            # Signal is out of band — invalidate any candidate
+            candidate_time = None
+            candidate_idx = None
             continue
+
+        if candidate_time is not None:
+            # Candidate exists and signal still in band.
+            # If we've verified for verify_s past the candidate, accept it.
+            if (i - candidate_idx) >= verify_pts:
+                return candidate_time
+            continue
+
+        # No candidate yet — check if this starts a sustained window
         end = min(i + sustain_pts, len(within))
         if not np.all(within[i:end]):
             continue
@@ -149,7 +175,9 @@ def calculate_recovery_time(df_interp, start_timestamp, metric_column,
         # Interpolate back to find the exact band-crossing time between
         # grid point i-1 (out-of-band) and grid point i (in-band).
         if i == 0:
-            return (pd.Timestamp(timestamps[0]) - start_timestamp).total_seconds()
+            candidate_time = (pd.Timestamp(timestamps[0]) - start_timestamp).total_seconds()
+            candidate_idx = i
+            continue
 
         v_prev = values[i - 1]
         v_curr = values[i]
@@ -167,9 +195,11 @@ def calculate_recovery_time(df_interp, start_timestamp, metric_column,
         dv = v_curr - v_prev
         frac = np.clip((boundary - v_prev) / dv, 0.0, 1.0) if abs(dv) > 1e-12 else 0.0
         t_cross = t_prev + pd.Timedelta(seconds=dt * frac)
-        return (t_cross - start_timestamp).total_seconds()
+        candidate_time = (t_cross - start_timestamp).total_seconds()
+        candidate_idx = i
 
-    return None
+    # Data ended — return candidate if one survived to the end
+    return candidate_time
 
 
 def calculate_exit_time(df_interp, event_timestamp, metric_column,
@@ -182,6 +212,11 @@ def calculate_exit_time(df_interp, event_timestamp, metric_column,
     event_timestamp. The first in-band point found (moving backwards) marks
     the transition: that point is in-band, the next point (forward in time)
     is out-of-band. We interpolate between them to find the exact crossing.
+
+    Edge case — signal already out of band at event time (not recovered from
+    a previous event): returns event_timestamp itself so that recovery is
+    measured from this event rather than inheriting stale timing from an
+    earlier event.
 
     Parameters:
         upper / lower: absolute band boundaries in signal units (V or Hz).
@@ -236,6 +271,66 @@ def calculate_exit_time(df_interp, event_timestamp, metric_column,
     return None
 
 
+def calculate_forward_exit_time(df_interp, event_timestamp, metric_column,
+                                upper, lower, lookforward_s=30):
+    """
+    Find the exact time the signal exits the tolerance band AFTER event_timestamp.
+
+    Used as a fallback when calculate_exit_time returns None — i.e. the signal
+    was still in-band at the event detection point and the band exit happens
+    after the load change (typical for slow governor response where the
+    frequency nadir lags the load step by one or more seconds).
+
+    Only called when the measured deviation (V_dev / F_dev) confirms the signal
+    actually left the band — so this scan will always find a crossing within
+    the lookforward window.
+
+    Parameters:
+        upper / lower: absolute band boundaries in signal units (V or Hz).
+        lookforward_s: how far ahead to scan (default 30s).
+
+    Returns:
+        pd.Timestamp: exact exit crossing, or None if signal stayed in-band.
+    """
+    lookforward_end = event_timestamp + pd.Timedelta(seconds=lookforward_s)
+    subset = df_interp[
+        (df_interp["Timestamp"] >= event_timestamp) &
+        (df_interp["Timestamp"] <= lookforward_end)
+    ].reset_index(drop=True)
+
+    if subset.empty or metric_column not in subset.columns:
+        return None
+
+    values = pd.to_numeric(subset[metric_column], errors="coerce").values
+    timestamps = subset["Timestamp"].values
+    within = (values >= lower) & (values <= upper)
+
+    for i in range(len(within)):
+        if not within[i]:
+            # Already out of band at the event timestamp itself.
+            if i == 0:
+                return event_timestamp
+            # Interpolate between i-1 (in-band) and i (out-of-band).
+            v_in  = values[i - 1]
+            v_out = values[i]
+            t_in  = pd.Timestamp(timestamps[i - 1])
+            t_out = pd.Timestamp(timestamps[i])
+            dt    = (t_out - t_in).total_seconds()
+
+            if v_out > upper:
+                boundary = upper
+            elif v_out < lower:
+                boundary = lower
+            else:
+                boundary = upper if abs(v_out - upper) < abs(v_out - lower) else lower
+
+            dv = v_out - v_in
+            frac = np.clip((boundary - v_in) / dv, 0.0, 1.0) if abs(dv) > 1e-12 else 0.0
+            return t_in + pd.Timedelta(seconds=dt * frac)
+
+    return None  # Signal stayed in-band throughout the forward window
+
+
 def _measured_extreme(df, event_ts, column, dkw, window_s=5):
     """
     Return the actual measured extreme value of `column` in the `window_s`
@@ -248,7 +343,7 @@ def _measured_extreme(df, event_ts, column, dkw, window_s=5):
     """
     end_ts = event_ts + pd.Timedelta(seconds=window_s)
     subset = df[
-        (df["Timestamp"] > event_ts) &
+        (df["Timestamp"] >= event_ts) &
         (df["Timestamp"] <= end_ts)
     ]
     if subset.empty or column not in subset.columns:
@@ -368,8 +463,10 @@ def perform_analysis(df, config: AnalysisConfig):
     df_proc["Avg_THD_F"] = df[thd_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1) if thd_cols else np.nan
 
     # --- Power Factor ---
+    # Logger records PF as negative on the source/generator side (sign convention).
+    # Take abs() so the plot displays 1.0 at unity PF regardless of measurement direction.
     pf_cols = [c for c in df.columns if "PF" in c.upper() and "AVG" in c.upper()]
-    df_proc["Avg_PF"] = df[pf_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1) if pf_cols else np.nan
+    df_proc["Avg_PF"] = df[pf_cols].apply(pd.to_numeric, errors="coerce").abs().mean(axis=1) if pf_cols else np.nan
 
     # --- Power & Frequency ---
     df_proc["Avg_kW"] = pd.to_numeric(df.get("P_sum_AVG", 0), errors="coerce") / 1000
@@ -433,17 +530,30 @@ def perform_analysis(df, config: AnalysisConfig):
         v_lower = nom_v * (1 - tol_v / 100)
 
         if "Avg_Voltage_LL" in df_interp.columns and df_interp["Avg_Voltage_LL"].notna().any():
-            events["V_exit_ts"] = events["Timestamp"].apply(
-                lambda x: calculate_exit_time(df_interp, x, "Avg_Voltage_LL", v_upper, v_lower)
-            )
+            # Compute V_dev first so we can gate the forward scan on it.
             events["V_dev"] = events.apply(
                 lambda row: _measured_extreme(df_proc, row["Timestamp"], "Avg_Voltage_LL",
                                               row["dKw"], window_s=config.snapshot_window_s),
                 axis=1,
             )
+            v_exit_vals = []
+            for _, row in events.iterrows():
+                ts = row["Timestamp"]
+                exit_ts = calculate_exit_time(df_interp, ts, "Avg_Voltage_LL", v_upper, v_lower)
+                if exit_ts is None:
+                    # Only scan forward if the measured extreme actually left the band.
+                    v_dev = row["V_dev"]
+                    if pd.notnull(v_dev) and not (v_lower <= v_dev <= v_upper):
+                        exit_ts = calculate_forward_exit_time(
+                            df_interp, ts, "Avg_Voltage_LL", v_upper, v_lower,
+                        )
+                v_exit_vals.append(exit_ts)
+            events["V_exit_ts"] = v_exit_vals
+
             events["V_rec_s"] = events.apply(
                 lambda row: calculate_recovery_time(
                     df_interp, row["V_exit_ts"], "Avg_Voltage_LL", v_upper, v_lower,
+                    verify_s=config.recovery_verify_s,
                 ) if pd.notnull(row["V_exit_ts"]) else None,
                 axis=1,
             )
@@ -471,21 +581,31 @@ def perform_analysis(df, config: AnalysisConfig):
                 lambda dk: config.freq_recovery_lower_increase if dk > 0
                            else config.freq_recovery_lower_decrease
             )
-            events["F_exit_ts"] = events.apply(
-                lambda row: calculate_exit_time(
-                    df_interp, row["Timestamp"], "Avg_Frequency",
-                    *_f_band(row["dKw"])
-                ),
-                axis=1,
-            )
+            # Compute F_dev first so we can gate the forward scan on it.
             events["F_dev"] = events.apply(
                 lambda row: _measured_extreme(df_proc, row["Timestamp"], "Avg_Frequency",
                                               row["dKw"], window_s=config.snapshot_window_s),
                 axis=1,
             )
+            f_exit_vals = []
+            for _, row in events.iterrows():
+                ts = row["Timestamp"]
+                f_upper, f_lower = _f_band(row["dKw"])
+                exit_ts = calculate_exit_time(df_interp, ts, "Avg_Frequency", f_upper, f_lower)
+                if exit_ts is None:
+                    # Only scan forward if the measured extreme actually left the band.
+                    f_dev = row["F_dev"]
+                    if pd.notnull(f_dev) and not (f_lower <= f_dev <= f_upper):
+                        exit_ts = calculate_forward_exit_time(
+                            df_interp, ts, "Avg_Frequency", f_upper, f_lower,
+                        )
+                f_exit_vals.append(exit_ts)
+            events["F_exit_ts"] = f_exit_vals
+
             events["F_rec_s"] = events.apply(
                 lambda row: calculate_recovery_time(
                     df_interp, row["F_exit_ts"], "Avg_Frequency", *_f_band(row["dKw"]),
+                    verify_s=config.recovery_verify_s,
                 ) if pd.notnull(row["F_exit_ts"]) else None,
                 axis=1,
             )
@@ -495,6 +615,48 @@ def perform_analysis(df, config: AnalysisConfig):
             events["F_rec_lower"] = np.nan
             events["F_dev"] = np.nan
             events["F_rec_s"] = np.nan
+
+        # Detect events where V or F was already out of band at event time
+        # (not recovered from a previous step).
+        def _already_out_of_band(ts, column, upper, lower):
+            """True if signal was out of band in the pre-event steady state.
+
+            Checks a 1 s window ending 2 s before the event so the reading
+            reflects the steady state, not the beginning of the transient
+            response to the load change.
+            """
+            window_end = ts - pd.Timedelta(seconds=2)
+            window_start = window_end - pd.Timedelta(seconds=1)
+            pre = df_interp[
+                (df_interp["Timestamp"] >= window_start) &
+                (df_interp["Timestamp"] <= window_end)
+            ]
+            if pre.empty or column not in pre.columns:
+                return False
+            val = pd.to_numeric(pre[column].iloc[-1], errors="coerce")
+            if pd.isna(val):
+                return False
+            return val < lower or val > upper
+
+        if "V_exit_ts" in events.columns:
+            events["V_not_recovered"] = events["Timestamp"].apply(
+                lambda ts: _already_out_of_band(ts, "Avg_Voltage_LL", v_upper, v_lower)
+                if "Avg_Voltage_LL" in df_interp.columns else False
+            )
+        else:
+            events["V_not_recovered"] = False
+
+        if "F_exit_ts" in events.columns:
+            events["F_not_recovered"] = events.apply(
+                lambda row: _already_out_of_band(
+                    row["Timestamp"], "Avg_Frequency",
+                    row.get("F_rec_upper", nom_f * (1 + tol_f / 100)),
+                    row.get("F_rec_lower", nom_f * (1 - tol_f / 100)),
+                ) if "Avg_Frequency" in df_interp.columns else False,
+                axis=1,
+            )
+        else:
+            events["F_not_recovered"] = False
 
         # Apply compliance check to each event
         compliance = events.apply(lambda row: check_compliance(row, config), axis=1)
