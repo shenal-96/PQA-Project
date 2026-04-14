@@ -741,7 +741,7 @@ def save_compliance_table_as_image(df, filename, title_text, nom_v=415.0, nom_f=
         if row == 0:
             # Header
             cell.set_facecolor(_HDR_BG)
-            cell.set_text_props(color=_HDR_FG, weight="bold", fontsize=14)
+            cell.set_text_props(color=_HDR_FG, weight="bold", fontsize=20)
             cell.set_edgecolor(_ACCENT)
             cell.set_linewidth(1.5)
         else:
@@ -749,11 +749,11 @@ def save_compliance_table_as_image(df, filename, title_text, nom_v=415.0, nom_f=
             cell.set_facecolor(_ROW_EVEN if is_even else _ROW_ODD)
             cell.set_edgecolor(_BORDER)
             cell.set_linewidth(0.4)
-            cell.set_text_props(fontsize=14, color=_TEXT_MAIN)
+            cell.set_text_props(fontsize=20, color=_TEXT_MAIN)
 
             # Numeric / data columns: slightly muted colour
             if col in numeric_idx:
-                cell.set_text_props(fontsize=14, color=_TEXT_SUB)
+                cell.set_text_props(fontsize=20, color=_TEXT_SUB)
 
             # Compliance Status — coloured badge background
             if col == status_idx:
@@ -761,17 +761,17 @@ def save_compliance_table_as_image(df, filename, title_text, nom_v=415.0, nom_f=
                 is_pass = "Pass" in val
                 cell.set_facecolor(_PASS_BG if is_pass else _FAIL_BG)
                 cell.set_text_props(
-                    fontsize=15, weight="bold",
+                    fontsize=21, weight="bold",
                     color=_GREEN if is_pass else _RED,
                 )
 
             # Failure Reasons — left-aligned for readability
             if col == notes_idx:
-                cell.set_text_props(fontsize=13, color="#64748b", ha="left")
+                cell.set_text_props(fontsize=18, color="#64748b", ha="left")
 
     # Title block
     fig.text(0.5, 0.995, "ISO 8528 Compliance Report", ha="center", va="top",
-             fontsize=18, fontweight="800", color=_TEXT_MAIN)
+             fontsize=25, fontweight="800", color=_TEXT_MAIN)
 
     plt.tight_layout(rect=[0.005, 0.005, 0.995, 0.955])
     svg_path = os.path.splitext(filename)[0] + ".svg"
