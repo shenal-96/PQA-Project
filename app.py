@@ -74,6 +74,7 @@ _DEV_DEFAULTS: dict = {
     "apply_iso": False,
     "show_limits": False,
     "show_limits_snapshots": False,
+    "show_intersections": False,
     "show_debug": False,
     "detection_window": 5.0,
     "recovery_verify_s": 6.0,
@@ -400,6 +401,7 @@ def _render_intersection_footer(overrides):
                 tol_v=cfg.voltage_tolerance_pct,
                 tol_f=cfg.frequency_tolerance_pct,
                 show_debug=st.session_state.get("show_debug", False),
+                show_intersections=st.session_state.get("show_intersections", False),
                 rated_load_kw=st.session_state.get("rated_load_kw"),
                 window_s=cfg.snapshot_window_s,
             )
@@ -759,6 +761,13 @@ with st.sidebar:
     apply_iso = st.checkbox("Apply ISO 8528 Presets", value=_ds.get("apply_iso", False))
     show_limits = st.checkbox("Show Limits on Graphs", value=_ds.get("show_limits", False))
     show_limits_snapshots = st.checkbox("Show Limits on Snapshots", value=_ds.get("show_limits_snapshots", False))
+    show_intersections = st.checkbox(
+        "Show Intersection Points",
+        value=_ds.get("show_intersections", False),
+        help="Overlay the exact band-exit (orange ★) and recovery (lime ★) crossing markers on event snapshots, "
+             "along with the compliance band limits used for each event. "
+             "Useful for verifying that calculated recovery times match the waveform.",
+    )
     show_debug = st.checkbox("Show Event Detection (De-bugging)", value=_ds.get("show_debug", False))
     detection_window = st.number_input(
         "Detection Window (s)",
@@ -783,6 +792,7 @@ with st.sidebar:
     _ds["apply_iso"] = apply_iso
     _ds["show_limits"] = show_limits
     _ds["show_limits_snapshots"] = show_limits_snapshots
+    _ds["show_intersections"] = show_intersections
     _ds["show_debug"] = show_debug
     _ds["detection_window"] = detection_window
     _ds["snapshot_window"] = snapshot_window
@@ -1267,6 +1277,7 @@ if selected_csv_path is not None:
             "intersection_overrides": {},   # clear any overrides from previous run
             "event_window_overrides": {},   # clear per-event snapshot window overrides
             "show_debug": show_debug,
+            "show_intersections": show_intersections,
             "show_limits_snapshots": show_limits_snapshots,
         })
 
@@ -1329,6 +1340,7 @@ if selected_csv_path is not None:
                         show_limits=show_limits_snapshots,
                         nom_v=nom_v, nom_f=nom_f, tol_v=v_tol, tol_f=f_tol,
                         show_debug=show_debug,
+                        show_intersections=show_intersections,
                         rated_load_kw=rated_load_kw,
                         window_s=snapshot_window,
                     )
@@ -1618,6 +1630,7 @@ if st.session_state.get("analysis_done"):
                             tol_v=config.voltage_tolerance_pct,
                             tol_f=config.frequency_tolerance_pct,
                             show_debug=st.session_state.get("show_debug", False),
+                            show_intersections=st.session_state.get("show_intersections", False),
                             event_row=row,
                             rated_load_kw=st.session_state.get("rated_load_kw"),
                             window_s=_new_win,

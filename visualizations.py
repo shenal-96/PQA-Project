@@ -51,7 +51,7 @@ def _style_ax(ax, ylabel, color):
 def generate_plots(df_proc, client_name, output_dir="output/Graphs",
                    show_limits=False, nom_v=415.0, nom_f=50.0,
                    tol_v=1.0, tol_f=0.5, metric_keys=None,
-                   show_debug=False, df_events=None, thresh_kw=50.0):
+                   show_debug=False, show_intersections=False, df_events=None, thresh_kw=50.0):
     """
     Generate time-series plots for available metrics.
 
@@ -270,8 +270,8 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
 def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_after,
                               client_name, output_dir="output/Snapshots",
                               show_limits=False, nom_v=415.0, nom_f=50.0, tol_v=1.0, tol_f=0.5,
-                              show_debug=False, event_row=None, rated_load_kw=None,
-                              window_s=10):
+                              show_debug=False, show_intersections=False, event_row=None,
+                              rated_load_kw=None, window_s=10):
     """
     Generate a +-5 second snapshot around a load event showing V, I, F, kW.
 
@@ -285,11 +285,11 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    # Determine time bounds: default ±window_s, but extend if debug markers
+    # Determine time bounds: default ±window_s, but extend if intersection markers
     # (exit / recovery) fall outside the default window.
     left_s = window_s
     right_s = window_s
-    if show_debug and event_row is not None:
+    if show_intersections and event_row is not None:
         for exit_key, rec_key in [("V_exit_ts", "V_rec_s"), ("F_exit_ts", "F_rec_s")]:
             ex = event_row.get(exit_key)
             rc = event_row.get(rec_key)
@@ -421,11 +421,17 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         axes[3].plot(df_win["Timestamp"], y,
                      color=_GREEN, linewidth=1.5, solid_capstyle="round")
 
-    # ── Debug overlay (band-exit / recovery crossings) ───────────────────
+    # ── Event detection overlay ───────────────────────────────────────────
     if show_debug and event_row is not None:
+        ev_kw = dict(linewidth=1.0, linestyle=":", zorder=5, alpha=0.85)
+        axes[0].axvline(event_ts, color=_AMBER, **ev_kw)
+        axes[2].axvline(event_ts, color=_AMBER, **ev_kw)
+
+    # ── Intersection points overlay (band-exit / recovery crossings) ──────
+    if show_intersections and event_row is not None:
         from matplotlib.lines import Line2D
-        ev_kw    = dict(linewidth=1.0, linestyle=":", zorder=5, alpha=0.85)
         cross_kw = dict(linewidth=1.0, linestyle=":", zorder=5, alpha=0.85)
+        lkw_dbg  = dict(lw=1.2, ls="--", alpha=0.85, zorder=4)
 
         v_upper_band = nom_v * (1 + tol_v / 100)
         v_lower_band = nom_v * (1 - tol_v / 100)
@@ -442,15 +448,12 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         if pd.isnull(f_lower): f_lower = nom_f * (1 - tol_f / 100)
 
         # ── Voltage panel ────────────────────────────────────────────────
-        # Always draw the actual compliance limits when debug is on (amber dashed).
-        lkw_dbg = dict(lw=1.2, ls="--", alpha=0.85, zorder=4)
         axes[0].axhline(v_upper_band, color=_AMBER,
                         label=f"V limit +{tol_v}% ({v_upper_band:.1f} V)", **lkw_dbg)
         axes[0].axhline(v_lower_band, color=_AMBER,
                         label=f"V limit -{tol_v}% ({v_lower_band:.1f} V)", **lkw_dbg)
 
         v_band_val = v_upper_band if (pd.notnull(v_dev) and v_dev > nom_v) else v_lower_band
-        axes[0].axvline(event_ts, color=_AMBER, **ev_kw)
 
         if pd.notnull(v_exit):
             vx = pd.Timestamp(v_exit)
@@ -477,15 +480,12 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                        loc="upper right", edgecolor=_GRID, facecolor=_BG)
 
         # ── Frequency panel ──────────────────────────────────────────────
-        # Draw the per-event asymmetric recovery band (amber dashed) — these are the
-        # actual limits used for compliance, direction-dependent per event.
         axes[2].axhline(f_upper, color=_AMBER,
                         label=f"F limit upper ({f_upper:.3f} Hz)", **lkw_dbg)
         axes[2].axhline(f_lower, color=_AMBER,
                         label=f"F limit lower ({f_lower:.3f} Hz)", **lkw_dbg)
 
         f_band_val = f_upper if (pd.notnull(f_dev) and f_dev > nom_f) else f_lower
-        axes[2].axvline(event_ts, color=_AMBER, **ev_kw)
 
         if pd.notnull(f_exit):
             fx = pd.Timestamp(f_exit)
@@ -553,7 +553,8 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
 
 def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Snapshots",
                            show_limits=False, nom_v=415.0, nom_f=50.0, tol_v=1.0, tol_f=0.5,
-                           show_debug=False, rated_load_kw=None, window_s=10):
+                           show_debug=False, show_intersections=False, rated_load_kw=None,
+                           window_s=10):
     """Generate snapshots for all detected events in parallel. Returns list of file paths."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -572,6 +573,7 @@ def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Sn
             show_limits=show_limits,
             nom_v=nom_v, nom_f=nom_f, tol_v=tol_v, tol_f=tol_f,
             show_debug=show_debug,
+            show_intersections=show_intersections,
             event_row=row,
             rated_load_kw=rated_load_kw,
             window_s=window_s,
