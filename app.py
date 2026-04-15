@@ -1726,10 +1726,6 @@ if generate_clicked and (selected_template_path is not None or html_template_str
                 )
                 log.info(f"Placeholder map built: {list(p_map.keys())}")
 
-                # Debug: show what date was extracted
-                extracted_date = p_map.get("{{Date}}", "NOT FOUND")
-                st.write(f"**DEBUG: Extracted date for report:** `{extracted_date}`")
-
                 # Warn if fewer snapshot placeholders were mapped than events detected.
                 _n_events = len(st.session_state.get("df_events", pd.DataFrame()))
                 _n_snaps_mapped = sum(1 for k in p_map if k.startswith("{{Snapshot_"))
