@@ -253,14 +253,18 @@ def get_placeholder_map(client_name, config_values, df=None,
     placeholder_map["{{Site_Address}}"] = config_values.get("site_address", "")
     placeholder_map["{{Custom_Field}}"] = config_values.get("custom_text", "")
 
-    # Date/time from data
+    # Date/time from data (extracted from CSV, not today's date)
     if df is not None and not df.empty and "Timestamp" in df.columns:
         min_ts = df["Timestamp"].min()
         max_ts = df["Timestamp"].max()
         fmt_dt = "%d/%m/%Y %I:%M:%S %p"
         placeholder_map["{{Start Time}}"] = min_ts.strftime(fmt_dt)
         placeholder_map["{{End Time}}"] = max_ts.strftime(fmt_dt)
-        placeholder_map["{{Date}}"] = min_ts.strftime("%d/%m/%Y")
+        date_str = min_ts.strftime("%d/%m/%Y")
+        placeholder_map["{{Date}}"] = date_str
+        log.info(f"Extracted test date from CSV: {date_str} (data range: {min_ts} to {max_ts})")
+    else:
+        log.warning(f"Unable to extract date from CSV: df={df is not None}, empty={df.empty if df is not None else 'N/A'}, has Timestamp={'Timestamp' in df.columns if df is not None else 'N/A'}")
 
     return placeholder_map
 
