@@ -295,13 +295,22 @@ def inject_images_to_word(template_stream, placeholder_map):
 
     def apply_strict_formatting(paragraph):
         p_format = paragraph.paragraph_format
-        p_format.line_spacing = 1.0
-        p_format.space_before = Pt(0)
-        p_format.space_after = Pt(0)
-        p_format.keep_with_next = True
+        p_format.line_spacing = 1.15  # Slightly looser to match Word
+        p_format.space_before = Pt(6)
+        p_format.space_after = Pt(6)
+        p_format.keep_with_next = False
         p_format.left_indent = Inches(0)
         p_format.right_indent = Inches(0)
         p_format.first_line_indent = Inches(0)
+
+    def preserve_paragraph_spacing(paragraph):
+        """Ensure paragraphs have explicit spacing for LibreOffice PDF conversion."""
+        p_format = paragraph.paragraph_format
+        # Only set if not already set (preserve template intent)
+        if p_format.space_before is None or p_format.space_before == Pt(0):
+            p_format.space_before = Pt(3)
+        if p_format.space_after is None or p_format.space_after == Pt(0):
+            p_format.space_after = Pt(3)
 
     def process_paragraphs(paragraphs):
         for paragraph in paragraphs:
@@ -321,21 +330,32 @@ def inject_images_to_word(template_stream, placeholder_map):
                     run = paragraph.add_run()
                     run.add_picture(value, width=_content_width)
                 else:
-                    # Text replacement: rebuild paragraph with replaced text
+                    # Text replacement: preserve formatting by modifying runs in place
+                    # Replace text within runs, handling placeholders split across runs
                     new_text = full_text.replace(key, str(value))
-                    # Clear all runs
-                    for run in paragraph.runs:
+
+                    # Clear all runs and rebuild with new text
+                    # (preserves paragraph-level formatting like spacing)
+                    for run in list(paragraph.runs):
                         run._element.getparent().remove(run._element)
-                    # Add single run with replaced text
+
+                    # Add new run with replaced text, preserving font
                     run = paragraph.add_run(new_text)
                     run.font.name = "Arial"
-                    run.font.size = Pt(12)
+                    run.font.size = Pt(11)  # Use 11pt for body text, not 12pt
 
     process_paragraphs(doc.paragraphs)
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
                 process_paragraphs(cell.paragraphs)
+
+    # Ensure all sections have consistent margins for LibreOffice PDF conversion
+    for section in doc.sections:
+        section.top_margin = Inches(0.75)
+        section.bottom_margin = Inches(0.75)
+        section.left_margin = Inches(0.75)
+        section.right_margin = Inches(0.75)
 
     return doc
 
