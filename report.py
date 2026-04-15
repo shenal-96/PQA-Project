@@ -7,9 +7,12 @@ Handles Word template injection, placeholder mapping, and PDF conversion.
 import os
 import glob
 import io
+import logging
 from docx import Document
 from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+log = logging.getLogger(__name__)
 
 
 _PDF_SCRIPT = r"""
