@@ -418,179 +418,281 @@ def _render_intersection_footer(overrides):
 # Palette: deep navy sidebar · electric blue accents · clean white surfaces · amber warnings
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 /* ── Global ── */
 html, body, [class*="css"] {
     font-family: 'Inter', sans-serif;
 }
 .main .block-container {
-    padding-top: 1.75rem;
-    padding-bottom: 2rem;
-    max-width: 1200px;
+    padding-top: 1.5rem;
+    padding-bottom: 2.5rem;
+    max-width: 1240px;
 }
 
 /* ── Sidebar ── */
 div[data-testid="stSidebar"] {
-    background-color: #0f172a;
-    border-right: 1px solid #1e293b;
+    background-color: #0a1628;
+    border-right: 1px solid #1a2744;
 }
 div[data-testid="stSidebar"] * {
     color: #cbd5e1 !important;
 }
 div[data-testid="stSidebar"] h1 {
-    font-size: 1.1rem !important;
+    font-size: 0.95rem !important;
     font-weight: 700 !important;
-    letter-spacing: 0.05em !important;
+    letter-spacing: 0.06em !important;
     text-transform: uppercase !important;
     color: #f1f5f9 !important;
 }
 div[data-testid="stSidebar"] h2,
 div[data-testid="stSidebar"] h3 {
-    font-size: 0.7rem !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.1em !important;
+    font-size: 0.65rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.12em !important;
     text-transform: uppercase !important;
-    color: #64748b !important;
-    margin-top: 0.25rem !important;
+    color: #475569 !important;
+    margin-top: 0.15rem !important;
     margin-bottom: 0.5rem !important;
 }
 div[data-testid="stSidebar"] label,
 div[data-testid="stSidebar"] .stCheckbox label {
-    font-size: 0.8rem !important;
+    font-size: 0.795rem !important;
     color: #94a3b8 !important;
 }
 div[data-testid="stSidebar"] hr {
-    border-color: #1e293b !important;
-    margin: 0.75rem 0 !important;
+    border-color: #1a2744 !important;
+    margin: 0.85rem 0 !important;
 }
 div[data-testid="stSidebar"] input,
 div[data-testid="stSidebar"] .stNumberInput input,
 div[data-testid="stSidebar"] .stTextInput input {
-    background-color: #1e293b !important;
-    border: 1px solid #334155 !important;
+    background-color: #111e35 !important;
+    border: 1px solid #263352 !important;
     color: #e2e8f0 !important;
     border-radius: 6px !important;
     font-family: 'JetBrains Mono', monospace !important;
-    font-size: 0.8rem !important;
+    font-size: 0.78rem !important;
+    transition: border-color 0.15s ease !important;
+}
+div[data-testid="stSidebar"] input:focus,
+div[data-testid="stSidebar"] .stNumberInput input:focus,
+div[data-testid="stSidebar"] .stTextInput input:focus {
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 0 2px rgba(59,130,246,0.15) !important;
 }
 div[data-testid="stSidebar"] .stSelectbox > div > div {
-    background-color: #1e293b !important;
-    border: 1px solid #334155 !important;
+    background-color: #111e35 !important;
+    border: 1px solid #263352 !important;
     color: #e2e8f0 !important;
     border-radius: 6px !important;
 }
+/* Sidebar scrollbar */
+div[data-testid="stSidebar"]::-webkit-scrollbar { width: 4px; }
+div[data-testid="stSidebar"]::-webkit-scrollbar-track { background: transparent; }
+div[data-testid="stSidebar"]::-webkit-scrollbar-thumb { background: #263352; border-radius: 4px; }
 
-/* ── Primary buttons ── */
-div[data-testid="stSidebar"] .stButton > button[kind="primary"],
+/* ── Run Analysis button — prominent CTA ── */
+div[data-testid="stSidebar"] .stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+    color: #fff !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 700 !important;
+    font-size: 0.88rem !important;
+    letter-spacing: 0.03em !important;
+    box-shadow: 0 2px 8px rgba(37,99,235,0.35), 0 0 0 0 rgba(37,99,235,0) !important;
+    transition: all 0.18s ease !important;
+    padding: 0.6rem 1rem !important;
+}
+div[data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
+    background: linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%) !important;
+    box-shadow: 0 4px 16px rgba(37,99,235,0.5) !important;
+    transform: translateY(-1px) !important;
+}
+div[data-testid="stSidebar"] .stButton > button[kind="primary"]:active {
+    transform: translateY(0) !important;
+    box-shadow: 0 1px 4px rgba(37,99,235,0.3) !important;
+}
+/* Primary buttons in main area */
 .stButton > button[kind="primary"] {
     background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
     color: #fff !important;
     border: none !important;
-    border-radius: 6px !important;
+    border-radius: 7px !important;
     font-weight: 600 !important;
-    font-size: 0.85rem !important;
+    font-size: 0.875rem !important;
     letter-spacing: 0.02em !important;
-    box-shadow: 0 1px 3px rgba(37,99,235,0.3) !important;
-    transition: all 0.15s ease !important;
+    box-shadow: 0 2px 6px rgba(37,99,235,0.25) !important;
+    transition: all 0.18s ease !important;
 }
-div[data-testid="stSidebar"] .stButton > button[kind="primary"]:hover,
 .stButton > button[kind="primary"]:hover {
     background: linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%) !important;
-    box-shadow: 0 4px 12px rgba(37,99,235,0.4) !important;
+    box-shadow: 0 4px 14px rgba(37,99,235,0.4) !important;
+    transform: translateY(-1px) !important;
 }
 div[data-testid="stSidebar"] .stButton > button:not([kind="primary"]) {
-    background-color: #1e293b !important;
-    color: #94a3b8 !important;
-    border: 1px solid #334155 !important;
+    background-color: #111e35 !important;
+    color: #64748b !important;
+    border: 1px solid #1e2f4d !important;
     border-radius: 5px !important;
-    font-size: 0.75rem !important;
+    font-size: 0.74rem !important;
+    transition: all 0.15s ease !important;
+}
+div[data-testid="stSidebar"] .stButton > button:not([kind="primary"]):hover {
+    color: #94a3b8 !important;
+    border-color: #334155 !important;
 }
 
 /* ── Download buttons ── */
 div[data-testid="stSidebar"] .stDownloadButton > button {
-    background-color: #1e293b !important;
-    color: #7dd3fc !important;
-    border: 1px solid #334155 !important;
+    background-color: #0f1f3a !important;
+    color: #60a5fa !important;
+    border: 1px solid #1e3a5f !important;
     border-radius: 6px !important;
     font-size: 0.78rem !important;
     font-weight: 500 !important;
+    transition: all 0.15s ease !important;
 }
 div[data-testid="stSidebar"] .stDownloadButton > button:hover {
-    background-color: #0f4c81 !important;
-    border-color: #2563eb !important;
+    background-color: #1a3460 !important;
+    border-color: #3b82f6 !important;
+    color: #93c5fd !important;
 }
 
 /* ── Main area headings ── */
 .main h1 {
-    font-size: 1.75rem;
-    font-weight: 700;
+    font-size: 1.8rem;
+    font-weight: 800;
     color: #0f172a;
-    letter-spacing: -0.02em;
-    border-bottom: 2px solid #2563eb;
-    padding-bottom: 0.4rem;
-    margin-bottom: 1.25rem;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
+    margin-bottom: 0.25rem;
 }
 .main h2 {
-    font-size: 1.15rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: -0.01em;
+    margin-top: 2rem;
+    margin-bottom: 0.5rem;
+    padding-left: 0.75rem;
+    border-left: 3px solid #2563eb;
+}
+.main h3 {
+    font-size: 0.95rem;
     font-weight: 600;
     color: #1e293b;
-    letter-spacing: -0.01em;
-    margin-top: 1.5rem;
-    margin-bottom: 0.75rem;
+    margin-top: 1rem;
+    margin-bottom: 0.4rem;
 }
 
 /* ── Metric cards ── */
 div[data-testid="stMetric"] {
-    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-    border: 1px solid #334155;
-    border-radius: 8px;
+    background: linear-gradient(145deg, #0c1a30 0%, #111e35 100%);
+    border: 1px solid #1e3050;
+    border-radius: 10px;
     padding: 1rem 1.25rem !important;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.03);
+    transition: box-shadow 0.2s ease;
+}
+div[data-testid="stMetric"]:hover {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
 }
 div[data-testid="stMetric"] label {
-    font-size: 0.7rem !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.08em !important;
+    font-size: 0.68rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.1em !important;
     text-transform: uppercase !important;
-    color: #64748b !important;
+    color: #475569 !important;
 }
 div[data-testid="stMetric"] [data-testid="stMetricValue"] {
     font-family: 'JetBrains Mono', monospace !important;
-    font-size: 1.6rem !important;
+    font-size: 1.7rem !important;
     font-weight: 700 !important;
-    color: #f1f5f9 !important;
+    color: #e2e8f0 !important;
 }
 
 /* ── Expanders ── */
 .stExpander {
-    border: 1px solid #e2e8f0 !important;
-    border-radius: 8px !important;
+    border: 1px solid #e8ecf2 !important;
+    border-radius: 10px !important;
     overflow: hidden !important;
+    transition: box-shadow 0.15s ease !important;
+    margin-bottom: 0.5rem !important;
+}
+.stExpander:hover {
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06) !important;
 }
 .stExpander summary {
-    font-weight: 500 !important;
+    font-weight: 600 !important;
     font-size: 0.875rem !important;
     color: #1e293b !important;
+    padding: 0.75rem 1rem !important;
+    transition: background 0.15s ease !important;
+}
+.stExpander summary:hover {
+    background: #f8fafc !important;
+}
+.stExpander[open] summary {
+    border-bottom: 1px solid #e8ecf2 !important;
+    background: #f8fafc !important;
+}
+
+/* ── Tabs ── */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 0 !important;
+    border-bottom: 2px solid #e2e8f0 !important;
+    background: transparent !important;
+    padding: 0 !important;
+}
+.stTabs [data-baseweb="tab"] {
+    font-size: 0.8rem !important;
+    font-weight: 600 !important;
+    color: #64748b !important;
+    padding: 0.6rem 1.1rem !important;
+    border-radius: 0 !important;
+    border: none !important;
+    background: transparent !important;
+    letter-spacing: 0.01em !important;
+    transition: color 0.15s ease !important;
+}
+.stTabs [data-baseweb="tab"]:hover {
+    color: #1e293b !important;
+    background: #f8fafc !important;
+}
+.stTabs [aria-selected="true"] {
+    color: #2563eb !important;
+    border-bottom: 2px solid #2563eb !important;
+    margin-bottom: -2px !important;
+    background: transparent !important;
 }
 
 /* ── Dataframe ── */
 .stDataFrame {
     border: 1px solid #e2e8f0 !important;
-    border-radius: 8px !important;
+    border-radius: 10px !important;
     overflow: hidden !important;
 }
 
 /* ── Alert / info boxes ── */
 .stAlert {
     border-radius: 8px !important;
-    font-size: 0.875rem !important;
+    font-size: 0.865rem !important;
+    border-left-width: 4px !important;
 }
 
-/* ── Status / spinner text ── */
+/* ── Status / spinner ── */
 .stStatus {
-    border-radius: 8px !important;
+    border-radius: 10px !important;
     font-size: 0.85rem !important;
+    border: 1px solid #e2e8f0 !important;
+}
+
+/* ── Divider ── */
+hr {
+    border-color: #f1f5f9 !important;
+    margin: 1.25rem 0 !important;
 }
 
 /* ── Caption / small text ── */
@@ -600,10 +702,84 @@ div[data-testid="stMetric"] [data-testid="stMetricValue"] {
 }
 
 /* ── Code blocks in debug log ── */
-.stCodeBlock {
+.stCodeBlock, .stCode code {
     font-family: 'JetBrains Mono', monospace !important;
     font-size: 0.72rem !important;
 }
+
+/* ── Download button in main area ── */
+.stDownloadButton > button {
+    border-radius: 7px !important;
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+    transition: all 0.15s ease !important;
+}
+
+/* ── Spinner text ── */
+.stSpinner > div { color: #2563eb !important; }
+
+/* ── Toast ── */
+.stToast {
+    border-radius: 8px !important;
+    font-size: 0.85rem !important;
+}
+
+/* ── PQA custom metric strip ── */
+.pqa-metrics {
+    display: flex; gap: 12px; margin: 1.25rem 0;
+}
+.pqa-metric-card {
+    flex: 1; background: linear-gradient(145deg, #0c1a30, #111e35);
+    border: 1px solid #1e3050; border-radius: 10px;
+    padding: 1rem 1.25rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    transition: box-shadow 0.2s ease;
+}
+.pqa-metric-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+.pqa-metric-card.pass  { border-color: #166534; box-shadow: 0 2px 8px rgba(22,101,52,0.2); }
+.pqa-metric-card.fail  { border-color: #991b1b; box-shadow: 0 2px 8px rgba(153,27,27,0.2); }
+.pqa-metric-card.overall-pass { border-color: #16a34a; border-width: 2px; }
+.pqa-metric-card.overall-fail { border-color: #dc2626; border-width: 2px; }
+.pqa-metric-label {
+    font-size: 0.65rem; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: #475569; margin-bottom: 0.4rem;
+}
+.pqa-metric-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.7rem; font-weight: 700; color: #e2e8f0; line-height: 1;
+}
+.pqa-metric-card.pass  .pqa-metric-value { color: #4ade80; }
+.pqa-metric-card.fail  .pqa-metric-value { color: #f87171; }
+.pqa-metric-sub {
+    font-size: 0.72rem; color: #64748b; margin-top: 0.25rem;
+}
+.pqa-overall-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 0.15rem 0.65rem; border-radius: 20px;
+    font-size: 0.75rem; font-weight: 700; letter-spacing: 0.05em;
+    margin-top: 0.4rem;
+}
+.pqa-overall-badge.pass { background: rgba(22,163,74,0.15); color: #4ade80; }
+.pqa-overall-badge.fail { background: rgba(220,38,38,0.15); color: #f87171; }
+
+/* ── Section title with accent bar ── */
+.pqa-section-header {
+    display: flex; align-items: center; gap: 10px;
+    margin: 2rem 0 0.75rem;
+}
+.pqa-section-bar {
+    width: 4px; height: 22px; border-radius: 2px; background: #2563eb; flex-shrink: 0;
+}
+.pqa-section-title {
+    font-size: 1.05rem; font-weight: 700; color: #0f172a; letter-spacing: -0.01em;
+}
+.pqa-section-badge {
+    font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.55rem;
+    border-radius: 20px; background: #eff6ff; color: #2563eb;
+    letter-spacing: 0.02em;
+}
+.pqa-section-badge.green { background: #f0fdf4; color: #16a34a; }
+.pqa-section-badge.red   { background: #fef2f2; color: #dc2626; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -676,7 +852,14 @@ _ds: dict = st.session_state["_ds"]  # shorthand used throughout the sidebar
 # SIDEBAR
 # ============================================================
 with st.sidebar:
-    st.title("\u2699\ufe0f Configuration")
+    st.markdown("""
+    <div style="display:flex;align-items:center;gap:8px;padding:0.75rem 0 0.25rem;">
+      <div style="width:28px;height:28px;background:rgba(37,99,235,0.18);border-radius:7px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49M7.76 7.76a6 6 0 0 0 0 8.49"/></svg>
+      </div>
+      <span style="font-size:0.78rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#94a3b8;">Configuration</span>
+    </div>
+    """, unsafe_allow_html=True)
 
     # ── Dev Mode ──────────────────────────────────────────────
     with st.expander("🛠 Dev Mode", expanded=_ds.get("dev_mode", False)):
@@ -1216,7 +1399,17 @@ with st.sidebar:
 # ============================================================
 # MAIN AREA
 # ============================================================
-st.title("\u26a1 Power Quality Analysis")
+st.markdown("""
+<div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:1.5rem;padding-bottom:1.25rem;border-bottom:2px solid #e2e8f0;">
+  <div style="width:42px;height:42px;background:linear-gradient(135deg,#1d4ed8,#2563eb);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 8px rgba(37,99,235,0.35);">
+    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polyline></svg>
+  </div>
+  <div>
+    <h1 style="margin:0;padding:0;border:none;font-size:1.65rem;font-weight:800;color:#0f172a;letter-spacing:-0.03em;line-height:1.15;">Power Quality Analysis</h1>
+    <p style="margin:0.2rem 0 0;font-size:0.8rem;color:#64748b;font-weight:400;">ISO 8528 compliance · Load event detection · Recovery time analysis</p>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
 if selected_csv_path is not None:
     with st.expander("Preview uploaded data", expanded=False):
@@ -1281,15 +1474,40 @@ if selected_csv_path is not None:
             "show_limits_snapshots": show_limits_snapshots,
         })
 
-        mcol1, mcol2, mcol3, mcol4 = st.columns(4)
-        with mcol1: st.metric("Data Points", f"{len(df_proc):,}")
-        with mcol2: st.metric("Events Detected", f"{len(df_events)}")
-        with mcol3:
-            if not df_events.empty and "Compliance_Status" in df_events.columns:
-                st.metric("Pass", f"{(df_events['Compliance_Status']=='Pass').sum()}/{len(df_events)}")
-        with mcol4:
-            if not df_events.empty and "Compliance_Status" in df_events.columns:
-                st.metric("Fail", f"{(df_events['Compliance_Status']=='Fail').sum()}/{len(df_events)}")
+        _n_pass = int((df_events["Compliance_Status"] == "Pass").sum()) if not df_events.empty and "Compliance_Status" in df_events.columns else 0
+        _n_fail = int((df_events["Compliance_Status"] == "Fail").sum()) if not df_events.empty and "Compliance_Status" in df_events.columns else 0
+        _n_events = len(df_events)
+        _overall_cls = "overall-pass" if _n_fail == 0 and _n_events > 0 else ("overall-fail" if _n_fail > 0 else "")
+        _overall_label = "ALL PASS" if _n_fail == 0 and _n_events > 0 else (f"{_n_fail} FAIL{'S' if _n_fail > 1 else ''}" if _n_fail > 0 else "—")
+        _overall_badge_cls = "pass" if _n_fail == 0 and _n_events > 0 else "fail"
+        st.markdown(f"""
+        <div class="pqa-metrics">
+          <div class="pqa-metric-card">
+            <div class="pqa-metric-label">Data Points</div>
+            <div class="pqa-metric-value">{len(df_proc):,}</div>
+            <div class="pqa-metric-sub">rows processed</div>
+          </div>
+          <div class="pqa-metric-card">
+            <div class="pqa-metric-label">Events Detected</div>
+            <div class="pqa-metric-value">{_n_events}</div>
+            <div class="pqa-metric-sub">load steps found</div>
+          </div>
+          <div class="pqa-metric-card pass">
+            <div class="pqa-metric-label">Passed</div>
+            <div class="pqa-metric-value">{_n_pass}</div>
+            <div class="pqa-metric-sub">of {_n_events} events</div>
+          </div>
+          <div class="pqa-metric-card {'fail' if _n_fail > 0 else ''}">
+            <div class="pqa-metric-label">Failed</div>
+            <div class="pqa-metric-value">{_n_fail}</div>
+            <div class="pqa-metric-sub">compliance issues</div>
+          </div>
+          <div class="pqa-metric-card {_overall_cls}" style="flex:0.7;">
+            <div class="pqa-metric-label">Result</div>
+            <div class="pqa-overall-badge {_overall_badge_cls}" style="margin-top:0.6rem;font-size:0.85rem;">{_overall_label}</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
 
         # Main time-series graphs are always clean — debug overlays live on snapshots only.
         plot_kwargs = dict(
@@ -1352,10 +1570,18 @@ if selected_csv_path is not None:
 
         st.session_state["snapshot_paths"] = snapshot_paths
         st.session_state["table_path"] = table_path
-        st.success(f"Analysis complete — {len(df_events)} events, {len(graph_paths)} plots, {len(snapshot_paths)} snapshots.")
+        st.success(f"Analysis complete — **{len(df_events)} events** detected · **{len(graph_paths)} plots** · **{len(snapshot_paths)} snapshots**")
 
 else:
-    st.info("Upload CSV files in the sidebar to get started.")
+    st.markdown("""
+    <div style="text-align:center;padding:3.5rem 2rem;background:#f8fafc;border-radius:12px;border:2px dashed #e2e8f0;margin-top:1rem;">
+      <div style="width:52px;height:52px;background:#eff6ff;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polyline></svg>
+      </div>
+      <p style="font-size:1rem;font-weight:600;color:#0f172a;margin:0 0 0.4rem;">No data loaded</p>
+      <p style="font-size:0.85rem;color:#64748b;margin:0;">Upload a CSV file in the sidebar to begin analysis.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # ============================================================
@@ -1371,7 +1597,16 @@ if st.session_state.get("analysis_done"):
 
     # Compliance Table
     if not df_events.empty:
-        st.header("Compliance Results")
+        _n_pass_r = int((df_events["Compliance_Status"] == "Pass").sum()) if "Compliance_Status" in df_events.columns else 0
+        _n_fail_r = int((df_events["Compliance_Status"] == "Fail").sum()) if "Compliance_Status" in df_events.columns else 0
+        _badge_cls = "green" if _n_fail_r == 0 else "red"
+        _badge_txt = f"All {_n_pass_r} passed" if _n_fail_r == 0 else f"{_n_fail_r} failed"
+        st.markdown(f"""
+        <div class="pqa-section-header">
+          <div class="pqa-section-bar"></div>
+          <span class="pqa-section-title">Compliance Results</span>
+          <span class="pqa-section-badge {_badge_cls}">{_badge_txt}</span>
+        </div>""", unsafe_allow_html=True)
 
         # Expected load steps check
         _expected = st.session_state.get("expected_steps")
@@ -1481,38 +1716,71 @@ if st.session_state.get("analysis_done"):
             rows_html = []
             for _, row in df.iterrows():
                 cells = []
+                is_fail = str(row.get("Compliance Status", "")).strip() == "Fail"
+                row_bg = "rgba(254,242,242,0.6)" if is_fail else "#ffffff"
+                row_bg_hover = "#fef2f2" if is_fail else "#f8fafc"
                 for c, v in zip(cols, row):
                     v = "" if str(v) in ("nan", "None") else str(v)
                     if c == "Compliance Status":
-                        color = "#16a34a" if v == "Pass" else "#dc2626"
-                        cells.append(f'<td style="color:{color};font-weight:600">{v}</td>')
+                        if v == "Pass":
+                            badge = (
+                                '<span style="display:inline-flex;align-items:center;gap:4px;'
+                                'background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;'
+                                'border-radius:20px;padding:2px 10px;font-size:12px;font-weight:700;'
+                                'letter-spacing:0.03em;">&#10003; Pass</span>'
+                            )
+                        else:
+                            badge = (
+                                '<span style="display:inline-flex;align-items:center;gap:4px;'
+                                'background:#fef2f2;color:#dc2626;border:1px solid #fecaca;'
+                                'border-radius:20px;padding:2px 10px;font-size:12px;font-weight:700;'
+                                'letter-spacing:0.03em;">&#10007; Fail</span>'
+                            )
+                        cells.append(f'<td style="background:{row_bg};white-space:nowrap;">{badge}</td>')
+                    elif c == "Event Time":
+                        cells.append(f'<td style="background:{row_bg};font-family:\'JetBrains Mono\',monospace;font-size:12px;white-space:nowrap;">{v}</td>')
                     else:
-                        cells.append(f"<td>{v}</td>")
-                rows_html.append(f"<tr>{''.join(cells)}</tr>")
+                        cells.append(f'<td style="background:{row_bg};">{v}</td>')
+                rows_html.append(
+                    f'<tr onmouseenter="this.querySelectorAll(\'td\').forEach(t=>t.style.background=\'{row_bg_hover}\')" '
+                    f'onmouseleave="this.querySelectorAll(\'td\').forEach(t=>t.style.background=\'{row_bg}\')">'
+                    f"{''.join(cells)}</tr>"
+                )
             table_rows = "\n".join(rows_html)
             return f"""
             <style>
+              @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
               .pqa-table {{
-                width: 100%; border-collapse: collapse;
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                font-size: 14px; color: #111827;
+                width: 100%; border-collapse: separate; border-spacing: 0;
+                font-family: 'Inter', -apple-system, sans-serif;
+                font-size: 13.5px; color: #111827;
+                border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden;
               }}
               .pqa-table th {{
-                background: #f9fafb; font-weight: 500; color: #374151;
+                background: #f8fafc; font-weight: 700; color: #374151;
                 padding: 10px 14px; text-align: left;
-                border: 1px solid #e5e7eb; white-space: nowrap;
+                border-bottom: 2px solid #e2e8f0;
+                font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+                white-space: nowrap;
               }}
+              .pqa-table th:not(:last-child) {{ border-right: 1px solid #e5e7eb; }}
               .pqa-table td {{
-                padding: 10px 14px; border: 1px solid #e5e7eb;
-                background: #ffffff; vertical-align: top; line-height: 1.5;
+                padding: 10px 14px;
+                border-bottom: 1px solid #f1f5f9;
+                border-right: 1px solid #f1f5f9;
+                vertical-align: top; line-height: 1.55;
+                transition: background 0.1s ease;
               }}
-              .pqa-table td small {{ color: #6b7280; font-size: 12px; }}
-              .pqa-table tr:hover td {{ background: #f9fafb; }}
+              .pqa-table td:last-child {{ border-right: none; }}
+              .pqa-table tr:last-child td {{ border-bottom: none; }}
+              .pqa-table td small {{ color: #6b7280; font-size: 11.5px; display:block; }}
             </style>
+            <div style="border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
             <table class="pqa-table">
               <thead><tr>{header}</tr></thead>
               <tbody>{table_rows}</tbody>
             </table>
+            </div>
             """
 
         # Height: header (~50px) + per row (~80px base for 2-line cells) +
@@ -1534,7 +1802,11 @@ if st.session_state.get("analysis_done"):
                 )
 
     # Time-Series Plots
-    st.header("Time-Series Plots")
+    st.markdown("""
+    <div class="pqa-section-header">
+      <div class="pqa-section-bar" style="background:#0891b2;"></div>
+      <span class="pqa-section-title">Time-Series Plots</span>
+    </div>""", unsafe_allow_html=True)
     if graph_paths:
         tabs = st.tabs([n.replace("Avg_", "").replace("_", " ") for n in graph_paths.keys()])
         for tab, (name, path) in zip(tabs, graph_paths.items()):
@@ -1557,7 +1829,11 @@ if st.session_state.get("analysis_done"):
         st.info("No plots generated.")
 
     # Event Snapshots
-    st.header("Event Snapshots")
+    st.markdown("""
+    <div class="pqa-section-header">
+      <div class="pqa-section-bar" style="background:#9333ea;"></div>
+      <span class="pqa-section-title">Event Snapshots</span>
+    </div>""", unsafe_allow_html=True)
     st.caption(
         "Expand each event to view its snapshot and adjust the band-exit / recovery "
         "intersection points if needed. Click **Recalculate Compliance** below when done."

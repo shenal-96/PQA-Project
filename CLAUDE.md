@@ -186,6 +186,42 @@ _BG     = "#ffffff"
 Fonts: Inter (UI) + JetBrains Mono (data/inputs). Sidebar: deep navy `#0f172a`.
 Main time-series plots use `%H:%M:%S` time format on the x-axis.
 
+## UI Design System (app.py)
+
+Direction: **Industrial Precision** — authoritative, data-forward, dark sidebar with light main area.
+
+### App-level CSS classes (injected via `st.markdown`)
+
+| Class | Purpose |
+|---|---|
+| `.pqa-metrics` | Flex container for the 5-card metric strip after Run Analysis |
+| `.pqa-metric-card` | Individual metric card (dark gradient, border-radius 10px) |
+| `.pqa-metric-card.pass` | Green border + green value text |
+| `.pqa-metric-card.fail` | Red border + red value text |
+| `.pqa-metric-card.overall-pass/.overall-fail` | 2px accent border for the result card |
+| `.pqa-overall-badge` | Pill badge inside result card (ALL PASS / N FAILS) |
+| `.pqa-section-header` | Flex row: coloured accent bar + title + optional badge |
+| `.pqa-section-bar` | 4×22px coloured vertical bar (blue=compliance, cyan=plots, purple=snapshots) |
+| `.pqa-section-badge` | Pill badge on section headers (green=all pass, red=failures) |
+
+### Section accent colours
+
+| Section | Bar colour |
+|---|---|
+| Compliance Results | `#2563eb` (blue) |
+| Time-Series Plots | `#0891b2` (cyan) |
+| Event Snapshots | `#9333ea` (purple) |
+
+### Key UI components
+
+- **Sidebar header** — custom HTML with SVG icon + "CONFIGURATION" label (no `st.title()`)
+- **App title** — custom HTML card with bolt SVG icon, bold heading, subtitle tagline
+- **Empty state** — dashed-border centred card with bolt icon (replaces plain `st.info()`)
+- **Post-analysis metrics** — 5-card HTML strip rendered via `st.markdown`; replaces `st.metric()` calls so pass/fail can be colour-coded
+- **Compliance table** — rendered via `_render_compliance_html()` with pill Pass/Fail badges, red row tint on fail rows, rounded table corners
+- **Tabs** — underline style (blue 2px border-bottom on active, no filled background)
+- **Expanders** — hover lift, open-state header border, `h_pad` transition
+
 ## Debug Overlay (`show_debug=True` in `generate_plots()`)
 
 | Element | Colour | Meaning |
