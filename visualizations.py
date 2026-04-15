@@ -34,17 +34,19 @@ _TEXT_SUB   = "#64748b"
 _BG         = "#ffffff"
 
 def _style_ax(ax, ylabel, color):
-    """Apply consistent axis styling."""
+    """Apply consistent axis styling for print-quality technical reports."""
     ax.set_facecolor(_BG)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.spines["left"].set_color(_GRID)
     ax.spines["bottom"].set_color(_GRID)
-    ax.tick_params(colors=_TEXT_SUB, labelsize=9)
-    ax.set_ylabel(ylabel, fontsize=10, color=_TEXT_SUB, labelpad=8)
+    ax.spines["left"].set_linewidth(1.2)
+    ax.spines["bottom"].set_linewidth(1.2)
+    ax.tick_params(colors=_TEXT_SUB, labelsize=11, width=1.0, length=4)
+    ax.set_ylabel(ylabel, fontsize=13, color=_TEXT_MAIN, fontweight="600", labelpad=10)
     ax.yaxis.set_label_position("left")
-    ax.grid(True, color=_GRID, linewidth=0.8, linestyle="-", alpha=0.8)
-    ax.grid(True, which="minor", color=_GRID, linewidth=0.4, alpha=0.4)
+    ax.grid(True, color=_GRID, linewidth=1.0, linestyle="-", alpha=0.7)
+    ax.grid(True, which="minor", color=_GRID, linewidth=0.5, alpha=0.3)
     ax.set_axisbelow(True)
 
 
@@ -68,8 +70,8 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
     paths = {}
 
     metrics = {
-        "Avg_kW":          ("Active Power (kW)",  _GREEN),
-        "Avg_Voltage_LL": ("Line to Line Voltage trend", _BLUE),
+        "Avg_kW":          ("Power (kW)",         _GREEN),
+        "Avg_Voltage_LL": ("Voltage (L-L)",       _BLUE),
         "Avg_Current":     ("Current (A)",        _RED),
         "Avg_Frequency":   ("Frequency (Hz)",     _ORANGE),
         "Avg_PF":          ("Power Factor",       _CYAN),
@@ -92,27 +94,27 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
         # Area fill
         ax.fill_between(x, y, y.min(), color=color, alpha=0.08)
         # Main line
-        ax.plot(x, y, color=color, linewidth=1.5, solid_capstyle="round")
+        ax.plot(x, y, color=color, linewidth=2.0, solid_capstyle="round")
 
         _style_ax(ax, ylabel, color)
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
         fig.autofmt_xdate(rotation=0, ha="center")
-        ax.tick_params(axis="x", labelsize=9, colors=_TEXT_SUB)
+        ax.tick_params(axis="x", labelsize=11, colors=_TEXT_SUB)
 
         if show_limits:
-            limit_kw = dict(linewidth=1.2, alpha=0.7, zorder=3)
+            limit_kw = dict(linewidth=1.5, alpha=0.7, zorder=3)
             if col == "Avg_Voltage_LL":
                 upper = nom_v * (1 + tol_v / 100)
                 lower = nom_v * (1 - tol_v / 100)
                 ax.axhline(upper, color=_RED, ls="--", label=f"+{tol_v}% ({upper:.1f}V)", **limit_kw)
                 ax.axhline(lower, color=_RED, ls="--", label=f"-{tol_v}% ({lower:.1f}V)", **limit_kw)
-                ax.legend(fontsize=8, framealpha=0.9, loc="upper right")
+                ax.legend(fontsize=10, framealpha=0.9, loc="upper right", edgecolor=_GRID)
             elif col == "Avg_Frequency":
                 upper = nom_f * (1 + tol_f / 100)
                 lower = nom_f * (1 - tol_f / 100)
                 ax.axhline(upper, color=_RED, ls="--", label=f"+{tol_f}% ({upper:.3f}Hz)", **limit_kw)
                 ax.axhline(lower, color=_RED, ls="--", label=f"-{tol_f}% ({lower:.3f}Hz)", **limit_kw)
-                ax.legend(fontsize=8, framealpha=0.9, loc="upper right")
+                ax.legend(fontsize=10, framealpha=0.9, loc="upper right", edgecolor=_GRID)
 
         # ── Debug overlay ────────────────────────────────────────────────────
         if show_debug and df_events is not None and not df_events.empty:
@@ -245,10 +247,10 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
                     ax.axvline(ev["Timestamp"], color=_AMBER, **ev_line_kw)
 
         # Title block — main title sits above the client name subtitle
-        ax.set_title(ylabel, fontsize=13, fontweight="700",
-                     color=_TEXT_MAIN, pad=22, loc="left")
+        ax.set_title(ylabel, fontsize=16, fontweight="700",
+                     color=_TEXT_MAIN, pad=24, loc="left")
         fig.text(0.01, 1.01, client_name, transform=ax.transAxes,
-                 fontsize=9, color=_TEXT_SUB, va="bottom")
+                 fontsize=11, color=_TEXT_SUB, va="bottom")
 
         plt.tight_layout(pad=1.2)
         fname = os.path.join(output_dir, f"{client_name}_{col}.svg")
@@ -325,7 +327,7 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
             load_after  = post_vals.mean()
             load_change = load_after - load_before
 
-    fig, axes = plt.subplots(4, 1, figsize=(13, 14), sharex=True, dpi=150)
+    fig, axes = plt.subplots(4, 1, figsize=(13, 15), sharex=True, dpi=150)
     fig.patch.set_facecolor(_BG)
 
     direction = "▲" if load_change > 0 else "▼"
@@ -335,14 +337,14 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
     )
     title_str = (
         f"Event: {event_ts.strftime('%H:%M:%S')}   |   "
-        f"Load: {load_before:.0f} → {load_after:.0f} kW   "
+        f"Load: {load_before:.0f} \u2192 {load_after:.0f} kW   "
         f"{direction} {abs(load_change):.0f} kW{_pct_str}"
     )
-    fig.suptitle(title_str, fontsize=13, fontweight="700",
+    fig.suptitle(title_str, fontsize=15, fontweight="700",
                  color=_TEXT_MAIN, y=0.995, x=0.01, ha="left")
 
     panel_cfg = [
-        ("Voltage (V)",   _BLUE),
+        ("Voltage (L-L)", _BLUE),
         ("Current (A)",   _RED),
         ("Frequency (Hz)", _ORANGE),
         ("Power (kW)",    _GREEN),
@@ -353,7 +355,7 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         if multi:
             return
         ax.fill_between(x, y, y.min(), color=color, alpha=0.1)
-        ax.plot(x, y, color=color, linewidth=1.5, solid_capstyle="round")
+        ax.plot(x, y, color=color, linewidth=2.0, solid_capstyle="round")
 
     # 1. Voltage
     v_cols_ln = ["U1_rms_AVG", "U2_rms_AVG", "U3_rms_AVG"]
@@ -364,29 +366,29 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         v_to_plot = [c for c in v_cols_ll if c in df_win.columns]
     use_avg = not v_to_plot and "U_avg_AVG" in df_win.columns
 
-    _style_ax(axes[0], "Voltage (V LL)", _BLUE)
+    _style_ax(axes[0], "Voltage (L-L)", _BLUE)
     phase_colors = [_BLUE, _RED, _GREEN]
     if use_avg:
         y = pd.to_numeric(df_win["U_avg_AVG"], errors="coerce")
         axes[0].fill_between(df_win["Timestamp"], y, y.min(), color=_BLUE, alpha=0.1)
-        axes[0].plot(df_win["Timestamp"], y, color=_BLUE, linewidth=1.5,
+        axes[0].plot(df_win["Timestamp"], y, color=_BLUE, linewidth=2.0,
                      solid_capstyle="round", label="V avg")
-        axes[0].legend(loc="upper right", fontsize=8, framealpha=0.9,
+        axes[0].legend(loc="upper right", fontsize=10, framealpha=0.9,
                        edgecolor=_GRID, facecolor=_BG)
     else:
         for i, c in enumerate(v_to_plot):
             y = pd.to_numeric(df_win[c], errors="coerce") * scale
             axes[0].plot(df_win["Timestamp"], y,
                          label=c.split("_")[0], color=phase_colors[i % 3],
-                         linewidth=1.5, solid_capstyle="round")
+                         linewidth=2.0, solid_capstyle="round")
         if v_to_plot:
-            axes[0].legend(loc="upper right", fontsize=8, framealpha=0.9,
+            axes[0].legend(loc="upper right", fontsize=10, framealpha=0.9,
                            edgecolor=_GRID, facecolor=_BG)
     if show_limits:
-        lkw = dict(linewidth=1.2, linestyle="--", alpha=0.75, zorder=4)
+        lkw = dict(linewidth=1.5, linestyle="--", alpha=0.75, zorder=4)
         axes[0].axhline(nom_v * (1 + tol_v / 100), color=_RED, label=f"+{tol_v}%", **lkw)
         axes[0].axhline(nom_v * (1 - tol_v / 100), color=_RED, label=f"-{tol_v}%", **lkw)
-        axes[0].legend(loc="upper right", fontsize=8, framealpha=0.9,
+        axes[0].legend(loc="upper right", fontsize=10, framealpha=0.9,
                        edgecolor=_GRID, facecolor=_BG)
 
     # 2. Current
@@ -397,9 +399,9 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
             axes[1].plot(df_win["Timestamp"],
                          pd.to_numeric(df_win[c], errors="coerce"),
                          label=c.split("_")[0], color=phase_colors[i],
-                         linewidth=1.5, solid_capstyle="round")
+                         linewidth=2.0, solid_capstyle="round")
     if any(c in df_win.columns for c in i_cols):
-        axes[1].legend(loc="upper right", fontsize=8, framealpha=0.9,
+        axes[1].legend(loc="upper right", fontsize=10, framealpha=0.9,
                        edgecolor=_GRID, facecolor=_BG)
 
     # 3. Frequency
@@ -408,7 +410,7 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         y = pd.to_numeric(df_win["Freq_AVG"], errors="coerce")
         axes[2].fill_between(df_win["Timestamp"], y, y.min(), color=_ORANGE, alpha=0.1)
         axes[2].plot(df_win["Timestamp"], y,
-                     color=_ORANGE, linewidth=1.5, solid_capstyle="round")
+                     color=_ORANGE, linewidth=2.0, solid_capstyle="round")
     # Frequency: symmetric ±tol_f% lines are NOT drawn here because the actual
     # compliance limits are asymmetric and direction-dependent (shown by debug mode).
     # Drawing symmetric lines would be misleading.
@@ -419,7 +421,7 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         y = pd.to_numeric(df_win["P_sum_AVG"], errors="coerce") / 1000
         axes[3].fill_between(df_win["Timestamp"], y, y.min(), color=_GREEN, alpha=0.1)
         axes[3].plot(df_win["Timestamp"], y,
-                     color=_GREEN, linewidth=1.5, solid_capstyle="round")
+                     color=_GREEN, linewidth=2.0, solid_capstyle="round")
 
     # ── Event detection overlay ───────────────────────────────────────────
     if show_debug and event_row is not None:
@@ -471,12 +473,12 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                                  fontsize=7, color=_LIME, fontweight="700")
 
         v_legend = [
-            Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.2,      label=f"+{tol_v}% ({v_upper_band:.1f} V)"),
-            Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.2,      label=f"-{tol_v}% ({v_lower_band:.1f} V)"),
-            Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=8, label="exit"),
-            Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=8, label="recovery"),
+            Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"+{tol_v}% ({v_upper_band:.1f} V)"),
+            Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"-{tol_v}% ({v_lower_band:.1f} V)"),
+            Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=10, label="exit"),
+            Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=10, label="recovery"),
         ]
-        axes[0].legend(handles=v_legend, fontsize=7, framealpha=0.9,
+        axes[0].legend(handles=v_legend, fontsize=9, framealpha=0.9,
                        loc="upper right", edgecolor=_GRID, facecolor=_BG)
 
         # ── Frequency panel ──────────────────────────────────────────────
@@ -503,17 +505,17 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                                  fontsize=7, color=_LIME, fontweight="700")
 
         f_legend = [
-            Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.2,      label=f"upper ({f_upper:.3f} Hz)"),
-            Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.2,      label=f"lower ({f_lower:.3f} Hz)"),
-            Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=8, label="exit"),
-            Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=8, label="recovery"),
+            Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"upper ({f_upper:.3f} Hz)"),
+            Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"lower ({f_lower:.3f} Hz)"),
+            Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=10, label="exit"),
+            Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=10, label="recovery"),
         ]
-        axes[2].legend(handles=f_legend, fontsize=7, framealpha=0.9,
+        axes[2].legend(handles=f_legend, fontsize=9, framealpha=0.9,
                        loc="upper right", edgecolor=_GRID, facecolor=_BG)
 
     axes[3].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
     fig.autofmt_xdate(rotation=0, ha="center")
-    axes[3].tick_params(axis="x", labelsize=9, colors=_TEXT_SUB)
+    axes[3].tick_params(axis="x", labelsize=11, colors=_TEXT_SUB)
 
     # ── Not-recovered highlighting ──────────────────────────────────────
     if event_row is not None:
@@ -536,14 +538,16 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                 zorder=1,
             )
 
-    # Panel labels
-    labels = ["V", "I", "f", "P"]
-    for ax, lbl in zip(axes, labels):
+    # Panel corner labels — use metric color for visual identification
+    _panel_labels = [
+        ("V", _BLUE), ("I", _RED), ("f", _ORANGE), ("P", _GREEN),
+    ]
+    for ax, (lbl, lbl_color) in zip(axes, _panel_labels):
         ax.text(0.005, 0.92, lbl, transform=ax.transAxes,
-                fontsize=9, fontweight="600", color=_TEXT_SUB,
-                va="top", ha="left")
+                fontsize=11, fontweight="700", color=lbl_color,
+                alpha=0.6, va="top", ha="left")
 
-    plt.tight_layout(rect=[0, 0, 1, 0.995], h_pad=0.4)
+    plt.tight_layout(rect=[0, 0, 1, 0.995], h_pad=0.6)
 
     fname = os.path.join(output_dir, f"snap_{client_name}_{event_ts.strftime('%Y%m%d_%H%M%S')}.jpeg")
     fig.savefig(fname, dpi=150, bbox_inches="tight", facecolor=_BG)
