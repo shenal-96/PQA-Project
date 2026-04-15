@@ -305,18 +305,28 @@ def inject_images_to_word(template_stream, placeholder_map):
 
     def process_paragraphs(paragraphs):
         for paragraph in paragraphs:
+            # Build full paragraph text from all runs (handles split placeholders)
+            full_text = "".join([run.text for run in paragraph.runs])
+
             for key, value in placeholder_map.items():
-                if key not in paragraph.text:
+                if key not in full_text:
                     continue
+
                 if isinstance(value, str) and value.lower().endswith((".png", ".jpg", ".jpeg")) and os.path.exists(value):
-                    paragraph.text = ""
+                    # Image replacement: clear paragraph and add image
+                    for run in paragraph.runs:
+                        run._element.getparent().remove(run._element)
                     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     apply_strict_formatting(paragraph)
                     run = paragraph.add_run()
                     run.add_picture(value, width=_content_width)
                 else:
-                    new_text = paragraph.text.replace(key, str(value))
-                    paragraph.text = ""
+                    # Text replacement: rebuild paragraph with replaced text
+                    new_text = full_text.replace(key, str(value))
+                    # Clear all runs
+                    for run in paragraph.runs:
+                        run._element.getparent().remove(run._element)
+                    # Add single run with replaced text
                     run = paragraph.add_run(new_text)
                     run.font.name = "Arial"
                     run.font.size = Pt(12)
