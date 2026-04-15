@@ -257,17 +257,24 @@ def get_placeholder_map(client_name, config_values, df=None,
     placeholder_map["{{Custom_Field}}"] = config_values.get("custom_text", "")
 
     # Date/time from data (extracted from CSV, not today's date)
-    if df is not None and not df.empty and "Timestamp" in df.columns:
-        min_ts = df["Timestamp"].min()
-        max_ts = df["Timestamp"].max()
-        fmt_dt = "%d/%m/%Y %I:%M:%S %p"
-        placeholder_map["{{Start Time}}"] = min_ts.strftime(fmt_dt)
-        placeholder_map["{{End Time}}"] = max_ts.strftime(fmt_dt)
-        date_str = min_ts.strftime("%d/%m/%Y")
-        placeholder_map["{{Date}}"] = date_str
-        log.info(f"Extracted test date from CSV: {date_str} (data range: {min_ts} to {max_ts})")
+    log.info(f"get_placeholder_map: df={type(df).__name__}, is_none={df is None}")
+
+    if df is not None:
+        log.info(f"  df.empty={df.empty}, columns={list(df.columns) if hasattr(df, 'columns') else 'N/A'}")
+        if not df.empty and "Timestamp" in df.columns:
+            min_ts = df["Timestamp"].min()
+            max_ts = df["Timestamp"].max()
+            log.info(f"  Timestamp range: {min_ts} to {max_ts}")
+            fmt_dt = "%d/%m/%Y %I:%M:%S %p"
+            placeholder_map["{{Start Time}}"] = min_ts.strftime(fmt_dt)
+            placeholder_map["{{End Time}}"] = max_ts.strftime(fmt_dt)
+            date_str = min_ts.strftime("%d/%m/%Y")
+            placeholder_map["{{Date}}"] = date_str
+            log.info(f"✓ Extracted test date from CSV: {date_str}")
+        else:
+            log.warning(f"✗ Cannot extract date: df.empty={df.empty}, has Timestamp={'Timestamp' in df.columns}")
     else:
-        log.warning(f"Unable to extract date from CSV: df={df is not None}, empty={df.empty if df is not None else 'N/A'}, has Timestamp={'Timestamp' in df.columns if df is not None else 'N/A'}")
+        log.warning(f"✗ df is None - no date will be extracted")
 
     return placeholder_map
 
