@@ -550,7 +550,7 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
     plt.tight_layout(rect=[0, 0, 1, 0.995], h_pad=0.6)
 
     fname = os.path.join(output_dir, f"snap_{client_name}_{event_ts.strftime('%Y%m%d_%H%M%S')}.jpeg")
-    fig.savefig(fname, dpi=150, bbox_inches="tight", facecolor=_BG)
+    fig.savefig(fname, dpi=150, facecolor=_BG)
     plt.close(fig)
     return fname
 

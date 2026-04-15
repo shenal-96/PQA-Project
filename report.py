@@ -8,9 +8,12 @@ import os
 import glob
 import io
 import logging
+import pandas as pd
 from docx import Document
 from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 
 log = logging.getLogger(__name__)
 
@@ -263,7 +266,23 @@ def get_placeholder_map(client_name, config_values, df=None,
         fmt_dt = "%d/%m/%Y %I:%M:%S %p"
         placeholder_map["{{Start Time}}"] = min_ts.strftime(fmt_dt)
         placeholder_map["{{End Time}}"] = max_ts.strftime(fmt_dt)
-        placeholder_map["{{Date}}"] = min_ts.strftime("%d/%m/%Y")
+
+        # Extract {{Date}} directly from the CSV "Date" column when available.
+        # This avoids inheriting wrong dates from a "PC Time" column that may
+        # have a misconfigured clock. Fallback is Timestamp.min() (also CSV-
+        # sourced). No fallback to the computer's current date in either path.
+        date_str = None
+        if "Date" in df.columns:
+            raw_date = df["Date"].dropna()
+            if not raw_date.empty:
+                try:
+                    parsed = pd.to_datetime(raw_date.iloc[0], dayfirst=True)
+                    date_str = parsed.strftime("%d/%m/%Y")
+                except Exception:
+                    pass
+        if date_str is None:
+            date_str = min_ts.strftime("%d/%m/%Y")
+        placeholder_map["{{Date}}"] = date_str
 
     return placeholder_map
 
@@ -282,22 +301,62 @@ def inject_images_to_word(template_stream, placeholder_map):
     doc = Document(template_stream)
 
     # Derive usable content width from the first section's page geometry.
-    # This ensures images never overflow the right margin regardless of template margins.
+    # A small safety buffer (0.15 in) is subtracted so images never reach the
+    # exact margin edge — LibreOffice's PDF renderer can introduce sub-mm
+    # offsets that clip a full-width image on the right side.
     try:
         _sec = doc.sections[0]
-        _content_width = _sec.page_width - _sec.left_margin - _sec.right_margin
+        _content_width = _sec.page_width - _sec.left_margin - _sec.right_margin - Inches(0.15)
     except Exception:
-        _content_width = Inches(6.5)  # safe fallback
+        _content_width = Inches(6.35)  # safe fallback
 
     def apply_strict_formatting(paragraph):
         p_format = paragraph.paragraph_format
-        p_format.line_spacing = 1.15  # Slightly looser to match Word
-        p_format.space_before = Pt(6)
-        p_format.space_after = Pt(6)
+        p_format.line_spacing = 1.0
+        p_format.space_before = Pt(0)
+        p_format.space_after = Pt(0)
         p_format.keep_with_next = False
         p_format.left_indent = Inches(0)
         p_format.right_indent = Inches(0)
         p_format.first_line_indent = Inches(0)
+        # Also clear the indent at the XML level so style-inherited indents
+        # don't survive into LibreOffice's PDF renderer.
+        pPr = paragraph._p.get_or_add_pPr()
+        ind = pPr.find(qn("w:ind"))
+        if ind is not None:
+            pPr.remove(ind)
+        ind_elem = OxmlElement("w:ind")
+        ind_elem.set(qn("w:left"), "0")
+        ind_elem.set(qn("w:right"), "0")
+        ind_elem.set(qn("w:firstLine"), "0")
+        pPr.append(ind_elem)
+
+    def _collapse_trailing_empties(para_elem, max_keep=1):
+        """
+        Remove consecutive empty paragraphs that immediately follow para_elem,
+        keeping at most max_keep of them.  Templates often use long runs of empty
+        paragraphs for spacing; after an image is injected those lines overflow
+        onto the next page and produce a blank page.
+        """
+        body = para_elem.getparent()
+        if body is None:
+            return
+        children = list(body)
+        try:
+            start = children.index(para_elem) + 1
+        except ValueError:
+            return
+        empties = []
+        for child in children[start:]:
+            tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+            if tag != "p":
+                break
+            text = "".join(t.text or "" for t in child.findall(".//" + qn("w:t"))).strip()
+            if text:
+                break
+            empties.append(child)
+        for elem in empties[max_keep:]:
+            body.remove(elem)
 
     def preserve_paragraph_spacing(paragraph):
         """Ensure paragraphs have explicit spacing for LibreOffice PDF conversion."""
@@ -325,6 +384,7 @@ def inject_images_to_word(template_stream, placeholder_map):
                     apply_strict_formatting(paragraph)
                     run = paragraph.add_run()
                     run.add_picture(value, width=_content_width)
+                    _collapse_trailing_empties(paragraph._p)
                 else:
                     # Text replacement: preserve formatting by modifying runs in place
                     # Replace text within runs, handling placeholders split across runs
