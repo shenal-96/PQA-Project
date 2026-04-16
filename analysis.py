@@ -87,7 +87,7 @@ def load_and_prepare_csv(file_path_or_buffer, start_time=None, end_time=None):
         tuple: (df, client_name) where df has a 'Timestamp' column
     """
     df = pd.read_csv(file_path_or_buffer, sep=None, engine="python")
-    df.columns = [str(c).replace("\x00", "").replace(" (Q)", "").strip() for c in df.columns]
+    df.columns = [str(c).replace("\ufeff", "").replace("\x00", "").replace(" (Q)", "").strip() for c in df.columns]
 
     # Parse timestamps from various column layouts
     if "PC Time" in df.columns:
