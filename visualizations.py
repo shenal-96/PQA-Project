@@ -252,7 +252,7 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
         fig.text(0.01, 1.01, client_name, transform=ax.transAxes,
                  fontsize=11, color=_TEXT_SUB, va="bottom")
 
-        plt.tight_layout(pad=1.2)
+        fig.tight_layout(pad=1.2)
         fname = os.path.join(output_dir, f"{client_name}_{col}.svg")
         fig.savefig(fname, format="svg", bbox_inches="tight", facecolor=_BG)
         # Save a taller JPEG for Word/PDF report insertion (SVG cannot be embedded in docx).
@@ -260,7 +260,7 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
         # than the 14×4 screen ratio. tight_layout is re-applied after the resize so
         # axis labels and titles re-flow correctly at the new dimensions.
         fig.set_size_inches(16, 6)
-        plt.tight_layout(pad=1.2)
+        fig.tight_layout(pad=1.2)
         jpeg_fname = os.path.join(output_dir, f"{client_name}_{col}.jpeg")
         fig.savefig(jpeg_fname, format="jpeg", dpi=200, bbox_inches="tight", facecolor=_BG)
         plt.close(fig)
@@ -547,7 +547,7 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                 fontsize=11, fontweight="700", color=lbl_color,
                 alpha=0.6, va="top", ha="left")
 
-    plt.tight_layout(rect=[0, 0, 1, 0.995], h_pad=0.6)
+    fig.tight_layout(rect=[0, 0, 1, 0.995], h_pad=0.6)
 
     fname = os.path.join(output_dir, f"snap_{client_name}_{event_ts.strftime('%Y%m%d_%H%M%S')}.jpeg")
     fig.savefig(fname, dpi=150, facecolor=_BG)
@@ -779,11 +779,11 @@ def save_compliance_table_as_image(df, filename, title_text, nom_v=415.0, nom_f=
     fig.text(0.5, 0.995, "ISO 8528 Compliance Report", ha="center", va="top",
              fontsize=25, fontweight="800", color=_TEXT_MAIN)
 
-    plt.tight_layout(rect=[0.005, 0.005, 0.995, 0.955])
+    fig.tight_layout(rect=[0.005, 0.005, 0.995, 0.955])
     svg_path = os.path.splitext(filename)[0] + ".svg"
-    plt.savefig(svg_path, format="svg", bbox_inches="tight", facecolor=_BG)
+    fig.savefig(svg_path, format="svg", bbox_inches="tight", facecolor=_BG)
     # Also save a PNG for Word/PDF report insertion (SVG cannot be embedded in docx).
     png_path = os.path.splitext(filename)[0] + ".png"
-    plt.savefig(png_path, format="png", dpi=250, bbox_inches="tight", facecolor=_BG)
+    fig.savefig(png_path, format="png", dpi=250, bbox_inches="tight", facecolor=_BG)
     plt.close(fig)
     return svg_path
