@@ -544,6 +544,25 @@ div[data-testid="stSidebar"] .stButton > button:not([kind="primary"]):hover {
     border-color: #334155 !important;
 }
 
+/* ── Reset icon buttons (appear next to text inputs) ── */
+div[data-testid="stSidebar"] .pqa-reset-btn .stButton > button {
+    background: transparent !important;
+    color: #475569 !important;
+    border: 1px solid #1e2f4d !important;
+    border-radius: 5px !important;
+    font-size: 0.8rem !important;
+    padding: 0 !important;
+    height: 2.05rem !important;
+    min-height: 0 !important;
+    line-height: 1 !important;
+    transition: all 0.15s ease !important;
+}
+div[data-testid="stSidebar"] .pqa-reset-btn .stButton > button:hover {
+    color: #94a3b8 !important;
+    border-color: #334155 !important;
+    background: #1e2f4d !important;
+}
+
 /* ── Download buttons ── */
 div[data-testid="stSidebar"] .stDownloadButton > button {
     background-color: #0f1f3a !important;
@@ -1026,11 +1045,20 @@ with st.sidebar:
 
     # ── Rated Load ────────────────────────────────────────────
     # No value= — session_state["rated_load_input"] pre-populated from _ds on cold start
-    rated_load_str = st.text_input(
-        "Rated Load (kW)",
-        help="Optional. When set, load change % is calculated against this value.",
-        key="rated_load_input",
-    )
+    _rl_col, _rl_rst = st.columns([5, 1])
+    with _rl_col:
+        rated_load_str = st.text_input(
+            "Rated Load (kW)",
+            help="Optional. When set, load change % is calculated against this value.",
+            key="rated_load_input",
+        )
+    with _rl_rst:
+        st.markdown('<div class="pqa-reset-btn">', unsafe_allow_html=True)
+        st.write("")
+        if st.button("↺", key="reset_rated_load", help="Clear rated load", use_container_width=True):
+            st.session_state["rated_load_input"] = ""
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
     st.session_state["rated_load_str"] = rated_load_str
     try:
         rated_load_kw = float(rated_load_str) if rated_load_str.strip() else None
@@ -1039,11 +1067,20 @@ with st.sidebar:
         rated_load_kw = None
     st.session_state["rated_load_kw"] = rated_load_kw
 
-    expected_steps_str = st.text_input(
-        "No. Expected Load Steps",
-        help="Optional. If set, an error is shown when detected events don't match this count.",
-        key="expected_steps_input",
-    )
+    _es_col, _es_rst = st.columns([5, 1])
+    with _es_col:
+        expected_steps_str = st.text_input(
+            "No. Expected Load Steps",
+            help="Optional. If set, an error is shown when detected events don't match this count.",
+            key="expected_steps_input",
+        )
+    with _es_rst:
+        st.markdown('<div class="pqa-reset-btn">', unsafe_allow_html=True)
+        st.write("")
+        if st.button("↺", key="reset_expected_steps", help="Clear expected steps", use_container_width=True):
+            st.session_state["expected_steps_input"] = ""
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
     try:
         expected_steps = int(expected_steps_str) if expected_steps_str.strip() else None
     except ValueError:
@@ -1110,8 +1147,27 @@ with st.sidebar:
         st.session_state[_TF_END_TEXT]   = auto_end or ""
 
     # Text inputs driven by session state — updated by slider on_change callbacks
-    start_time_text = st.text_input("Start Time", key=_TF_START_TEXT, placeholder="HH:MM:SS")
-    end_time_text   = st.text_input("End Time",   key=_TF_END_TEXT,   placeholder="HH:MM:SS")
+    _s_col, _s_rst = st.columns([5, 1])
+    with _s_col:
+        start_time_text = st.text_input("Start Time", key=_TF_START_TEXT, placeholder="HH:MM:SS")
+    with _s_rst:
+        st.markdown('<div class="pqa-reset-btn">', unsafe_allow_html=True)
+        st.write("")
+        if st.button("↺", key="reset_start_time", help="Reset to full CSV range", use_container_width=True):
+            st.session_state[_TF_START_TEXT] = auto_start or ""
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    _e_col, _e_rst = st.columns([5, 1])
+    with _e_col:
+        end_time_text = st.text_input("End Time", key=_TF_END_TEXT, placeholder="HH:MM:SS")
+    with _e_rst:
+        st.markdown('<div class="pqa-reset-btn">', unsafe_allow_html=True)
+        st.write("")
+        if st.button("↺", key="reset_end_time", help="Reset to full CSV range", use_container_width=True):
+            st.session_state[_TF_END_TEXT] = auto_end or ""
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
     start_time = start_time_text
     end_time   = end_time_text
