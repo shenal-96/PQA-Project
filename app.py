@@ -1920,8 +1920,9 @@ if st.session_state.get("analysis_done"):
                         st.rerun()
 
                 # Snapshot image (if generated)
-                if snap_i < len(snapshot_paths) and os.path.exists(snapshot_paths[snap_i]):
-                    st.image(snapshot_paths[snap_i], use_container_width=True)
+                _snap_path = snapshot_paths[snap_i] if snap_i < len(snapshot_paths) else None
+                if _snap_path and os.path.exists(_snap_path):
+                    st.image(_snap_path, use_container_width=True)
                 else:
                     st.info("No snapshot image for this event.")
 

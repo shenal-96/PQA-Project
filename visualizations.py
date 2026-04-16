@@ -559,40 +559,36 @@ def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Sn
                            show_limits=False, nom_v=415.0, nom_f=50.0, tol_v=1.0, tol_f=0.5,
                            show_debug=False, show_intersections=False, rated_load_kw=None,
                            window_s=10):
-    """Generate snapshots for all detected events in parallel. Returns list of file paths."""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    """Generate snapshots for all detected events. Returns list of file paths in event order."""
+    import logging
+    log = logging.getLogger(__name__)
 
     if df_events.empty:
         return []
 
-    def _render(row):
-        return plot_load_change_snapshot(
-            df_raw,
-            event_ts=row["Timestamp"],
-            load_change=row["dKw"],
-            load_before=row["Avg_kW"] - row["dKw"],
-            load_after=row["Avg_kW"],
-            client_name=client_name,
-            output_dir=output_dir,
-            show_limits=show_limits,
-            nom_v=nom_v, nom_f=nom_f, tol_v=tol_v, tol_f=tol_f,
-            show_debug=show_debug,
-            show_intersections=show_intersections,
-            event_row=row,
-            rated_load_kw=rated_load_kw,
-            window_s=window_s,
-        )
-
-    rows = [row for _, row in df_events.iterrows()]
     paths = []
-    with ThreadPoolExecutor() as executor:
-        futures = {executor.submit(_render, row): row["Timestamp"] for row in rows}
-        for future in as_completed(futures):
-            path = future.result()
-            if path:
-                paths.append(path)
-    # Sort by filename so order matches event order
-    paths.sort()
+    for _, row in df_events.iterrows():
+        try:
+            path = plot_load_change_snapshot(
+                df_raw,
+                event_ts=row["Timestamp"],
+                load_change=row["dKw"],
+                load_before=row["Avg_kW"] - row["dKw"],
+                load_after=row["Avg_kW"],
+                client_name=client_name,
+                output_dir=output_dir,
+                show_limits=show_limits,
+                nom_v=nom_v, nom_f=nom_f, tol_v=tol_v, tol_f=tol_f,
+                show_debug=show_debug,
+                show_intersections=show_intersections,
+                event_row=row,
+                rated_load_kw=rated_load_kw,
+                window_s=window_s,
+            )
+            paths.append(path)
+        except Exception:
+            log.exception("Snapshot generation failed for event at %s", row["Timestamp"])
+            paths.append(None)
     return paths
 
 
