@@ -544,22 +544,30 @@ div[data-testid="stSidebar"] .stButton > button:not([kind="primary"]):hover {
     border-color: #334155 !important;
 }
 
-/* ── Reset icon buttons (appear next to text inputs) ── */
+/* ── Reset icon buttons — circular, same size as the ? help icon ── */
+div[data-testid="stSidebar"] .pqa-reset-btn { line-height: 0; }
+div[data-testid="stSidebar"] .pqa-reset-btn .stButton { margin: 0; padding: 0; }
 div[data-testid="stSidebar"] .pqa-reset-btn .stButton > button {
     background: transparent !important;
-    color: #475569 !important;
-    border: 1px solid #1e2f4d !important;
-    border-radius: 5px !important;
-    font-size: 0.8rem !important;
+    color: #64748b !important;
+    border: 1.5px solid #64748b !important;
+    border-radius: 50% !important;
+    font-size: 0.6rem !important;
     padding: 0 !important;
-    height: 2.05rem !important;
+    width: 1.1rem !important;
+    height: 1.1rem !important;
     min-height: 0 !important;
+    min-width: 0 !important;
     line-height: 1 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    margin-top: 0.3rem !important;
     transition: all 0.15s ease !important;
 }
 div[data-testid="stSidebar"] .pqa-reset-btn .stButton > button:hover {
     color: #94a3b8 !important;
-    border-color: #334155 !important;
+    border-color: #94a3b8 !important;
     background: #1e2f4d !important;
 }
 
@@ -1054,8 +1062,7 @@ with st.sidebar:
         )
     with _rl_rst:
         st.markdown('<div class="pqa-reset-btn">', unsafe_allow_html=True)
-        st.write("")
-        if st.button("↺", key="reset_rated_load", help="Clear rated load", use_container_width=True):
+        if st.button("↺", key="reset_rated_load", help="Clear rated load"):
             st.session_state["rated_load_input"] = ""
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
@@ -1076,8 +1083,7 @@ with st.sidebar:
         )
     with _es_rst:
         st.markdown('<div class="pqa-reset-btn">', unsafe_allow_html=True)
-        st.write("")
-        if st.button("↺", key="reset_expected_steps", help="Clear expected steps", use_container_width=True):
+        if st.button("↺", key="reset_expected_steps", help="Clear expected steps"):
             st.session_state["expected_steps_input"] = ""
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
@@ -1152,8 +1158,7 @@ with st.sidebar:
         start_time_text = st.text_input("Start Time", key=_TF_START_TEXT, placeholder="HH:MM:SS")
     with _s_rst:
         st.markdown('<div class="pqa-reset-btn">', unsafe_allow_html=True)
-        st.write("")
-        if st.button("↺", key="reset_start_time", help="Reset to full CSV range", use_container_width=True):
+        if st.button("↺", key="reset_start_time", help="Reset to full CSV range"):
             st.session_state[_TF_START_TEXT] = auto_start or ""
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
@@ -1163,8 +1168,7 @@ with st.sidebar:
         end_time_text = st.text_input("End Time", key=_TF_END_TEXT, placeholder="HH:MM:SS")
     with _e_rst:
         st.markdown('<div class="pqa-reset-btn">', unsafe_allow_html=True)
-        st.write("")
-        if st.button("↺", key="reset_end_time", help="Reset to full CSV range", use_container_width=True):
+        if st.button("↺", key="reset_end_time", help="Reset to full CSV range"):
             st.session_state[_TF_END_TEXT] = auto_end or ""
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
