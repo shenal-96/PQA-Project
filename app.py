@@ -153,6 +153,21 @@ def _recompute_df_interp(df_proc):
     )
 
 
+def _show_progress_popup(placeholder, pct: int, step: str, title: str = "Processing"):
+    """Render a fixed-position progress popup into a st.empty() placeholder."""
+    placeholder.markdown(f"""
+<div class="pqa-popup-backdrop"></div>
+<div class="pqa-popup-card">
+    <div class="pqa-popup-title">{title}</div>
+    <div class="pqa-popup-step">{step}</div>
+    <div class="pqa-popup-track">
+        <div class="pqa-popup-fill" style="width:{pct}%"></div>
+    </div>
+    <div class="pqa-popup-pct">{pct}%</div>
+</div>
+""", unsafe_allow_html=True)
+
+
 def _render_event_intersection_controls(idx, row, overrides):
     """
     Render the Voltage + Frequency intersection controls for a single event.
@@ -316,7 +331,7 @@ def _render_intersection_footer(overrides):
         df_ev = st.session_state["df_events"].copy()
         cfg   = st.session_state["config"]
 
-        with st.spinner("Recalculating — rebuilding interpolated data..."):
+        with st.spinner("Recalculating compliance…"):
             df_interp = _recompute_df_interp(st.session_state["df_proc"])
 
         v_upper = cfg.nominal_voltage * (1 + cfg.voltage_tolerance_pct / 100)
@@ -493,7 +508,8 @@ div[data-testid="stSidebar"]::-webkit-scrollbar-track { background: transparent;
 div[data-testid="stSidebar"]::-webkit-scrollbar-thumb { background: #263352; border-radius: 4px; }
 
 /* ── Run Analysis button — prominent CTA ── */
-div[data-testid="stSidebar"] .stButton > button[kind="primary"] {
+/* Streamlit 1.35+ uses data-testid="baseButton-primary/secondary" — kind attr removed */
+div[data-testid="stSidebar"] button[data-testid="baseButton-primary"] {
     background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
     color: #fff !important;
     border: none !important;
@@ -501,21 +517,21 @@ div[data-testid="stSidebar"] .stButton > button[kind="primary"] {
     font-weight: 700 !important;
     font-size: 0.88rem !important;
     letter-spacing: 0.03em !important;
-    box-shadow: 0 2px 8px rgba(37,99,235,0.35), 0 0 0 0 rgba(37,99,235,0) !important;
+    box-shadow: 0 2px 8px rgba(37,99,235,0.35) !important;
     transition: all 0.18s ease !important;
     padding: 0.6rem 1rem !important;
 }
-div[data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
+div[data-testid="stSidebar"] button[data-testid="baseButton-primary"]:hover {
     background: linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%) !important;
     box-shadow: 0 4px 16px rgba(37,99,235,0.5) !important;
     transform: translateY(-1px) !important;
 }
-div[data-testid="stSidebar"] .stButton > button[kind="primary"]:active {
+div[data-testid="stSidebar"] button[data-testid="baseButton-primary"]:active {
     transform: translateY(0) !important;
     box-shadow: 0 1px 4px rgba(37,99,235,0.3) !important;
 }
 /* Primary buttons in main area */
-.stButton > button[kind="primary"] {
+button[data-testid="baseButton-primary"] {
     background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
     color: #fff !important;
     border: none !important;
@@ -526,12 +542,13 @@ div[data-testid="stSidebar"] .stButton > button[kind="primary"]:active {
     box-shadow: 0 2px 6px rgba(37,99,235,0.25) !important;
     transition: all 0.18s ease !important;
 }
-.stButton > button[kind="primary"]:hover {
+button[data-testid="baseButton-primary"]:hover {
     background: linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%) !important;
     box-shadow: 0 4px 14px rgba(37,99,235,0.4) !important;
     transform: translateY(-1px) !important;
 }
-div[data-testid="stSidebar"] .stButton > button:not([kind="primary"]) {
+/* All secondary sidebar buttons — base style */
+div[data-testid="stSidebar"] button[data-testid="baseButton-secondary"] {
     background-color: #111e35 !important;
     color: #64748b !important;
     border: 1px solid #1e2f4d !important;
@@ -539,36 +556,67 @@ div[data-testid="stSidebar"] .stButton > button:not([kind="primary"]) {
     font-size: 0.74rem !important;
     transition: all 0.15s ease !important;
 }
-div[data-testid="stSidebar"] .stButton > button:not([kind="primary"]):hover {
+div[data-testid="stSidebar"] button[data-testid="baseButton-secondary"]:hover {
     color: #94a3b8 !important;
     border-color: #334155 !important;
 }
 
-/* ── Reset icon buttons — circular, same size as the ? help icon ── */
-div[data-testid="stSidebar"] .pqa-reset-btn { line-height: 0; }
-div[data-testid="stSidebar"] .pqa-reset-btn .stButton { margin: 0; padding: 0; }
-div[data-testid="stSidebar"] .pqa-reset-btn .stButton > button {
+/* ── Sidebar inline reset icon buttons ─────────────────────────────────────
+   Layout: st.columns([7, 1]) — text_input in wide col, ↺ button in narrow col.
+   .pqa-rst-btn is an invisible marker div placed inside the narrow column so
+   we can target that column's stVerticalBlock via :has().
+   Making the stVerticalBlock flex + justify-content:flex-end pushes the button
+   to the bottom of the column, aligning it with the input box (not the label).
+   ──────────────────────────────────────────────────────────────────────── */
+
+/* Hide the marker — it's only a CSS hook, not visible content */
+.pqa-rst-btn { display: none !important; }
+
+/* Push the reset button to the bottom of its column (aligns with input box) */
+div[data-testid="stSidebar"]
+div[data-testid="stVerticalBlock"]:has(.pqa-rst-btn) {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: flex-end !important;
+    padding-bottom: 0.55rem !important;
+}
+
+/* Collapse the stButton wrapper so no extra padding inflates the height */
+div[data-testid="stSidebar"]
+div[data-testid="stVerticalBlock"]:has(.pqa-rst-btn)
+[data-testid="stButton"] {
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+/* Style the reset button as a small square */
+div[data-testid="stSidebar"]
+div[data-testid="stVerticalBlock"]:has(.pqa-rst-btn)
+button[data-testid="baseButton-secondary"] {
     background: transparent !important;
     color: #64748b !important;
     border: 1.5px solid #64748b !important;
-    border-radius: 50% !important;
-    font-size: 0.6rem !important;
-    padding: 0 !important;
-    width: 1.1rem !important;
-    height: 1.1rem !important;
+    border-radius: 6px !important;
+    width: 2rem !important;
+    height: 2rem !important;
     min-height: 0 !important;
     min-width: 0 !important;
+    padding: 0 !important;
+    font-size: 0.85rem !important;
     line-height: 1 !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    margin-top: 0.3rem !important;
-    transition: all 0.15s ease !important;
+    box-shadow: none !important;
+    cursor: pointer !important;
+    transition: color 0.15s, border-color 0.15s, background 0.15s !important;
 }
-div[data-testid="stSidebar"] .pqa-reset-btn .stButton > button:hover {
+div[data-testid="stSidebar"]
+div[data-testid="stVerticalBlock"]:has(.pqa-rst-btn)
+button[data-testid="baseButton-secondary"]:hover {
     color: #94a3b8 !important;
     border-color: #94a3b8 !important;
-    background: #1e2f4d !important;
+    background: rgba(148, 163, 184, 0.08) !important;
 }
 
 /* ── Download buttons ── */
@@ -714,6 +762,62 @@ div[data-testid="stMetric"] [data-testid="stMetricValue"] {
     border-radius: 10px !important;
     font-size: 0.85rem !important;
     border: 1px solid #e2e8f0 !important;
+}
+
+/* ── Progress popup overlay ── */
+.pqa-popup-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.52);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    z-index: 9998;
+}
+.pqa-popup-card {
+    position: fixed;
+    top: 50%;
+    left: calc(50vw + 10.5rem);
+    transform: translate(-50%, -50%);
+    z-index: 9999;
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 2rem 2.5rem 1.75rem;
+    box-shadow: 0 24px 80px rgba(15, 23, 42, 0.22), 0 2px 8px rgba(15, 23, 42, 0.08);
+    min-width: 360px;
+    max-width: 460px;
+    width: 90vw;
+}
+.pqa-popup-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #0f172a;
+    margin: 0 0 0.3rem;
+    letter-spacing: -0.01em;
+}
+.pqa-popup-step {
+    font-size: 0.78rem;
+    color: #64748b;
+    margin: 0 0 1.1rem;
+    min-height: 1.1em;
+}
+.pqa-popup-track {
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 99px;
+    overflow: hidden;
+}
+.pqa-popup-fill {
+    height: 100%;
+    border-radius: 99px;
+    background: linear-gradient(90deg, #2563eb 0%, #3b82f6 100%);
+    box-shadow: 0 0 8px rgba(37, 99, 235, 0.35);
+    transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.pqa-popup-pct {
+    font-size: 0.7rem;
+    color: #94a3b8;
+    text-align: right;
+    margin-top: 0.4rem;
 }
 
 /* ── Divider ── */
@@ -863,7 +967,7 @@ if "_ds" not in st.session_state:
     # Widgets with key= + value= are handled by passing value=_ds.get(...) instead.
     for _k in ("fri_upper", "fri_lower", "frd_upper", "frd_lower",
                 "nom_v_preset", "nom_v_custom", "rated_load_input",
-                "expected_steps_input", "report_format"):
+                "expected_steps_input", "report_format", "detection_window"):
         if _k not in st.session_state:
             st.session_state[_k] = _loaded.get(_k, _DEV_DEFAULTS[_k])
     # Time filter: restore only if the saved CSV path still matches
@@ -979,12 +1083,19 @@ with st.sidebar:
              "Useful for verifying that calculated recovery times match the waveform.",
     )
     show_debug = st.checkbox("Show Event Detection (De-bugging)", value=_ds.get("show_debug", False))
-    detection_window = st.number_input(
-        "Detection Window (s)",
-        value=float(_ds.get("detection_window", 5.0)),
-        min_value=1.0, max_value=30.0, step=1.0,
-        help="Time window used to group consecutive load step rows into a single event.",
-    )
+    _dw_col, _dw_rst = st.columns([7, 1])
+    with _dw_col:
+        detection_window = st.number_input(
+            "Detection Window (s)",
+            key="detection_window",
+            min_value=1.0, max_value=30.0, step=1.0,
+            help="Time window used to group consecutive load step rows into a single event.",
+        )
+    with _dw_rst:
+        st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
+        if st.button("↺", key="reset_detection_window"):
+            st.session_state["detection_window"] = 5.0
+            st.rerun()
     snapshot_window = st.number_input(
         "Snapshot Window (s)",
         value=float(_ds.get("snapshot_window", 10.0)),
@@ -1053,7 +1164,7 @@ with st.sidebar:
 
     # ── Rated Load ────────────────────────────────────────────
     # No value= — session_state["rated_load_input"] pre-populated from _ds on cold start
-    _rl_col, _rl_rst = st.columns([5, 1])
+    _rl_col, _rl_rst = st.columns([7, 1])
     with _rl_col:
         rated_load_str = st.text_input(
             "Rated Load (kW)",
@@ -1061,11 +1172,10 @@ with st.sidebar:
             key="rated_load_input",
         )
     with _rl_rst:
-        st.markdown('<div class="pqa-reset-btn">', unsafe_allow_html=True)
-        if st.button("↺", key="reset_rated_load", help="Clear rated load"):
+        st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
+        if st.button("↺", key="reset_rated_load"):
             st.session_state["rated_load_input"] = ""
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
     st.session_state["rated_load_str"] = rated_load_str
     try:
         rated_load_kw = float(rated_load_str) if rated_load_str.strip() else None
@@ -1074,7 +1184,7 @@ with st.sidebar:
         rated_load_kw = None
     st.session_state["rated_load_kw"] = rated_load_kw
 
-    _es_col, _es_rst = st.columns([5, 1])
+    _es_col, _es_rst = st.columns([7, 1])
     with _es_col:
         expected_steps_str = st.text_input(
             "No. Expected Load Steps",
@@ -1082,11 +1192,10 @@ with st.sidebar:
             key="expected_steps_input",
         )
     with _es_rst:
-        st.markdown('<div class="pqa-reset-btn">', unsafe_allow_html=True)
-        if st.button("↺", key="reset_expected_steps", help="Clear expected steps"):
+        st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
+        if st.button("↺", key="reset_expected_steps"):
             st.session_state["expected_steps_input"] = ""
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
     try:
         expected_steps = int(expected_steps_str) if expected_steps_str.strip() else None
     except ValueError:
@@ -1153,25 +1262,29 @@ with st.sidebar:
         st.session_state[_TF_END_TEXT]   = auto_end or ""
 
     # Text inputs driven by session state — updated by slider on_change callbacks
-    _s_col, _s_rst = st.columns([5, 1])
+    _s_col, _s_rst = st.columns([7, 1])
     with _s_col:
-        start_time_text = st.text_input("Start Time", key=_TF_START_TEXT, placeholder="HH:MM:SS")
+        start_time_text = st.text_input(
+            "Start Time", key=_TF_START_TEXT, placeholder="HH:MM:SS",
+            help="Filter analysis to start from this time.",
+        )
     with _s_rst:
-        st.markdown('<div class="pqa-reset-btn">', unsafe_allow_html=True)
-        if st.button("↺", key="reset_start_time", help="Reset to full CSV range"):
+        st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
+        if st.button("↺", key="reset_start_time"):
             st.session_state[_TF_START_TEXT] = auto_start or ""
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
 
-    _e_col, _e_rst = st.columns([5, 1])
+    _e_col, _e_rst = st.columns([7, 1])
     with _e_col:
-        end_time_text = st.text_input("End Time", key=_TF_END_TEXT, placeholder="HH:MM:SS")
+        end_time_text = st.text_input(
+            "End Time", key=_TF_END_TEXT, placeholder="HH:MM:SS",
+            help="Filter analysis to end at this time.",
+        )
     with _e_rst:
-        st.markdown('<div class="pqa-reset-btn">', unsafe_allow_html=True)
-        if st.button("↺", key="reset_end_time", help="Reset to full CSV range"):
+        st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
+        if st.button("↺", key="reset_end_time"):
             st.session_state[_TF_END_TEXT] = auto_end or ""
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
 
     start_time = start_time_text
     end_time   = end_time_text
@@ -1503,22 +1616,27 @@ if selected_csv_path is not None:
             recovery_verify_s=recovery_verify_s,
         )
 
+        _prog = st.empty()
         try:
             log.info(f"Run Analysis clicked — CSV: {selected_csv_path}, time: {start_time}–{end_time}")
-            with st.spinner("Loading and processing data..."):
-                df_raw = load_and_prepare_csv(selected_csv_path, start_time=start_time, end_time=end_time)
-                if df_raw.empty:
-                    log.warning("CSV loaded but no rows after time filter.")
-                    st.error("No data found. Check your CSV and time range.")
-                    st.stop()
-                log.info(f"CSV loaded: {len(df_raw)} rows")
-                df_proc, df_events = perform_analysis(df_raw, config)
-                log.info(f"Analysis done: {len(df_events)} events detected")
+            _show_progress_popup(_prog, 10, "Loading CSV data…", "Running Analysis")
+            df_raw = load_and_prepare_csv(selected_csv_path, start_time=start_time, end_time=end_time)
+            if df_raw.empty:
+                _prog.empty()
+                log.warning("CSV loaded but no rows after time filter.")
+                st.error("No data found. Check your CSV and time range.")
+                st.stop()
+            log.info(f"CSV loaded: {len(df_raw)} rows")
+            _show_progress_popup(_prog, 25, "Running power quality analysis…", "Running Analysis")
+            df_proc, df_events = perform_analysis(df_raw, config)
+            log.info(f"Analysis done: {len(df_events)} events detected")
         except Exception:
+            _prog.empty()
             log.exception("perform_analysis failed")
             st.error("Analysis failed — see Debug Log in the sidebar for details.")
             st.stop()
 
+        _show_progress_popup(_prog, 40, "Building results summary…", "Running Analysis")
         st.session_state.update({
             "df_raw": df_raw,
             "df_proc": df_proc,
@@ -1578,18 +1696,18 @@ if selected_csv_path is not None:
             thresh_kw=load_thresh,
         )
         try:
-            with st.spinner("Generating voltage plot..."):
-                graph_paths = generate_plots(df_proc, client_name, metric_keys=["Avg_Voltage_LL"], **plot_kwargs)
+            _show_progress_popup(_prog, 55, "Generating voltage plot…", "Running Analysis")
+            graph_paths = generate_plots(df_proc, client_name, metric_keys=["Avg_Voltage_LL"], **plot_kwargs)
             st.session_state["graph_paths"] = graph_paths
             log.info("Voltage plot generated")
 
-            with st.spinner("Generating remaining plots..."):
-                other_paths = generate_plots(
-                    df_proc, client_name,
-                    metric_keys=["Avg_kW", "Avg_Current", "Avg_Frequency", "Avg_PF", "Avg_THD_F"],
-                    **plot_kwargs,
-                )
-                graph_paths.update(other_paths)
+            _show_progress_popup(_prog, 68, "Generating remaining plots…", "Running Analysis")
+            other_paths = generate_plots(
+                df_proc, client_name,
+                metric_keys=["Avg_kW", "Avg_Current", "Avg_Frequency", "Avg_PF", "Avg_THD_F"],
+                **plot_kwargs,
+            )
+            graph_paths.update(other_paths)
             st.session_state["graph_paths"] = graph_paths
             log.info(f"All plots generated: {list(graph_paths.keys())}")
         except Exception:
@@ -1600,34 +1718,36 @@ if selected_csv_path is not None:
         table_path = None
         if not df_events.empty:
             try:
-                with st.spinner("Generating compliance table..."):
-                    table_file = os.path.join(IMAGE_DIR, f"{client_name}_table.png")
-                    table_path = save_compliance_table_as_image(
-                        df_events, table_file,
-                        client_name,
-                        nom_v=nom_v, nom_f=nom_f,
-                        rated_load_kw=rated_load_kw,
-                    )
+                _show_progress_popup(_prog, 80, "Generating compliance table…", "Running Analysis")
+                table_file = os.path.join(IMAGE_DIR, f"{client_name}_table.png")
+                table_path = save_compliance_table_as_image(
+                    df_events, table_file,
+                    client_name,
+                    nom_v=nom_v, nom_f=nom_f,
+                    rated_load_kw=rated_load_kw,
+                )
                 log.info(f"Compliance table saved: {table_path}")
             except Exception:
                 log.exception("Compliance table generation failed")
             try:
-                with st.spinner("Generating event snapshots..."):
-                    snapshot_paths = generate_all_snapshots(
-                        df_raw, df_events, client_name, output_dir=SNAPSHOT_DIR,
-                        show_limits=show_limits_snapshots,
-                        nom_v=nom_v, nom_f=nom_f, tol_v=v_tol, tol_f=f_tol,
-                        show_debug=show_debug,
-                        show_intersections=show_intersections,
-                        rated_load_kw=rated_load_kw,
-                        window_s=snapshot_window,
-                    )
+                _show_progress_popup(_prog, 90, "Generating event snapshots…", "Running Analysis")
+                snapshot_paths = generate_all_snapshots(
+                    df_raw, df_events, client_name, output_dir=SNAPSHOT_DIR,
+                    show_limits=show_limits_snapshots,
+                    nom_v=nom_v, nom_f=nom_f, tol_v=v_tol, tol_f=f_tol,
+                    show_debug=show_debug,
+                    show_intersections=show_intersections,
+                    rated_load_kw=rated_load_kw,
+                    window_s=snapshot_window,
+                )
                 log.info(f"{len(snapshot_paths)} snapshots generated")
             except Exception:
                 log.exception("Snapshot generation failed")
         else:
             st.warning("No load events detected above the threshold.")
 
+        _show_progress_popup(_prog, 100, "Done!", "Running Analysis")
+        _prog.empty()
         st.session_state["snapshot_paths"] = snapshot_paths
         st.session_state["table_path"] = table_path
         st.success(f"Analysis complete — **{len(df_events)} events** detected · **{len(graph_paths)} plots** · **{len(snapshot_paths)} snapshots**")
@@ -2020,132 +2140,145 @@ if st.session_state.get("analysis_done"):
 if generate_clicked and (selected_template_path is not None or html_template_str is not None):
     client_name_display = st.session_state.get("client_name", client_name)
     _success = False
+    _rpt_prog = st.empty()
+    _pdf_log_data: dict = {}   # collect logs/warnings to render after popup clears
 
-    with st.sidebar:
-        with st.status("Generating report...", expanded=True) as _status:
-            try:
-                st.write("⚙️ Building content map...")
-                config_values = {
-                    "report_title": report_title,
-                    "pqa_serial": pqa_serial,
-                    "gen_sn": gen_sn,
-                    "site_address": site_address,
-                    "custom_text": custom_text,
-                }
-                # If removing not-recovered warnings, regenerate snapshots without flags
-                _snap_dir = SNAPSHOT_DIR
-                if st.session_state.get("remove_nr_warnings") and _has_nr:
-                    _cfg = st.session_state.get("config")
-                    _snap_dir_clean = os.path.join(OUTPUT_BASE, "Snapshots_clean")
-                    os.makedirs(_snap_dir_clean, exist_ok=True)
-                    _df_ev_clean = df_events.copy()
-                    _df_ev_clean["V_not_recovered"] = False
-                    _df_ev_clean["F_not_recovered"] = False
-                    st.write("🧹 Regenerating clean snapshots (removing flags)...")
-                    generate_all_snapshots(
-                        st.session_state["df_raw"], _df_ev_clean, client_name_display,
-                        output_dir=_snap_dir_clean,
-                        show_limits=st.session_state.get("show_limits_snapshots", False),
-                        nom_v=_cfg.nominal_voltage if _cfg else 415.0,
-                        nom_f=_cfg.nominal_frequency if _cfg else 50.0,
-                        tol_v=_cfg.voltage_tolerance_pct if _cfg else 1.0,
-                        tol_f=_cfg.frequency_tolerance_pct if _cfg else 0.5,
-                        show_debug=False,
-                        rated_load_kw=st.session_state.get("rated_load_kw"),
-                        window_s=_cfg.snapshot_window_s if _cfg else 10.0,
+    try:
+        _show_progress_popup(_rpt_prog, 10, "Building content map…", "Generating Report")
+        config_values = {
+            "report_title": report_title,
+            "pqa_serial": pqa_serial,
+            "gen_sn": gen_sn,
+            "site_address": site_address,
+            "custom_text": custom_text,
+        }
+
+        # If removing not-recovered warnings, regenerate snapshots without flags
+        _snap_dir = SNAPSHOT_DIR
+        if st.session_state.get("remove_nr_warnings") and _has_nr:
+            _cfg = st.session_state.get("config")
+            _snap_dir_clean = os.path.join(OUTPUT_BASE, "Snapshots_clean")
+            os.makedirs(_snap_dir_clean, exist_ok=True)
+            _df_ev_clean = df_events.copy()
+            _df_ev_clean["V_not_recovered"] = False
+            _df_ev_clean["F_not_recovered"] = False
+            _show_progress_popup(_rpt_prog, 20, "Regenerating clean snapshots…", "Generating Report")
+            generate_all_snapshots(
+                st.session_state["df_raw"], _df_ev_clean, client_name_display,
+                output_dir=_snap_dir_clean,
+                show_limits=st.session_state.get("show_limits_snapshots", False),
+                nom_v=_cfg.nominal_voltage if _cfg else 415.0,
+                nom_f=_cfg.nominal_frequency if _cfg else 50.0,
+                tol_v=_cfg.voltage_tolerance_pct if _cfg else 1.0,
+                tol_f=_cfg.frequency_tolerance_pct if _cfg else 0.5,
+                show_debug=False,
+                rated_load_kw=st.session_state.get("rated_load_kw"),
+                window_s=_cfg.snapshot_window_s if _cfg else 10.0,
+            )
+            _snap_dir = _snap_dir_clean
+
+        _show_progress_popup(_rpt_prog, 35, "Mapping placeholders…", "Generating Report")
+        p_map = get_placeholder_map(
+            client_name_display, config_values,
+            df=st.session_state.get("df_raw"),
+            graph_dir=GRAPH_DIR, snapshot_dir=_snap_dir, image_dir=IMAGE_DIR,
+        )
+        log.info(f"Placeholder map built: {list(p_map.keys())}")
+
+        _n_events_rpt = len(st.session_state.get("df_events", pd.DataFrame()))
+        _n_snaps_mapped = sum(1 for k in p_map if k.startswith("{{Snapshot_"))
+        if _n_snaps_mapped < _n_events_rpt:
+            _pdf_log_data["snap_warning"] = (
+                f"Template has placeholders for {_n_snaps_mapped} snapshot(s) "
+                f"but {_n_events_rpt} events were detected. "
+                f"Add `{{{{Snapshot_{_n_snaps_mapped + 1}}}}}` … "
+                f"`{{{{Snapshot_{_n_events_rpt}}}}}` to your template to include all snapshots."
+            )
+
+        output_base = os.path.join(OUTPUT_BASE, report_filename)
+        entry = {"name": report_filename, "files": {}}
+
+        if report_format == "Word Template":
+            log.info(f"Word report — template: {selected_template_path}, output: {report_filename}, format: {download_format}")
+            _show_progress_popup(_rpt_prog, 50, "Injecting content into Word template…", "Generating Report")
+            docx_path = generate_docx(selected_template_path, p_map, output_name=output_base)
+            log.info(f"DOCX generated: {docx_path}")
+
+            if download_format in ("Word (.docx)", "Word+PDF"):
+                with open(docx_path, "rb") as f:
+                    entry["files"]["docx"] = f.read()
+
+            if download_format in ("PDF", "Word+PDF"):
+                _show_progress_popup(_rpt_prog, 75, "Converting to PDF…", "Generating Report")
+                pdf_path = f"{output_base}.pdf"
+                pdf_ok, pdf_log = convert_to_pdf(docx_path, pdf_path)
+                log.info(f"PDF conversion {'succeeded' if pdf_ok else 'failed'}:\n{pdf_log}")
+                _pdf_log_data["word_pdf_log"] = pdf_log
+                _pdf_log_data["word_pdf_ok"] = pdf_ok
+                if pdf_ok:
+                    with open(pdf_path, "rb") as f:
+                        entry["files"]["pdf"] = f.read()
+                else:
+                    _pdf_log_data["word_pdf_warn"] = (
+                        "**PDF conversion failed.**\n\n"
+                        "**Converters tried:** LibreOffice → docx2pdf → WeasyPrint → fpdf2\n\n"
+                        "**To fix on macOS:** `brew install --cask libreoffice` then restart the app.\n\n"
+                        "See the **PDF converter log** expander above for per-converter error details."
                     )
-                    _snap_dir = _snap_dir_clean
 
-                p_map = get_placeholder_map(
-                    client_name_display, config_values,
-                    df=st.session_state.get("df_raw"),
-                    graph_dir=GRAPH_DIR, snapshot_dir=_snap_dir, image_dir=IMAGE_DIR,
-                )
-                log.info(f"Placeholder map built: {list(p_map.keys())}")
+        else:  # HTML Template
+            log.info(f"HTML report — output: {report_filename}, format: {download_format}")
+            _show_progress_popup(_rpt_prog, 50, "Injecting content into HTML template…", "Generating Report")
+            html_result = generate_html_report(p_map, html_template_str, output_name=output_base)
 
-                # Warn if fewer snapshot placeholders were mapped than events detected.
-                _n_events = len(st.session_state.get("df_events", pd.DataFrame()))
-                _n_snaps_mapped = sum(1 for k in p_map if k.startswith("{{Snapshot_"))
-                if _n_snaps_mapped < _n_events:
-                    st.warning(
-                        f"Template has placeholders for {_n_snaps_mapped} snapshot(s) "
-                        f"but {_n_events} events were detected. "
-                        f"Add `{{{{Snapshot_{_n_snaps_mapped + 1}}}}}` … "
-                        f"`{{{{Snapshot_{_n_events}}}}}` to your template to include all snapshots."
+            if download_format in ("HTML", "HTML+PDF"):
+                with open(html_result["html"], "rb") as f:
+                    entry["files"]["html"] = f.read()
+
+            if download_format in ("PDF", "HTML+PDF"):
+                _show_progress_popup(_rpt_prog, 75, "Converting to PDF…", "Generating Report")
+                pdf_log = html_result.get("pdf_log", "")
+                _pdf_log_data["html_pdf_log"] = pdf_log
+                _pdf_log_data["html_pdf_ok"] = "pdf" in html_result
+                if "pdf" in html_result:
+                    with open(html_result["pdf"], "rb") as f:
+                        entry["files"]["pdf"] = f.read()
+                else:
+                    _pdf_log_data["html_pdf_warn"] = (
+                        "**PDF conversion failed.**\n\n"
+                        "**Converters tried:** WeasyPrint → LibreOffice → reportlab\n\n"
+                        "**To fix on macOS:** `brew install --cask libreoffice` then restart the app,\n"
+                        "or `brew install cairo pango` for WeasyPrint.\n\n"
+                        "See the **PDF converter log** expander above for details."
                     )
 
-                output_base = os.path.join(OUTPUT_BASE, report_filename)
-                entry = {"name": report_filename, "files": {}}
+        reports = st.session_state.get("generated_reports", [])
+        reports.append(entry)
+        st.session_state["generated_reports"] = reports
 
-                if report_format == "Word Template":
-                    log.info(f"Word report — template: {selected_template_path}, output: {report_filename}, format: {download_format}")
-                    st.write("📝 Injecting content into Word template...")
-                    docx_path = generate_docx(selected_template_path, p_map, output_name=output_base)
-                    log.info(f"DOCX generated: {docx_path}")
+        _show_progress_popup(_rpt_prog, 100, "Done!", "Generating Report")
+        _rpt_prog.empty()
+        log.info(f"Report '{report_filename}' added to session state.")
+        _success = True
 
-                    if download_format in ("Word (.docx)", "Word+PDF"):
-                        with open(docx_path, "rb") as f:
-                            entry["files"]["docx"] = f.read()
-                        st.write("💾 Word document ready.")
+    except Exception as _exc:
+        _rpt_prog.empty()
+        log.exception(f"Report generation failed: {_exc}")
+        st.error(f"Report generation failed: {_exc}")
 
-                    if download_format in ("PDF", "Word+PDF"):
-                        st.write("🖨️ Converting to PDF (timeout: 45s)...")
-                        pdf_path = f"{output_base}.pdf"
-                        pdf_ok, pdf_log = convert_to_pdf(docx_path, pdf_path)
-                        log.info(f"PDF conversion {'succeeded' if pdf_ok else 'failed'}:\n{pdf_log}")
-                        with st.expander("PDF converter log", expanded=not pdf_ok):
-                            st.code(pdf_log, language="text")
-                        if pdf_ok:
-                            with open(pdf_path, "rb") as f:
-                                entry["files"]["pdf"] = f.read()
-                            st.write("✅ PDF ready.")
-                        else:
-                            st.warning(
-                                "**PDF conversion failed.**\n\n"
-                                "**Converters tried:** LibreOffice → docx2pdf → WeasyPrint → fpdf2\n\n"
-                                "**To fix on macOS:** `brew install --cask libreoffice` then restart the app.\n\n"
-                                "See the **PDF converter log** expander above for per-converter error details."
-                            )
-
-                else:  # HTML Template
-                    log.info(f"HTML report — output: {report_filename}, format: {download_format}")
-                    st.write("📝 Injecting content into HTML template...")
-                    html_result = generate_html_report(p_map, html_template_str, output_name=output_base)
-
-                    if download_format in ("HTML", "HTML+PDF"):
-                        with open(html_result["html"], "rb") as f:
-                            entry["files"]["html"] = f.read()
-                        st.write("💾 HTML ready.")
-
-                    if download_format in ("PDF", "HTML+PDF"):
-                        pdf_log = html_result.get("pdf_log", "")
-                        with st.expander("PDF converter log", expanded="pdf" not in html_result):
-                            st.code(pdf_log, language="text")
-                        if "pdf" in html_result:
-                            with open(html_result["pdf"], "rb") as f:
-                                entry["files"]["pdf"] = f.read()
-                            st.write("✅ PDF ready.")
-                        else:
-                            st.warning(
-                                "**PDF conversion failed.**\n\n"
-                                "**Converters tried:** WeasyPrint → LibreOffice → reportlab\n\n"
-                                "**To fix on macOS:** `brew install --cask libreoffice` then restart the app,\n"
-                                "or `brew install cairo pango` for WeasyPrint.\n\n"
-                                "See the **PDF converter log** expander above for details."
-                            )
-
-                reports = st.session_state.get("generated_reports", [])
-                reports.append(entry)
-                st.session_state["generated_reports"] = reports
-
-                _status.update(label=f"✅ '{report_filename}' generated!", state="complete", expanded=False)
-                log.info(f"Report '{report_filename}' added to session state.")
-                _success = True
-
-            except Exception as _exc:
-                log.exception(f"Report generation failed: {_exc}")
-                _status.update(label=f"❌ Failed: {_exc}", state="error", expanded=True)
-                st.write(str(_exc))
+    # Render any deferred logs / warnings now that the popup is gone
+    if _pdf_log_data.get("snap_warning"):
+        st.warning(_pdf_log_data["snap_warning"])
+    if "word_pdf_log" in _pdf_log_data:
+        with st.expander("PDF converter log", expanded=not _pdf_log_data.get("word_pdf_ok")):
+            st.code(_pdf_log_data["word_pdf_log"], language="text")
+        if not _pdf_log_data.get("word_pdf_ok") and "word_pdf_warn" in _pdf_log_data:
+            st.warning(_pdf_log_data["word_pdf_warn"])
+    if "html_pdf_log" in _pdf_log_data:
+        with st.expander("PDF converter log", expanded=not _pdf_log_data.get("html_pdf_ok")):
+            st.code(_pdf_log_data["html_pdf_log"], language="text")
+        if not _pdf_log_data.get("html_pdf_ok") and "html_pdf_warn" in _pdf_log_data:
+            st.warning(_pdf_log_data["html_pdf_warn"])
 
     if _success:
         st.rerun()
