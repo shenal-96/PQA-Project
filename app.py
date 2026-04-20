@@ -1073,7 +1073,7 @@ with st.sidebar:
     # ── 2. Acceptance Criteria ────────────────────────────────
     st.subheader("Acceptance Criteria")
     apply_iso = st.checkbox("Apply ISO 8528 Presets", value=_ds.get("apply_iso", False))
-    show_limits = st.checkbox("Show Limits on Graphs", value=_ds.get("show_limits", False))
+    show_limits = st.checkbox("Deviation Limits on Main Graphs", value=_ds.get("show_limits", False))
     show_limits_snapshots = st.checkbox("Show Limits on Snapshots", value=_ds.get("show_limits_snapshots", False))
     show_intersections = st.checkbox(
         "Show Intersection Points",
@@ -1691,6 +1691,7 @@ if selected_csv_path is not None:
         plot_kwargs = dict(
             output_dir=GRAPH_DIR, show_limits=show_limits,
             nom_v=nom_v, nom_f=nom_f, tol_v=v_tol, tol_f=f_tol,
+            max_dev_v=v_max_dev, max_dev_f=f_max_dev,
             show_debug=False,
             df_events=None,
             thresh_kw=load_thresh,

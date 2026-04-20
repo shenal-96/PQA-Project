@@ -52,7 +52,8 @@ def _style_ax(ax, ylabel, color):
 
 def generate_plots(df_proc, client_name, output_dir="output/Graphs",
                    show_limits=False, nom_v=415.0, nom_f=50.0,
-                   tol_v=1.0, tol_f=0.5, metric_keys=None,
+                   tol_v=1.0, tol_f=0.5, max_dev_v=15.0, max_dev_f=7.0,
+                   metric_keys=None,
                    show_debug=False, show_intersections=False, df_events=None, thresh_kw=50.0):
     """
     Generate time-series plots for available metrics.
@@ -104,16 +105,16 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
         if show_limits:
             limit_kw = dict(linewidth=1.5, alpha=0.7, zorder=3)
             if col == "Avg_Voltage_LL":
-                upper = nom_v * (1 + tol_v / 100)
-                lower = nom_v * (1 - tol_v / 100)
-                ax.axhline(upper, color=_RED, ls="--", label=f"+{tol_v}% ({upper:.1f}V)", **limit_kw)
-                ax.axhline(lower, color=_RED, ls="--", label=f"-{tol_v}% ({lower:.1f}V)", **limit_kw)
+                upper = nom_v * (1 + max_dev_v / 100)
+                lower = nom_v * (1 - max_dev_v / 100)
+                ax.axhline(upper, color=_RED, ls="--", label=f"+{max_dev_v}% ({upper:.1f}V)", **limit_kw)
+                ax.axhline(lower, color=_RED, ls="--", label=f"-{max_dev_v}% ({lower:.1f}V)", **limit_kw)
                 ax.legend(fontsize=10, framealpha=0.9, loc="upper right", edgecolor=_GRID)
             elif col == "Avg_Frequency":
-                upper = nom_f * (1 + tol_f / 100)
-                lower = nom_f * (1 - tol_f / 100)
-                ax.axhline(upper, color=_RED, ls="--", label=f"+{tol_f}% ({upper:.3f}Hz)", **limit_kw)
-                ax.axhline(lower, color=_RED, ls="--", label=f"-{tol_f}% ({lower:.3f}Hz)", **limit_kw)
+                upper = nom_f * (1 + max_dev_f / 100)
+                lower = nom_f * (1 - max_dev_f / 100)
+                ax.axhline(upper, color=_RED, ls="--", label=f"+{max_dev_f}% ({upper:.3f}Hz)", **limit_kw)
+                ax.axhline(lower, color=_RED, ls="--", label=f"-{max_dev_f}% ({lower:.3f}Hz)", **limit_kw)
                 ax.legend(fontsize=10, framealpha=0.9, loc="upper right", edgecolor=_GRID)
 
         # ── Debug overlay ────────────────────────────────────────────────────
@@ -142,12 +143,10 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
             elif col == "Avg_Voltage_LL":
                 upper = nom_v * (1 + tol_v / 100)
                 lower = nom_v * (1 - tol_v / 100)
-                # Always draw the band limits in debug mode (dotted amber)
-                if not show_limits:
-                    ax.axhline(upper, color=_AMBER, linewidth=1.1, linestyle=":",
-                               alpha=0.7, label=f"+{tol_v}% ({upper:.1f}V)")
-                    ax.axhline(lower, color=_AMBER, linewidth=1.1, linestyle=":",
-                               alpha=0.7, label=f"-{tol_v}% ({lower:.1f}V)")
+                ax.axhline(upper, color=_AMBER, linewidth=1.1, linestyle=":",
+                           alpha=0.7, label=f"+{tol_v}% ({upper:.1f}V)")
+                ax.axhline(lower, color=_AMBER, linewidth=1.1, linestyle=":",
+                           alpha=0.7, label=f"-{tol_v}% ({lower:.1f}V)")
                 for _, ev in df_events.iterrows():
                     # Amber vertical at load-change detection point
                     ax.axvline(ev["Timestamp"], color=_AMBER, **ev_line_kw)
@@ -194,12 +193,11 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
                     if pd.isnull(f_lower):
                         f_lower = nom_f * (1 - tol_f / 100)
 
-                    # Show band limits as amber dotted lines if not already via show_limits
-                    if not show_limits:
-                        ax.axhline(f_upper, color=_AMBER, linewidth=1.1, linestyle=":",
-                                   alpha=0.6)
-                        ax.axhline(f_lower, color=_AMBER, linewidth=1.1, linestyle=":",
-                                   alpha=0.6)
+                    # Recovery band limits as amber dotted lines
+                    ax.axhline(f_upper, color=_AMBER, linewidth=1.1, linestyle=":",
+                               alpha=0.6)
+                    ax.axhline(f_lower, color=_AMBER, linewidth=1.1, linestyle=":",
+                               alpha=0.6)
 
                     f_dev = ev.get("F_dev", np.nan)
                     # Determine which boundary the signal crossed at exit/re-entry
