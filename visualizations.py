@@ -158,13 +158,17 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
                     if pd.notnull(v_exit):
                         ax.axvline(v_exit, color=_ORANGE, **ev_line_kw)
                         ax.scatter([v_exit], [band_val],
-                                   color=_ORANGE, marker="*", s=120, zorder=7,
-                                   label="V exit band")
+                                   color=_ORANGE, marker="*", s=140, zorder=9,
+                                   edgecolors="white", linewidths=1.2,
+                                   clip_on=False, label="V exit band")
                         ax.annotate(
                             "exit",
                             xy=(v_exit, band_val),
-                            xytext=(4, -12), textcoords="offset points",
-                            fontsize=7, color=_ORANGE, fontweight="700",
+                            xytext=(6, -14), textcoords="offset points",
+                            fontsize=8, color=_ORANGE, fontweight="700",
+                            zorder=10, clip_on=False,
+                            bbox=dict(boxstyle="round,pad=0.2", fc="white",
+                                      ec=_ORANGE, lw=0.8, alpha=0.95),
                         )
                     # Lime ★ at exact V re-entry crossing
                     v_rec = ev.get("V_rec_s")
@@ -172,13 +176,17 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
                         cross_ts = v_exit + pd.Timedelta(seconds=float(v_rec))
                         ax.axvline(cross_ts, color=_LIME, **cross_line_kw)
                         ax.scatter([cross_ts], [band_val],
-                                   color=_LIME, marker="*", s=120, zorder=7,
-                                   label=f"V recovery {v_rec:.2f}s")
+                                   color=_LIME, marker="*", s=140, zorder=9,
+                                   edgecolors="white", linewidths=1.2,
+                                   clip_on=False, label=f"V recovery {v_rec:.2f}s")
                         ax.annotate(
                             f"{v_rec:.2f}s",
                             xy=(cross_ts, band_val),
-                            xytext=(4, 6), textcoords="offset points",
-                            fontsize=7, color=_LIME, fontweight="700",
+                            xytext=(6, 10), textcoords="offset points",
+                            fontsize=8, color=_LIME, fontweight="700",
+                            zorder=10, clip_on=False,
+                            bbox=dict(boxstyle="round,pad=0.2", fc="white",
+                                      ec=_LIME, lw=0.8, alpha=0.95),
                         )
                 ax.legend(fontsize=7, framealpha=0.9, loc="upper right")
 
@@ -210,24 +218,34 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
                     if pd.notnull(f_exit):
                         ax.axvline(f_exit, color=_ORANGE, **ev_line_kw)
                         ax.scatter([f_exit], [band_val],
-                                   color=_ORANGE, marker="*", s=120, zorder=7)
+                                   color=_ORANGE, marker="*", s=140, zorder=9,
+                                   edgecolors="white", linewidths=1.2,
+                                   clip_on=False)
                         ax.annotate(
                             "exit",
                             xy=(f_exit, band_val),
-                            xytext=(4, -12), textcoords="offset points",
-                            fontsize=7, color=_ORANGE, fontweight="700",
+                            xytext=(6, -14), textcoords="offset points",
+                            fontsize=8, color=_ORANGE, fontweight="700",
+                            zorder=10, clip_on=False,
+                            bbox=dict(boxstyle="round,pad=0.2", fc="white",
+                                      ec=_ORANGE, lw=0.8, alpha=0.95),
                         )
                     f_rec = ev.get("F_rec_s")
                     if pd.notnull(f_rec) and pd.notnull(f_exit):
                         cross_ts = f_exit + pd.Timedelta(seconds=float(f_rec))
                         ax.axvline(cross_ts, color=_LIME, **cross_line_kw)
                         ax.scatter([cross_ts], [band_val],
-                                   color=_LIME, marker="*", s=120, zorder=7)
+                                   color=_LIME, marker="*", s=140, zorder=9,
+                                   edgecolors="white", linewidths=1.2,
+                                   clip_on=False)
                         ax.annotate(
                             f"{f_rec:.2f}s",
                             xy=(cross_ts, band_val),
-                            xytext=(4, 6), textcoords="offset points",
-                            fontsize=7, color=_LIME, fontweight="700",
+                            xytext=(6, 10), textcoords="offset points",
+                            fontsize=8, color=_LIME, fontweight="700",
+                            zorder=10, clip_on=False,
+                            bbox=dict(boxstyle="round,pad=0.2", fc="white",
+                                      ec=_LIME, lw=0.8, alpha=0.95),
                         )
 
                 # Single legend entry showing which band applies to which direction
@@ -460,17 +478,27 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         if pd.notnull(v_exit):
             vx = pd.Timestamp(v_exit)
             axes[0].axvline(vx, color=_ORANGE, **cross_kw)
-            axes[0].scatter([vx], [v_band_val], color=_ORANGE, marker="*", s=140, zorder=7)
-            axes[0].annotate("exit", xy=(vx, v_band_val), xytext=(4, -14),
+            axes[0].scatter([vx], [v_band_val], color=_ORANGE, marker="*", s=160,
+                            zorder=9, edgecolors="white", linewidths=1.2,
+                            clip_on=False)
+            axes[0].annotate("exit", xy=(vx, v_band_val), xytext=(6, -16),
                              textcoords="offset points",
-                             fontsize=7, color=_ORANGE, fontweight="700")
+                             fontsize=8, color=_ORANGE, fontweight="700",
+                             zorder=10, clip_on=False,
+                             bbox=dict(boxstyle="round,pad=0.25", fc="white",
+                                       ec=_ORANGE, lw=0.8, alpha=0.95))
             if pd.notnull(v_rec_s):
                 vr = vx + pd.Timedelta(seconds=float(v_rec_s))
                 axes[0].axvline(vr, color=_LIME, **cross_kw)
-                axes[0].scatter([vr], [v_band_val], color=_LIME, marker="*", s=140, zorder=7)
-                axes[0].annotate(f"{v_rec_s:.2f}s", xy=(vr, v_band_val), xytext=(4, 6),
+                axes[0].scatter([vr], [v_band_val], color=_LIME, marker="*", s=160,
+                                zorder=9, edgecolors="white", linewidths=1.2,
+                                clip_on=False)
+                axes[0].annotate(f"{v_rec_s:.2f}s", xy=(vr, v_band_val), xytext=(6, 10),
                                  textcoords="offset points",
-                                 fontsize=7, color=_LIME, fontweight="700")
+                                 fontsize=8, color=_LIME, fontweight="700",
+                                 zorder=10, clip_on=False,
+                                 bbox=dict(boxstyle="round,pad=0.25", fc="white",
+                                           ec=_LIME, lw=0.8, alpha=0.95))
 
         v_legend = [
             Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"+{tol_v}% ({v_upper_band:.1f} V)"),
@@ -492,17 +520,27 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         if pd.notnull(f_exit):
             fx = pd.Timestamp(f_exit)
             axes[2].axvline(fx, color=_ORANGE, **cross_kw)
-            axes[2].scatter([fx], [f_band_val], color=_ORANGE, marker="*", s=140, zorder=7)
-            axes[2].annotate("exit", xy=(fx, f_band_val), xytext=(4, -14),
+            axes[2].scatter([fx], [f_band_val], color=_ORANGE, marker="*", s=160,
+                            zorder=9, edgecolors="white", linewidths=1.2,
+                            clip_on=False)
+            axes[2].annotate("exit", xy=(fx, f_band_val), xytext=(6, -16),
                              textcoords="offset points",
-                             fontsize=7, color=_ORANGE, fontweight="700")
+                             fontsize=8, color=_ORANGE, fontweight="700",
+                             zorder=10, clip_on=False,
+                             bbox=dict(boxstyle="round,pad=0.25", fc="white",
+                                       ec=_ORANGE, lw=0.8, alpha=0.95))
             if pd.notnull(f_rec_s):
                 fr = fx + pd.Timedelta(seconds=float(f_rec_s))
                 axes[2].axvline(fr, color=_LIME, **cross_kw)
-                axes[2].scatter([fr], [f_band_val], color=_LIME, marker="*", s=140, zorder=7)
-                axes[2].annotate(f"{f_rec_s:.2f}s", xy=(fr, f_band_val), xytext=(4, 6),
+                axes[2].scatter([fr], [f_band_val], color=_LIME, marker="*", s=160,
+                                zorder=9, edgecolors="white", linewidths=1.2,
+                                clip_on=False)
+                axes[2].annotate(f"{f_rec_s:.2f}s", xy=(fr, f_band_val), xytext=(6, 10),
                                  textcoords="offset points",
-                                 fontsize=7, color=_LIME, fontweight="700")
+                                 fontsize=8, color=_LIME, fontweight="700",
+                                 zorder=10, clip_on=False,
+                                 bbox=dict(boxstyle="round,pad=0.25", fc="white",
+                                           ec=_LIME, lw=0.8, alpha=0.95))
 
         f_legend = [
             Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"upper ({f_upper:.3f} Hz)"),
