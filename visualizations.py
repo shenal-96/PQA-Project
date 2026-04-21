@@ -52,7 +52,8 @@ def _style_ax(ax, ylabel, color):
 
 def generate_plots(df_proc, client_name, output_dir="output/Graphs",
                    show_limits=False, nom_v=415.0, nom_f=50.0,
-                   tol_v=1.0, tol_f=0.5, metric_keys=None,
+                   tol_v=1.0, tol_f=0.5, v_max_dev=15.0, f_max_dev=7.0,
+                   metric_keys=None,
                    show_debug=False, show_intersections=False, df_events=None, thresh_kw=50.0):
     """
     Generate time-series plots for available metrics.
@@ -104,16 +105,16 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
         if show_limits:
             limit_kw = dict(linewidth=1.5, alpha=0.7, zorder=3)
             if col == "Avg_Voltage_LL":
-                upper = nom_v * (1 + tol_v / 100)
-                lower = nom_v * (1 - tol_v / 100)
-                ax.axhline(upper, color=_RED, ls="--", label=f"+{tol_v}% ({upper:.1f}V)", **limit_kw)
-                ax.axhline(lower, color=_RED, ls="--", label=f"-{tol_v}% ({lower:.1f}V)", **limit_kw)
+                upper = nom_v * (1 + v_max_dev / 100)
+                lower = nom_v * (1 - v_max_dev / 100)
+                ax.axhline(upper, color=_RED, ls="--", label=f"Max dev +{v_max_dev}% ({upper:.1f}V)", **limit_kw)
+                ax.axhline(lower, color=_RED, ls="--", label=f"Max dev -{v_max_dev}% ({lower:.1f}V)", **limit_kw)
                 ax.legend(fontsize=10, framealpha=0.9, loc="upper right", edgecolor=_GRID)
             elif col == "Avg_Frequency":
-                upper = nom_f * (1 + tol_f / 100)
-                lower = nom_f * (1 - tol_f / 100)
-                ax.axhline(upper, color=_RED, ls="--", label=f"+{tol_f}% ({upper:.3f}Hz)", **limit_kw)
-                ax.axhline(lower, color=_RED, ls="--", label=f"-{tol_f}% ({lower:.3f}Hz)", **limit_kw)
+                upper = nom_f * (1 + f_max_dev / 100)
+                lower = nom_f * (1 - f_max_dev / 100)
+                ax.axhline(upper, color=_RED, ls="--", label=f"Max dev +{f_max_dev}% ({upper:.3f}Hz)", **limit_kw)
+                ax.axhline(lower, color=_RED, ls="--", label=f"Max dev -{f_max_dev}% ({lower:.3f}Hz)", **limit_kw)
                 ax.legend(fontsize=10, framealpha=0.9, loc="upper right", edgecolor=_GRID)
 
         # ── Debug overlay ────────────────────────────────────────────────────
@@ -269,9 +270,86 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
     return paths
 
 
+# ── Temperature / Pressure column groups ─────────────────────────────────────
+_TP_GROUPS = {
+    "Pressures": {
+        "cols":   ["P-Oil", "P-Intake"],
+        "labels": {"P-Oil": "Oil Pressure", "P-Intake": "Intake Pressure"},
+        "ylabel": "Pressure",
+        "colors": [_CYAN, _BLUE],
+    },
+    "Engine_Temps": {
+        "cols":   ["T-Fuel", "T-Oil", "T-Coolant", "T-IntManifold", "T-Intcooler", "T-ECU"],
+        "labels": {"T-Fuel": "Fuel", "T-Oil": "Oil", "T-Coolant": "Coolant",
+                   "T-IntManifold": "Int. Manifold", "T-Intcooler": "Intercooler", "T-ECU": "ECU"},
+        "ylabel": "Temperature (°C)",
+        "colors": [_RED, _ORANGE, _CYAN, _AMBER, _PURPLE, _GREEN],
+    },
+    "Generator_Temps": {
+        "cols":   ["Generator Winding (Temp 1A-U)", "Generator Winding (Temp 2A-V)",
+                   "Generator Winding (Temp 3A-W)", "Generator Bearing Temp (NDE)"],
+        "labels": {"Generator Winding (Temp 1A-U)": "Winding U",
+                   "Generator Winding (Temp 2A-V)": "Winding V",
+                   "Generator Winding (Temp 3A-W)": "Winding W",
+                   "Generator Bearing Temp (NDE)":  "Bearing (NDE)"},
+        "ylabel": "Temperature (°C)",
+        "colors": [_BLUE, _RED, _GREEN, _ORANGE],
+    },
+}
+
+
+def generate_temp_pressure_plots(df, client_name, output_dir="output/Graphs"):
+    """
+    Generate temperature and pressure time-series plots from WinScope data.
+    Returns dict mapping group key -> SVG file path. Groups with no present columns are skipped.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    paths = {}
+
+    for group_key, grp in _TP_GROUPS.items():
+        present = [c for c in grp["cols"] if c in df.columns and not df[c].dropna().empty]
+        if not present:
+            continue
+
+        fig, ax = plt.subplots(figsize=(14, 4))
+        fig.patch.set_facecolor(_BG)
+
+        x = df["Timestamp"]
+        for i, col in enumerate(present):
+            color = grp["colors"][i % len(grp["colors"])]
+            y = pd.to_numeric(df[col], errors="coerce")
+            ax.plot(x, y, color=color, linewidth=2.0, solid_capstyle="round",
+                    label=grp["labels"].get(col, col))
+
+        _style_ax(ax, grp["ylabel"], _TEXT_MAIN)
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+        fig.autofmt_xdate(rotation=0, ha="center")
+        ax.tick_params(axis="x", labelsize=11, colors=_TEXT_SUB)
+        ax.legend(fontsize=10, framealpha=0.9, loc="upper right",
+                  edgecolor=_GRID, facecolor=_BG)
+
+        ax.set_title(group_key.replace("_", " "), fontsize=16, fontweight="700",
+                     color=_TEXT_MAIN, pad=24, loc="left")
+        fig.text(0.01, 1.01, client_name, transform=ax.transAxes,
+                 fontsize=11, color=_TEXT_SUB, va="bottom")
+
+        fig.tight_layout(pad=1.2)
+        fname = os.path.join(output_dir, f"{client_name}_{group_key}.svg")
+        fig.savefig(fname, format="svg", bbox_inches="tight", facecolor=_BG)
+        fig.set_size_inches(16, 6)
+        fig.tight_layout(pad=1.2)
+        fig.savefig(os.path.join(output_dir, f"{client_name}_{group_key}.jpeg"),
+                    format="jpeg", dpi=200, bbox_inches="tight", facecolor=_BG)
+        plt.close(fig)
+        paths[group_key] = fname
+
+    return paths
+
+
 def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_after,
                               client_name, output_dir="output/Snapshots",
                               show_limits=False, nom_v=415.0, nom_f=50.0, tol_v=1.0, tol_f=0.5,
+                              v_max_dev=15.0, f_max_dev=7.0,
                               show_debug=False, show_intersections=False, event_row=None,
                               rated_load_kw=None, window_s=10):
     """
@@ -386,8 +464,10 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                            edgecolor=_GRID, facecolor=_BG)
     if show_limits:
         lkw = dict(linewidth=1.5, linestyle="--", alpha=0.75, zorder=4)
-        axes[0].axhline(nom_v * (1 + tol_v / 100), color=_RED, label=f"+{tol_v}%", **lkw)
-        axes[0].axhline(nom_v * (1 - tol_v / 100), color=_RED, label=f"-{tol_v}%", **lkw)
+        axes[0].axhline(nom_v * (1 + v_max_dev / 100), color=_RED,
+                        label=f"Max dev +{v_max_dev}% ({nom_v * (1 + v_max_dev / 100):.1f}V)", **lkw)
+        axes[0].axhline(nom_v * (1 - v_max_dev / 100), color=_RED,
+                        label=f"Max dev -{v_max_dev}% ({nom_v * (1 - v_max_dev / 100):.1f}V)", **lkw)
         axes[0].legend(loc="upper right", fontsize=10, framealpha=0.9,
                        edgecolor=_GRID, facecolor=_BG)
 
@@ -411,9 +491,14 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         axes[2].fill_between(df_win["Timestamp"], y, y.min(), color=_ORANGE, alpha=0.1)
         axes[2].plot(df_win["Timestamp"], y,
                      color=_ORANGE, linewidth=2.0, solid_capstyle="round")
-    # Frequency: symmetric ±tol_f% lines are NOT drawn here because the actual
-    # compliance limits are asymmetric and direction-dependent (shown by debug mode).
-    # Drawing symmetric lines would be misleading.
+    if show_limits:
+        lkw = dict(linewidth=1.5, linestyle="--", alpha=0.75, zorder=4)
+        axes[2].axhline(nom_f * (1 + f_max_dev / 100), color=_RED,
+                        label=f"Max dev +{f_max_dev}% ({nom_f * (1 + f_max_dev / 100):.3f}Hz)", **lkw)
+        axes[2].axhline(nom_f * (1 - f_max_dev / 100), color=_RED,
+                        label=f"Max dev -{f_max_dev}% ({nom_f * (1 - f_max_dev / 100):.3f}Hz)", **lkw)
+        axes[2].legend(loc="upper right", fontsize=10, framealpha=0.9,
+                       edgecolor=_GRID, facecolor=_BG)
 
     # 4. Power
     _style_ax(axes[3], "Power (kW)", _GREEN)
@@ -557,6 +642,7 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
 
 def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Snapshots",
                            show_limits=False, nom_v=415.0, nom_f=50.0, tol_v=1.0, tol_f=0.5,
+                           v_max_dev=15.0, f_max_dev=7.0,
                            show_debug=False, show_intersections=False, rated_load_kw=None,
                            window_s=10):
     """Generate snapshots for all detected events. Returns list of file paths in event order."""
@@ -579,6 +665,7 @@ def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Sn
                 output_dir=output_dir,
                 show_limits=show_limits,
                 nom_v=nom_v, nom_f=nom_f, tol_v=tol_v, tol_f=tol_f,
+                v_max_dev=v_max_dev, f_max_dev=f_max_dev,
                 show_debug=show_debug,
                 show_intersections=show_intersections,
                 event_row=row,

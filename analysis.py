@@ -43,6 +43,9 @@ class AnalysisConfig:
     # seconds.  If the signal exits the band again during verification
     # (oscillation), the candidate is discarded and the search resumes.
     recovery_verify_s: float = 6.0
+    # When True, skip 100ms resampling and use raw data directly as df_interp.
+    # Use for high-frequency sources (e.g. WinScope ~200ms) that don't need upsampling.
+    skip_interpolation: bool = False
 
     @classmethod
     def iso_8528_defaults(cls):
@@ -109,6 +112,49 @@ def load_and_prepare_csv(file_path_or_buffer, start_time=None, end_time=None):
         except Exception as e:
             print(f"Time filtering error: {e}")
 
+    return df
+
+
+def load_winscope_xls(file_path_or_buffer):
+    """
+    Load a WinScope .xls export and return a DataFrame compatible with perform_analysis.
+
+    Reads the 'Summary' sheet (or second sheet as fallback), strips '(Q)' suffixes,
+    renames WinScope channel names to pipeline-standard column names, and converts
+    the 'Generator P' column from kW → W so the pipeline's /1000 divisor is consistent.
+    """
+    from python_calamine import CalamineWorkbook
+
+    wb = CalamineWorkbook.from_path(str(file_path_or_buffer))
+    data_sheet = "Summary" if "Summary" in wb.sheet_names else wb.sheet_names[1]
+    rows = wb.get_sheet_by_name(data_sheet).to_python()
+    if not rows:
+        raise ValueError(f"No data found in WinScope sheet '{data_sheet}'")
+
+    header = [str(c).replace(" (Q)", "").strip() for c in rows[0]]
+    data = [r for r in rows[1:] if any(v not in (None, "") for v in r)]
+    df = pd.DataFrame(data, columns=header)
+
+    rename_map = {
+        "Generator Voltage L1-L2": "U12_rms_AVG",
+        "Generator Voltage L2-L3": "U23_rms_AVG",
+        "Generator Voltage L3-L1": "U31_rms_AVG",
+        "Generator Current L1":    "I1_rms_AVG",
+        "Generator Current L2":    "I2_rms_AVG",
+        "Generator Current L3":    "I3_rms_AVG",
+        "Generator Frequency":     "Freq_AVG",
+        "Generator Power Factor":  "PF_sum_AVG",
+    }
+    df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+
+    # WinScope exports Generator P in kW; pipeline expects W (divides by 1000 internally)
+    if "Generator P" in df.columns:
+        df["P_sum_AVG"] = pd.to_numeric(df["Generator P"], errors="coerce") * 1000
+
+    if "PC Time" in df.columns:
+        df["Timestamp"] = pd.to_datetime(df["PC Time"])
+
+    df = df.dropna(subset=["Timestamp"]).sort_values("Timestamp").reset_index(drop=True)
     return df
 
 
@@ -474,17 +520,18 @@ def perform_analysis(df, config: AnalysisConfig):
     df_proc["dKw"] = df_proc["Avg_kW"].diff().fillna(0)
 
     # --- Interpolation (100ms) — used only for compliance calculations ---
-    # Linear interpolation between 1-second measured points gives sub-second
-    # precision for peak deviation and recovery time. This data is NOT used
-    # for plotting or snapshots.
-    num_cols = df_proc.select_dtypes(include=[np.number]).columns
-    df_interp = (
-        df_proc.set_index("Timestamp")[num_cols]
-        .resample("100ms")
-        .mean()
-        .interpolate(method="linear")
-        .reset_index()
-    )
+    # Skip when the source data is already at sub-second resolution (e.g. WinScope ~200ms).
+    if config.skip_interpolation:
+        df_interp = df_proc.copy()
+    else:
+        num_cols = df_proc.select_dtypes(include=[np.number]).columns
+        df_interp = (
+            df_proc.set_index("Timestamp")[num_cols]
+            .resample("100ms")
+            .mean()
+            .interpolate(method="linear")
+            .reset_index()
+        )
 
     # --- Event Detection ---
     raw_events = df_proc[df_proc["dKw"].abs() > float(thresh_kw)].copy()
