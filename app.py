@@ -63,6 +63,10 @@ UPLOADS_TEMPLATE_DIR = os.path.join(_APP_DIR, "uploads", "templates")
 os.makedirs(UPLOADS_CSV_DIR, exist_ok=True)
 os.makedirs(UPLOADS_TEMPLATE_DIR, exist_ok=True)
 
+# --- Help assets (screenshots shown in the Help dialog) ---
+HELP_ASSETS_DIR = os.path.join(_APP_DIR, "assets", "help")
+os.makedirs(HELP_ASSETS_DIR, exist_ok=True)
+
 # ── Dev-mode settings persistence ────────────────────────────────────────────
 DEV_SETTINGS_FILE = "uploads/dev_settings.json"
 
@@ -166,6 +170,345 @@ def _show_progress_popup(placeholder, pct: int, step: str, title: str = "Process
     <div class="pqa-popup-pct">{pct}%</div>
 </div>
 """, unsafe_allow_html=True)
+
+
+def _help_image(filename: str, caption: str | None = None):
+    """Render a help screenshot if present in assets/help/, otherwise a placeholder."""
+    path = os.path.join(HELP_ASSETS_DIR, filename)
+    if os.path.exists(path):
+        st.image(path, caption=caption, use_container_width=True)
+    else:
+        st.info(
+            f"Screenshot placeholder — save the corresponding image as "
+            f"`assets/help/{filename}` and it will appear here."
+        )
+
+
+def _render_help_getting_started():
+    st.markdown("#### Generating the CSV from PQone")
+    st.caption(
+        "The PQA tool analyses data exported from PQone as a Trend Graph CSV. "
+        "Follow the steps below to produce a correctly-formatted file."
+    )
+
+    st.markdown("**Step 1 — Open the PQA data with PQone**")
+    st.write(
+        "Launch PQone on the PC where your power-quality recording is stored "
+        "and open the project that contains the test run of interest."
+    )
+
+    st.markdown("**Step 2 — Select Line-to-Line voltage**")
+    st.write(
+        "In the Option dialog (Δ = V/PF/THD tab), set Urms to `Line – Line`. "
+        "This ensures the exported voltages are line-to-line values."
+    )
+    _help_image("step2_select_ll_voltage.png",
+                caption="Step 2 — Line-to-Line voltage selection in PQone")
+
+    st.markdown("**Step 3 — Select \"Trend Graph\" from the CSV export options**")
+    st.write(
+        "Click the CSV export icon on the PQone toolbar and choose **Trend Graph** "
+        "from the dropdown."
+    )
+    _help_image("step3_trend_graph_export.png",
+                caption="Step 3 — Choose Trend Graph from the CSV export menu")
+
+    st.markdown("**Step 4 — Make the following selections and click OK to save the CSV file**")
+    st.write(
+        "In the *Export csv file – Trend Graph* dialog, tick **U / I**, **Frequency**, "
+        "**Harmonics – Trend**, **Power**, and **Energy** under *Trend Graph Tabs*. "
+        "Leave *Displayed Items* selected under *Output Items*. Click **OK** to save the CSV."
+    )
+    st.info(
+        "The CSV file name is used to auto-populate the `{{report_title}}` placeholder "
+        "in the uploaded report template (editable later). Name the file after the test "
+        "that was conducted — e.g. `ISO 8528 Step Load`."
+    )
+    _help_image("step4_export_dialog.png",
+                caption="Step 4 — Export CSV dialog selections")
+
+
+def _render_help_running_analysis():
+    st.markdown("#### Running the analysis")
+    st.write(
+        "1. **Upload your CSV** in the sidebar under *Data Files*. Uploaded files "
+        "persist between sessions, so you only need to upload each CSV once."
+    )
+    st.write(
+        "2. **Select the CSV** from the dropdown. The app auto-detects the "
+        "recording's time range and shows it beneath the preview."
+    )
+    st.write(
+        "3. **Set Acceptance Criteria**. Tick *Apply ISO 8528 Presets* to use the "
+        "standard values, or untick to edit the thresholds manually. Nominal "
+        "voltage and frequency are under *Display Options*."
+    )
+    st.write(
+        "4. **(Optional) Time Filter** — narrow the analysis window using the "
+        "Start / End sliders or type HH:MM:SS directly."
+    )
+    st.write(
+        "5. **Click ⚡ Run Analysis**. The app detects load-step events, "
+        "calculates voltage / frequency exit and recovery times, and renders "
+        "the compliance table, time-series plots, and per-event snapshots."
+    )
+    st.write(
+        "6. **Review events** by expanding each snapshot. You can manually "
+        "override the band-exit or recovery crossing for any event; the table "
+        "and report refresh automatically."
+    )
+
+
+def _render_help_generating_reports():
+    st.markdown("#### Generating the report")
+    st.write(
+        "1. Choose **Report Format** in the sidebar — *Word Template* or "
+        "*HTML Template*."
+    )
+    st.write(
+        "2. **Word Template** — upload a `.docx` containing placeholders such as "
+        "`{{report_title}}`, `{{generator_sn}}`, `{{site_address}}`, "
+        "`{{custom_text}}`, `{{compliance_table}}`, `{{voltage_graph}}`, "
+        "`{{frequency_graph}}`, `{{kw_graph}}`, and the per-event snapshot "
+        "placeholders. The app injects graphs, snapshots, and the compliance "
+        "table image into those placeholders."
+    )
+    st.write(
+        "3. **HTML Template** — edit the built-in HTML template inline; "
+        "placeholders match the Word pipeline. Click *Reset* to restore the "
+        "default template."
+    )
+    st.write(
+        "4. Fill in the **Report Details** fields (Report Title, PQA Serial No., "
+        "Generator Serial Number, Site Address, Custom Text Field) — these feed "
+        "directly into the template placeholders."
+    )
+    st.write(
+        "5. Click **Generate Report**. The app produces a `.docx` (Word) or "
+        "`.html` (HTML) file plus a `.pdf` rendering. Both files are offered as "
+        "downloads and kept under *Previous Reports* for the session."
+    )
+    st.caption(
+        "PDF conversion uses LibreOffice (preferred), WeasyPrint, or reportlab as "
+        "fallbacks. On Streamlit Cloud, LibreOffice is installed via `packages.txt`; "
+        "on a local Mac install it with `brew install --cask libreoffice`."
+    )
+
+
+def _render_help_parameters():
+    st.markdown("#### Configuration parameter reference")
+    st.caption("Wording matches the sidebar labels.")
+
+    st.markdown("##### Acceptance Criteria")
+    st.markdown(
+        "- **Apply ISO 8528 Presets** — loads the ISO 8528 standard acceptance "
+        "values (Load Threshold 50 kW, Voltage Tolerance 1%, Voltage Recovery 4 s, "
+        "Max Voltage Dev 15%, Frequency Tolerance 0.5%, Frequency Recovery 3 s, "
+        "Max Frequency Dev 7%, standard frequency recovery bands). When ticked "
+        "the numeric fields are locked.\n"
+        "- **Deviation Limits on Main Graphs** — overlays the *maximum allowed* "
+        "voltage / frequency deviation bounds (±Max Voltage Dev %, ±Max Frequency Dev %) "
+        "on the Voltage and Frequency time-series plots.\n"
+        "- **Show Limits on Snapshots** — overlays the compliance band "
+        "(Voltage Tolerance / frequency recovery bands) on each event snapshot.\n"
+        "- **Show Intersection Points** — overlays exact band-exit (orange ★) "
+        "and recovery (lime ★) crossing markers on event snapshots, with the "
+        "compliance band used for that event. Useful for verifying computed "
+        "recovery times against the waveform.\n"
+        "- **Show Event Detection (De-bugging)** — adds amber event-timestamp "
+        "lines and threshold annotations to the plots.\n"
+        "- **Detection Window (s)** — time window used to group consecutive "
+        "load step rows into a single event (default 5 s). Prevents a ramp-style "
+        "load change from being counted as multiple events.\n"
+        "- **Snapshot Window (s)** — seconds shown either side of each event in "
+        "snapshots. Also sets the window used to find peak voltage / frequency "
+        "deviation (default 10 s).\n"
+        "- **Recovery Verify Window (s)** *(Dev Mode)* — after a recovery "
+        "candidate is found, verify the signal stays in-band for this many "
+        "seconds before accepting it (default 6 s). Handles oscillating waveforms."
+    )
+    st.markdown(
+        "- **Load Threshold (kW)** — minimum |ΔkW| between consecutive samples "
+        "required to register a load-step event.\n"
+        "- **Voltage Tolerance (%)** — steady-state voltage band, as a percentage "
+        "of nominal voltage. Used for the recovery (re-entry) test.\n"
+        "- **Voltage Recovery (s)** — maximum allowed time from band-exit to "
+        "sustained re-entry for the event to pass.\n"
+        "- **Max Voltage Dev (%)** — maximum allowed instantaneous deviation "
+        "from nominal voltage during the event transient.\n"
+        "- **Frequency Tolerance (%)** — symmetric steady-state frequency band "
+        "used when asymmetric recovery bands are not overridden.\n"
+        "- **Frequency Recovery (s)** — maximum allowed time from band-exit to "
+        "sustained re-entry for the event to pass.\n"
+        "- **Max Frequency Dev (%)** — maximum allowed instantaneous deviation "
+        "from nominal frequency during the event transient."
+    )
+    st.markdown(
+        "- **Frequency Recovery Bands (Hz)** — the asymmetric recovery band "
+        "used for frequency compliance. *Load Increase* (generator slows) uses "
+        "a lower band offset from nominal; *Load Decrease* (generator speeds up) "
+        "uses an upper band. Defaults: increase `[49.75, 50.50]` Hz, "
+        "decrease `[49.50, 50.25]` Hz."
+    )
+
+    st.markdown("##### Rated Load")
+    st.markdown(
+        "- **Rated Load (kW)** — optional. When set, each event's load change "
+        "is expressed as a percentage of rated load.\n"
+        "- **No. Expected Load Steps** — optional. If set, a warning is shown "
+        "when the number of detected events does not match this count."
+    )
+
+    st.markdown("##### Display Options")
+    st.markdown(
+        "- **Nominal Voltage** — preset (415 V LV, 690 V MV-LV, 11 000 V) or "
+        "Custom. All compliance bounds are expressed relative to this value "
+        "(line-to-line).\n"
+        "- **Nominal Frequency (Hz)** — target generator frequency (default 50 Hz).\n"
+        "- **CSV Voltage Columns** — how the CSV's voltage columns are interpreted:\n"
+        "  - *Auto-detect (by column names)* — `U12/U23/U31` = L-L, "
+        "`U1/U2/U3` = L-N (multiplied by √3).\n"
+        "  - *Line-to-Line — use as-is* — no scaling applied.\n"
+        "  - *Line-to-Neutral — convert ×√3 to L-L* — every voltage column is "
+        "scaled up by √3. Compliance is always checked against L-L."
+    )
+
+    st.markdown("##### Time Filter")
+    st.markdown(
+        "- **Start Time / End Time** — text inputs (HH:MM:SS) with companion "
+        "sliders. The analysis is restricted to rows within this window.\n"
+        "- The ↺ reset buttons restore the auto-detected full CSV range."
+    )
+
+    st.markdown("##### Report Details & Generate Report")
+    st.markdown(
+        "- **Report Title / PQA Serial No. / Generator Serial Number / "
+        "Site Address / Custom Text Field** — free-text fields written into the "
+        "matching template placeholders.\n"
+        "- **Report Format** — *Word Template* (upload `.docx`, docx+pdf output) "
+        "or *HTML Template* (edit the built-in template inline, html+pdf output)."
+    )
+
+
+def _render_help_methodology():
+    st.markdown("#### How the analysis works")
+
+    st.markdown("##### 1. CSV load & voltage scaling")
+    st.write(
+        "Rows are parsed, timestamps normalised, and voltage columns scaled to "
+        "line-to-line as selected under *CSV Voltage Columns*. L-N columns "
+        "(`U1/U2/U3_rms_AVG`) are multiplied by √3."
+    )
+    st.latex(r"V_{LL} = \sqrt{3}\cdot V_{LN}")
+
+    st.markdown("##### 2. Event detection")
+    st.write(
+        "Active power (`Avg_kW`) is differenced sample-to-sample. Rows where "
+        "`|ΔkW| ≥ Load Threshold (kW)` are load-step candidates. Consecutive "
+        "candidate rows within *Detection Window (s)* are merged into a single "
+        "event."
+    )
+    st.latex(r"\text{event}(t) \iff |\Delta \text{kW}(t)| \geq \text{Load Threshold}")
+
+    st.markdown("##### 3. 100 ms interpolation grid (df_interp)")
+    st.write(
+        "The raw logger data (~1 s/sample) is linearly interpolated to a "
+        "100 ms grid. This finer grid is used **only** for computing exit and "
+        "recovery crossings — deviation values, plots, and snapshots always use "
+        "the raw measured data."
+    )
+
+    st.markdown("##### 4. Peak deviation (V_dev, F_dev)")
+    st.write(
+        "Within ±*Snapshot Window (s)* around each event, the peak measured "
+        "voltage / frequency is extracted from the raw data:"
+    )
+    st.markdown(
+        "- Load increase (`ΔkW > 0`) → signal dips → `V_dev = min(vals)`, "
+        "`F_dev = min(vals)`\n"
+        "- Load decrease (`ΔkW ≤ 0`) → signal rises → `V_dev = max(vals)`, "
+        "`F_dev = max(vals)`"
+    )
+    st.write("Peak-deviation percentage shown in the compliance table:")
+    st.latex(r"V_{\text{dev}}\% = \frac{|V_{\text{dev}} - V_{\text{nom}}|}{V_{\text{nom}}} \times 100")
+    st.latex(r"F_{\text{dev}}\% = \frac{|F_{\text{dev}} - F_{\text{nom}}|}{F_{\text{nom}}} \times 100")
+
+    st.markdown("##### 5. Compliance bands")
+    st.write("Voltage tolerance band (used for the recovery re-entry test):")
+    st.latex(r"[\,V_{\text{nom}}(1 - \tfrac{t_V}{100}),\ V_{\text{nom}}(1 + \tfrac{t_V}{100})\,]")
+    st.write("Voltage maximum-deviation envelope (used for the peak-deviation test):")
+    st.latex(r"[\,V_{\text{nom}}(1 - \tfrac{d_V}{100}),\ V_{\text{nom}}(1 + \tfrac{d_V}{100})\,]")
+    st.write(
+        "Frequency recovery bands are *asymmetric* — the band depends on load "
+        "direction (generator governor response is not symmetric):"
+    )
+    st.markdown(
+        "- Load increase → band `[freq_rec_lower_increase, freq_rec_upper_increase]` "
+        "(default `[49.75, 50.50]` Hz).\n"
+        "- Load decrease → band `[freq_rec_lower_decrease, freq_rec_upper_decrease]` "
+        "(default `[49.50, 50.25]` Hz)."
+    )
+
+    st.markdown("##### 6. Exit time")
+    st.write(
+        "`calculate_exit_time` scans **backwards** from the event timestamp on "
+        "`df_interp` up to 30 s. It finds the last in-band point and the first "
+        "subsequent out-of-band point, then linearly interpolates the exact "
+        "crossing timestamp. Returns `None` if the signal was already in-band "
+        "at the event (no excursion) or out-of-band for the entire lookback."
+    )
+
+    st.markdown("##### 7. Recovery time")
+    st.write(
+        "`calculate_recovery_time` scans **forward** from the exit timestamp on "
+        "`df_interp`. It looks for a *sustained* in-band window of "
+        "`sustain_s = 0.3 s` (3 consecutive 100 ms samples). When found, the "
+        "candidate is recorded and verification continues for "
+        "*Recovery Verify Window (s)*. If the signal exits the band again "
+        "during verification (oscillation), the candidate is discarded and the "
+        "search resumes. The exact re-entry crossing is linearly interpolated."
+    )
+    st.latex(r"t_{\text{recovery}} = t_{\text{re-entry crossing}} - t_{\text{exit crossing}}")
+    st.caption(
+        "Recovery is measured from the exact band-exit to the exact band-re-entry, "
+        "not from the load-change timestamp."
+    )
+
+    st.markdown("##### 8. Pass / Fail per event")
+    st.write("An event passes compliance when **all** of:")
+    st.markdown(
+        "- Peak voltage deviation ≤ *Max Voltage Dev (%)*.\n"
+        "- Voltage recovery time ≤ *Voltage Recovery (s)*.\n"
+        "- Peak frequency deviation ≤ *Max Frequency Dev (%)*.\n"
+        "- Frequency recovery time ≤ *Frequency Recovery (s)*.\n"
+        "- Signal was not already out-of-band when the event began "
+        "(*not-recovered* flag)."
+    )
+
+
+@st.dialog("PQA — Help & Documentation", width="large")
+def show_help_dialog():
+    st.caption(
+        "Everything you need to know to run a compliance analysis, from "
+        "exporting the CSV to generating the final report."
+    )
+    tab_start, tab_run, tab_report, tab_params, tab_method = st.tabs([
+        "Getting Started",
+        "Running Analysis",
+        "Generating Reports",
+        "Parameters",
+        "How it Works",
+    ])
+    with tab_start:
+        _render_help_getting_started()
+    with tab_run:
+        _render_help_running_analysis()
+    with tab_report:
+        _render_help_generating_reports()
+    with tab_params:
+        _render_help_parameters()
+    with tab_method:
+        _render_help_methodology()
 
 
 def _render_event_intersection_controls(idx, row, overrides):
@@ -1572,17 +1915,29 @@ with st.sidebar:
 # ============================================================
 # MAIN AREA
 # ============================================================
-st.markdown("""
-<div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:1.5rem;padding-bottom:1.25rem;border-bottom:2px solid #e2e8f0;">
-  <div style="width:42px;height:42px;background:linear-gradient(135deg,#1d4ed8,#2563eb);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 8px rgba(37,99,235,0.35);">
-    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polyline></svg>
-  </div>
-  <div>
-    <h1 style="margin:0;padding:0;border:none;font-size:1.65rem;font-weight:800;color:#0f172a;letter-spacing:-0.03em;line-height:1.15;">Power Quality Analysis</h1>
-    <p style="margin:0.2rem 0 0;font-size:0.8rem;color:#64748b;font-weight:400;">ISO 8528 compliance · Load event detection · Recovery time analysis</p>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+_title_col, _help_col = st.columns([11, 2], gap="small")
+with _title_col:
+    st.markdown("""
+    <div style="display:flex;align-items:flex-start;gap:14px;padding-top:0.25rem;">
+      <div style="width:42px;height:42px;background:linear-gradient(135deg,#1d4ed8,#2563eb);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 8px rgba(37,99,235,0.35);">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polyline></svg>
+      </div>
+      <div>
+        <h1 style="margin:0;padding:0;border:none;font-size:1.65rem;font-weight:800;color:#0f172a;letter-spacing:-0.03em;line-height:1.15;">Power Quality Analysis</h1>
+        <p style="margin:0.2rem 0 0;font-size:0.8rem;color:#64748b;font-weight:400;">ISO 8528 compliance · Load event detection · Recovery time analysis</p>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+with _help_col:
+    st.markdown('<div style="padding-top:0.75rem;"></div>', unsafe_allow_html=True)
+    if st.button("❔ Help", key="open_help_dialog", use_container_width=True,
+                 help="Step-by-step instructions, parameter glossary, and analysis methodology."):
+        show_help_dialog()
+
+st.markdown(
+    '<div style="margin:0.25rem 0 1.5rem;border-bottom:2px solid #e2e8f0;"></div>',
+    unsafe_allow_html=True,
+)
 
 if selected_csv_path is not None:
     with st.expander("Preview uploaded data", expanded=False):
