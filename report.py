@@ -380,7 +380,7 @@ def inject_images_to_word(template_stream, placeholder_map):
                     # Image replacement: clear paragraph and add image
                     for run in paragraph.runs:
                         run._element.getparent().remove(run._element)
-                    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
                     apply_strict_formatting(paragraph)
                     run = paragraph.add_run()
                     run.add_picture(value, width=_content_width)
@@ -405,13 +405,6 @@ def inject_images_to_word(template_stream, placeholder_map):
         for row in table.rows:
             for cell in row.cells:
                 process_paragraphs(cell.paragraphs)
-
-    # Ensure all sections have consistent margins for LibreOffice PDF conversion
-    for section in doc.sections:
-        section.top_margin = Inches(0.75)
-        section.bottom_margin = Inches(0.75)
-        section.left_margin = Inches(0.75)
-        section.right_margin = Inches(0.75)
 
     return doc
 
