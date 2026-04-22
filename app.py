@@ -26,6 +26,7 @@ from visualizations import (
 )
 from report import get_placeholder_map, inject_images_to_word, generate_docx, convert_to_pdf
 from html_report import get_default_template, generate_html_report
+from comparison import compare_excel_files, format_differences_for_display
 
 # --- Logging setup ---
 LOG_FILE = "/tmp/pqa_debug.log"
@@ -62,9 +63,11 @@ TEMPLATE_DIR = os.path.join(OUTPUT_BASE, "Template")
 UPLOADS_CSV_DIR = os.path.join(_APP_DIR, "uploads", "csv")
 UPLOADS_TEMPLATE_DIR = os.path.join(_APP_DIR, "uploads", "templates")
 UPLOADS_WINSCOPE_DIR = os.path.join(_APP_DIR, "uploads", "winscope")
+UPLOADS_EXCEL_DIR = os.path.join(_APP_DIR, "uploads", "excel")
 os.makedirs(UPLOADS_CSV_DIR, exist_ok=True)
 os.makedirs(UPLOADS_TEMPLATE_DIR, exist_ok=True)
 os.makedirs(UPLOADS_WINSCOPE_DIR, exist_ok=True)
+os.makedirs(UPLOADS_EXCEL_DIR, exist_ok=True)
 
 # ── Dev-mode settings persistence ────────────────────────────────────────────
 DEV_SETTINGS_FILE = "uploads/dev_settings.json"
@@ -1123,22 +1126,26 @@ with st.sidebar:
 
     # ── Mode Selector ──────────────────────────────────────────
     _active_tab = st.session_state.get("_active_tab", "compliance")
-    _compliance_mode = (_active_tab == "compliance")
-    _mc1, _mc2 = st.columns(2)
+    _mc1, _mc2, _mc3 = st.columns(3)
     if _mc1.button("⚡ Compliance", use_container_width=True,
-                   type="primary" if _compliance_mode else "secondary",
+                   type="primary" if _active_tab == "compliance" else "secondary",
                    key="sidebar_mode_compliance"):
         st.session_state["_active_tab"] = "compliance"
         st.rerun()
     if _mc2.button("📊 WinScope", use_container_width=True,
-                   type="primary" if not _compliance_mode else "secondary",
+                   type="primary" if _active_tab == "winscope" else "secondary",
                    key="sidebar_mode_winscope"):
         st.session_state["_active_tab"] = "winscope"
+        st.rerun()
+    if _mc3.button("📋 Compare", use_container_width=True,
+                   type="primary" if _active_tab == "compare" else "secondary",
+                   key="sidebar_mode_compare"):
+        st.session_state["_active_tab"] = "compare"
         st.rerun()
 
     st.divider()
 
-    if _compliance_mode:
+    if _active_tab == "compliance":
         # ── 1. CSV Upload ──────────────────────────────────────────
         st.subheader("Data Files")
         new_csvs = st.file_uploader(
@@ -2793,6 +2800,121 @@ elif _active_tab_main == "winscope":
         </div>
         """, unsafe_allow_html=True)
 
+
+elif _active_tab == "compare":
+    st.markdown("""
+    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:2rem;">
+      <div style="flex:1;">
+        <h1 style="margin:0;font-size:1.75rem;font-weight:700;color:#0f172a;">Excel File Comparison</h1>
+        <p style="margin:0.5rem 0 0;font-size:0.95rem;color:#64748b;">Compare multiple Excel files and identify differences</p>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Excel File Upload ──────────────────────────────────────────
+    new_excel_files = st.file_uploader(
+        "Upload Excel files to compare",
+        type=["xlsx", "xls"],
+        accept_multiple_files=True,
+        help="Select 2 or more Excel files. First file is used as baseline.",
+    )
+    if new_excel_files:
+        _saved, _failed = [], []
+        for f in new_excel_files:
+            dest = os.path.join(UPLOADS_EXCEL_DIR, f.name)
+            try:
+                f.seek(0)
+                with open(dest, "wb") as out:
+                    out.write(f.read())
+                _saved.append(f.name)
+                log.info(f"Excel file saved: {dest}")
+            except Exception as e:
+                _failed.append(f.name)
+                log.error(f"Failed to save Excel file {f.name}: {e}")
+        if _saved:
+            st.toast(f"Saved: {', '.join(_saved)}", icon="✅")
+        if _failed:
+            st.error(f"Failed to save: {', '.join(_failed)}")
+
+    # List saved Excel files
+    saved_excel_files = sorted(glob.glob(os.path.join(UPLOADS_EXCEL_DIR, "*.xls*")))
+    if saved_excel_files:
+        st.subheader("Uploaded Files")
+        selected_files = []
+        for excel_path in saved_excel_files:
+            fname = os.path.basename(excel_path)
+            size = os.path.getsize(excel_path)
+            size_str = f"{size/1024:.1f}KB" if size < 1024*1024 else f"{size/1024/1024:.1f}MB"
+            c1, c2, c3 = st.columns([4, 1, 1])
+
+            is_selected = c1.checkbox(
+                fname,
+                value=False,
+                label_visibility="collapsed",
+                key=f"excel_select_{fname}"
+            )
+            if is_selected:
+                selected_files.append(excel_path)
+
+            c2.caption(size_str)
+            if c3.button("✕", key=f"rm_excel_{fname}", help=f"Remove {fname}"):
+                os.remove(excel_path)
+                st.rerun()
+
+        if selected_files and len(selected_files) >= 2:
+            if st.button("🔍 Compare Selected Files", type="primary", use_container_width=True):
+                try:
+                    with st.spinner("Comparing files…"):
+                        differences = compare_excel_files(selected_files)
+                        st.session_state["comparison_results"] = differences
+                        st.success(f"Comparison complete! Found {len(differences)} differences.")
+                except Exception as e:
+                    st.error(f"Comparison failed: {str(e)}")
+                    log.exception(f"Comparison error: {e}")
+        elif selected_files:
+            st.info("Please select at least 2 files to compare.")
+
+    # Display comparison results
+    if "comparison_results" in st.session_state:
+        differences = st.session_state["comparison_results"]
+
+        if differences:
+            st.subheader("Differences Found")
+
+            display_df = format_differences_for_display(differences)
+
+            # Summary stats
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Total Differences", len(differences))
+            col2.metric("Files Affected", display_df["File"].nunique())
+            col3.metric("Sheets Affected", display_df["Tab"].nunique())
+            col4.metric("Columns Affected", display_df["Column"].nunique())
+
+            st.markdown("### Difference Details")
+            st.dataframe(
+                display_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "File": st.column_config.TextColumn(width="medium"),
+                    "Tab": st.column_config.TextColumn(width="medium"),
+                    "Row": st.column_config.TextColumn(width="small"),
+                    "Column": st.column_config.TextColumn(width="medium"),
+                    "Found": st.column_config.TextColumn(width="large"),
+                    "Expected": st.column_config.TextColumn(width="large"),
+                }
+            )
+
+            # Export option
+            csv_export = display_df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Differences as CSV",
+                data=csv_export,
+                file_name="comparison_results.csv",
+                mime="text/csv",
+            )
+        else:
+            st.success("✅ No differences found! All files match.")
 
 
 # ============================================================
