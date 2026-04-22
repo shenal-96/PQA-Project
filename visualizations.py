@@ -254,6 +254,7 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
                  fontsize=11, color=_TEXT_SUB, va="bottom")
 
         fig.tight_layout(pad=1.2)
+        fig.subplots_adjust(bottom=0.15)
         fname = os.path.join(output_dir, f"{client_name}_{col}.svg")
         fig.savefig(fname, format="svg", bbox_inches="tight", facecolor=_BG)
         # Save a taller JPEG for Word/PDF report insertion (SVG cannot be embedded in docx).
@@ -262,6 +263,7 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
         # axis labels and titles re-flow correctly at the new dimensions.
         fig.set_size_inches(16, 6)
         fig.tight_layout(pad=1.2)
+        fig.subplots_adjust(bottom=0.12)
         jpeg_fname = os.path.join(output_dir, f"{client_name}_{col}.jpeg")
         fig.savefig(jpeg_fname, format="jpeg", dpi=200, bbox_inches="tight", facecolor=_BG)
         plt.close(fig)
@@ -334,10 +336,12 @@ def generate_temp_pressure_plots(df, client_name, output_dir="output/Graphs"):
                  fontsize=11, color=_TEXT_SUB, va="bottom")
 
         fig.tight_layout(pad=1.2)
+        fig.subplots_adjust(bottom=0.15)
         fname = os.path.join(output_dir, f"{client_name}_{group_key}.svg")
         fig.savefig(fname, format="svg", bbox_inches="tight", facecolor=_BG)
         fig.set_size_inches(16, 6)
         fig.tight_layout(pad=1.2)
+        fig.subplots_adjust(bottom=0.12)
         fig.savefig(os.path.join(output_dir, f"{client_name}_{group_key}.jpeg"),
                     format="jpeg", dpi=200, bbox_inches="tight", facecolor=_BG)
         plt.close(fig)
