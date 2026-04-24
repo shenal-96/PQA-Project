@@ -1770,7 +1770,7 @@ with st.sidebar:
 # ============================================================
 _dev_mode = st.session_state.get("_ds", {}).get("dev_mode", False)
 _build_version = _get_build_version() if _dev_mode else ""
-_version_badge = f' <span style="font-size:0.65rem;color:#64748b;font-weight:500;margin-left:0.5rem;">build {_build_version}</span>' if _build_version else ""
+_version_badge = f' <span style="font-size:1.3rem;color:#64748b;font-weight:500;margin-left:0.5rem;">build {_build_version}</span>' if _build_version else ""
 
 st.markdown(f"""
 <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:1.5rem;padding-bottom:1.25rem;border-bottom:2px solid #e2e8f0;">
