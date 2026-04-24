@@ -1166,6 +1166,11 @@ with st.sidebar:
     if _compliance_mode:
         # ── 1. CSV Upload ──────────────────────────────────────────
         st.subheader("Data Files")
+
+        # Track previous CSV count to detect single vs multiple uploads
+        if "_prev_csv_count" not in st.session_state:
+            st.session_state["_prev_csv_count"] = len(glob.glob(os.path.join(UPLOADS_CSV_DIR, "*.csv")))
+
         new_csvs = st.file_uploader(
             "Upload CSV files",
             type=["csv"],
@@ -1187,6 +1192,11 @@ with st.sidebar:
                     log.error(f"Failed to save CSV {f.name}: {e}")
             if _saved:
                 st.toast(f"Saved: {', '.join(_saved)}", icon="✅")
+                # Auto-select if only 1 file was uploaded, otherwise leave blank
+                if len(_saved) == 1:
+                    _ds["selected_csv_name"] = _saved[0]
+                else:
+                    _ds["selected_csv_name"] = ""
             if _failed:
                 st.error(f"Failed to save: {', '.join(_failed)} — check Debug Log")
 
@@ -1206,7 +1216,13 @@ with st.sidebar:
 
         if all_csv_names:
             _saved_csv = _ds.get("selected_csv_name", "")
-            _csv_idx = all_csv_names.index(_saved_csv) if _saved_csv in all_csv_names else 0
+            # If selector was cleared (empty string), keep it at blank (None index) so user must choose
+            if _saved_csv == "":
+                _csv_idx = None
+            elif _saved_csv in all_csv_names:
+                _csv_idx = all_csv_names.index(_saved_csv)
+            else:
+                _csv_idx = None
             selected_name = st.selectbox("Select CSV to analyse", all_csv_names, index=_csv_idx)
             _ds["selected_csv_name"] = selected_name
             selected_csv_path = os.path.join(UPLOADS_CSV_DIR, selected_name)
@@ -1552,16 +1568,25 @@ with st.sidebar:
             help="Files are saved locally — no need to re-upload each session.",
         )
         if new_templates:
+            _saved_tpl, _failed_tpl = [], []
             for f in new_templates:
                 dest = os.path.join(UPLOADS_TEMPLATE_DIR, f.name)
                 try:
                     f.seek(0)
                     with open(dest, "wb") as out:
                         out.write(f.read())
+                    _saved_tpl.append(f.name)
                     log.info(f"Template saved: {dest}")
                 except Exception as e:
+                    _failed_tpl.append(f.name)
                     log.error(f"Failed to save template {f.name}: {e}")
                     st.error(f"Failed to save {f.name} — check Debug Log")
+            # Auto-select if only 1 template was uploaded, otherwise leave blank
+            if _saved_tpl:
+                if len(_saved_tpl) == 1:
+                    st.session_state["_selected_template"] = _saved_tpl[0]
+                else:
+                    st.session_state["_selected_template"] = ""
 
         saved_templates = sorted(glob.glob(os.path.join(UPLOADS_TEMPLATE_DIR, "*.docx")))
 
@@ -1579,7 +1604,15 @@ with st.sidebar:
         all_template_names = [os.path.basename(p) for p in saved_templates]
 
         if all_template_names:
-            selected_template_name = st.selectbox("Select Template", all_template_names)
+            # Check if we have a stored selection, otherwise keep blank
+            _stored_tpl = st.session_state.get("_selected_template", "")
+            if _stored_tpl == "":
+                _tpl_idx = None
+            elif _stored_tpl in all_template_names:
+                _tpl_idx = all_template_names.index(_stored_tpl)
+            else:
+                _tpl_idx = None
+            selected_template_name = st.selectbox("Select Template", all_template_names, index=_tpl_idx)
             selected_template_path = os.path.join(UPLOADS_TEMPLATE_DIR, selected_template_name)
 
             with st.expander("Available Placeholders"):
