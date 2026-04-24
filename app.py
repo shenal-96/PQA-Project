@@ -15,6 +15,7 @@ import glob
 import datetime
 import logging
 import json
+import tempfile
 
 from analysis import AnalysisConfig, load_and_prepare_csv, load_winscope_xls, perform_analysis, check_compliance, calculate_recovery_time
 from visualizations import (
@@ -28,7 +29,7 @@ from report import get_placeholder_map, inject_images_to_word, generate_docx, co
 from html_report import get_default_template, generate_html_report
 
 # --- Logging setup ---
-LOG_FILE = "/tmp/pqa_debug.log"
+LOG_FILE = os.path.join(tempfile.gettempdir(), "pqa_debug.log")
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(message)s",

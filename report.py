@@ -33,6 +33,8 @@ def try_libreoffice():
         '/usr/bin/libreoffice',
         '/usr/bin/soffice',
         '/snap/bin/libreoffice',
+        'C:\\Program Files\\LibreOffice\\program\\soffice.exe',
+        'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe',
     ]
     lo_bin = None
     for c in candidates:
