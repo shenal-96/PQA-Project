@@ -371,34 +371,41 @@ def inject_images_to_word(template_stream, placeholder_map):
         for paragraph in paragraphs:
             # Build full paragraph text from all runs (handles split placeholders)
             full_text = "".join([run.text for run in paragraph.runs])
+            new_text = full_text
+            has_image = False
+            image_path = None
 
             for key, value in placeholder_map.items():
-                if key not in full_text:
+                if key not in new_text:
                     continue
 
                 if isinstance(value, str) and value.lower().endswith((".png", ".jpg", ".jpeg")) and os.path.exists(value):
-                    # Image replacement: clear paragraph and add image
-                    for run in paragraph.runs:
-                        run._element.getparent().remove(run._element)
-                    paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-                    apply_strict_formatting(paragraph)
-                    run = paragraph.add_run()
-                    run.add_picture(value, width=_content_width)
-                    _collapse_trailing_empties(paragraph._p)
+                    # Image replacement: mark for processing after text replacements
+                    has_image = True
+                    image_path = value
                 else:
-                    # Text replacement: preserve formatting by modifying runs in place
-                    # Replace text within runs, handling placeholders split across runs
-                    new_text = full_text.replace(key, str(value))
+                    # Text replacement: apply to new_text (which accumulates all replacements)
+                    new_text = new_text.replace(key, str(value))
 
-                    # Clear all runs and rebuild with new text
-                    # (preserves paragraph-level formatting like spacing)
-                    for run in list(paragraph.runs):
-                        run._element.getparent().remove(run._element)
+            # Now apply the accumulated changes to the paragraph
+            if has_image and image_path:
+                # Image replacement: clear paragraph and add image
+                for run in paragraph.runs:
+                    run._element.getparent().remove(run._element)
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                apply_strict_formatting(paragraph)
+                run = paragraph.add_run()
+                run.add_picture(image_path, width=_content_width)
+                _collapse_trailing_empties(paragraph._p)
+            elif new_text != full_text:
+                # Text replacements were made: clear runs and rebuild once
+                for run in list(paragraph.runs):
+                    run._element.getparent().remove(run._element)
 
-                    # Add new run with replaced text, preserving font
-                    run = paragraph.add_run(new_text)
-                    run.font.name = "Arial"
-                    run.font.size = Pt(11)  # Use 11pt for body text, not 12pt
+                # Add new run with replaced text, preserving font
+                run = paragraph.add_run(new_text)
+                run.font.name = "Arial"
+                run.font.size = Pt(11)  # Use 11pt for body text, not 12pt
 
     process_paragraphs(doc.paragraphs)
     for table in doc.tables:
