@@ -51,6 +51,31 @@ st.set_page_config(
 # which directory Streamlit is launched from (important for remote access).
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
+def _get_build_version():
+    """Get build version from git: 0.{feature_count}.{total_commits}"""
+    try:
+        import subprocess
+        # Count total commits
+        total_commits = subprocess.run(
+            ["git", "rev-list", "--count", "HEAD"],
+            cwd=_APP_DIR,
+            capture_output=True,
+            text=True,
+            timeout=5
+        ).stdout.strip()
+        # Count feature commits (feat: prefix)
+        feature_commits = subprocess.run(
+            ["git", "log", "--oneline"],
+            cwd=_APP_DIR,
+            capture_output=True,
+            text=True,
+            timeout=5
+        ).stdout
+        feature_count = len([line for line in feature_commits.split('\n') if ' feat:' in line])
+        return f"0.{feature_count}.{total_commits}"
+    except Exception:
+        return "0.0.0"
+
 # --- Output directories ---
 OUTPUT_BASE = os.path.join(_APP_DIR, "output")
 GRAPH_DIR = os.path.join(OUTPUT_BASE, "Graphs")
@@ -1743,13 +1768,17 @@ with st.sidebar:
 # ============================================================
 # MAIN AREA
 # ============================================================
-st.markdown("""
+_dev_mode = st.session_state.get("_ds", {}).get("dev_mode", False)
+_build_version = _get_build_version() if _dev_mode else ""
+_version_badge = f' <span style="font-size:0.65rem;color:#64748b;font-weight:500;margin-left:0.5rem;">build {_build_version}</span>' if _build_version else ""
+
+st.markdown(f"""
 <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:1.5rem;padding-bottom:1.25rem;border-bottom:2px solid #e2e8f0;">
   <div style="width:42px;height:42px;background:linear-gradient(135deg,#1d4ed8,#2563eb);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 8px rgba(37,99,235,0.35);">
     <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polyline></svg>
   </div>
   <div>
-    <h1 style="margin:0;padding:0;border:none;font-size:1.65rem;font-weight:800;color:#0f172a;letter-spacing:-0.03em;line-height:1.15;">Power Quality Analysis</h1>
+    <h1 style="margin:0;padding:0;border:none;font-size:1.65rem;font-weight:800;color:#0f172a;letter-spacing:-0.03em;line-height:1.15;">Power Quality Analysis{_version_badge}</h1>
     <p style="margin:0.2rem 0 0;font-size:0.8rem;color:#64748b;font-weight:400;">ISO 8528 compliance · Load event detection · Recovery time analysis</p>
   </div>
 </div>
