@@ -423,6 +423,8 @@ def _try_libreoffice(html: str, output_path: str) -> None:
         "/usr/bin/libreoffice",
         "/usr/bin/soffice",
         "/snap/bin/libreoffice",
+        r"C:\Program Files\LibreOffice\program\soffice.exe",
+        r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
     ]
     lo_bin = None
     for c in candidates:
