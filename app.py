@@ -1272,7 +1272,10 @@ with st.sidebar:
              "along with the compliance band limits used for each event. "
              "Useful for verifying that calculated recovery times match the waveform.",
     )
-    show_debug = st.checkbox("Show Event Detection (De-bugging)", value=_ds.get("show_debug", False))
+    if _ds.get("dev_mode", False):
+        show_debug = st.checkbox("Show Event Detection (De-bugging)", value=_ds.get("show_debug", False))
+    else:
+        show_debug = False
     _dw_col, _dw_rst = st.columns([7, 1])
     with _dw_col:
         detection_window = st.number_input(
@@ -2873,22 +2876,23 @@ if _ds.get("dev_mode"):
 
 
 # ============================================================
-# DEBUG LOG PANEL — always visible at bottom of sidebar
+# DEBUG LOG PANEL — only visible if Dev Mode is enabled
 # ============================================================
 with st.sidebar:
-    st.divider()
-    with st.expander("🐛 Debug Log", expanded=False):
-        col_dbg1, col_dbg2 = st.columns(2)
-        if col_dbg1.button("Refresh", key="dbg_refresh", use_container_width=True):
-            pass  # triggers a rerun which re-reads the file
-        if col_dbg2.button("Clear", key="dbg_clear", use_container_width=True):
-            open(LOG_FILE, "w").close()
-            st.rerun()
-        try:
-            with open(LOG_FILE, "r") as _lf:
-                _lines = _lf.readlines()
-            # Show last 60 lines
-            _recent = "".join(_lines[-60:]) if len(_lines) > 60 else "".join(_lines)
-            st.code(_recent or "(empty)", language="text")
-        except FileNotFoundError:
-            st.caption("No log file yet.")
+    if st.session_state.get("_ds", {}).get("dev_mode", False):
+        st.divider()
+        with st.expander("🐛 Debug Log", expanded=False):
+            col_dbg1, col_dbg2 = st.columns(2)
+            if col_dbg1.button("Refresh", key="dbg_refresh", use_container_width=True):
+                pass  # triggers a rerun which re-reads the file
+            if col_dbg2.button("Clear", key="dbg_clear", use_container_width=True):
+                open(LOG_FILE, "w").close()
+                st.rerun()
+            try:
+                with open(LOG_FILE, "r") as _lf:
+                    _lines = _lf.readlines()
+                # Show last 60 lines
+                _recent = "".join(_lines[-60:]) if len(_lines) > 60 else "".join(_lines)
+                st.code(_recent or "(empty)", language="text")
+            except FileNotFoundError:
+                st.caption("No log file yet.")
