@@ -15,6 +15,7 @@ import glob
 import datetime
 import logging
 import json
+from pathlib import Path
 
 from analysis import AnalysisConfig, load_and_prepare_csv, load_winscope_xls, perform_analysis, check_compliance, calculate_recovery_time
 from visualizations import (
@@ -1616,7 +1617,7 @@ with st.sidebar:
             else:
                 _tpl_idx = None
             selected_template_name = st.selectbox("Select Template", all_template_names, index=_tpl_idx)
-            selected_template_path = os.path.join(UPLOADS_TEMPLATE_DIR, selected_template_name)
+            selected_template_path = os.path.join(UPLOADS_TEMPLATE_DIR, selected_template_name) if selected_template_name else None
 
             with st.expander("Available Placeholders"):
                 st.markdown("""
@@ -1821,8 +1822,8 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 _active_tab_main = st.session_state.get("_active_tab", "compliance")
-_TAB_LABELS = ["⚡ Compliance Analysis", "📊 WinScope Viewer"]
-_TAB_KEYS   = ["compliance", "winscope"]
+_TAB_LABELS = ["⚡ Compliance Analysis", "📊 WinScope Viewer", "🔧 Set Point Comparison"]
+_TAB_KEYS   = ["compliance", "winscope", "setpoint"]
 _chosen_tab = st.radio(
     "", _TAB_LABELS,
     index=_TAB_KEYS.index(_active_tab_main) if _active_tab_main in _TAB_KEYS else 0,
@@ -2858,6 +2859,167 @@ elif _active_tab_main == "winscope":
         </div>
         """, unsafe_allow_html=True)
 
+
+
+# ============================================================
+# SET POINT COMPARISON TAB
+# ============================================================
+elif _active_tab_main == "setpoint":
+    from ecu_parser import parse_file as _ecu_parse_file
+    from ecu_csv_parser import parse_csv_file as _ecu_parse_csv
+    from ecu_multi_comparator import compare_all_files as _ecu_compare_all
+    from ecu_csv_comparator import compare_csv_files as _ecu_compare_csv
+    import tempfile as _tempfile
+
+    st.markdown("""
+    <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:1.5rem;padding-bottom:1.25rem;border-bottom:2px solid #e2e8f0;">
+      <div style="width:42px;height:42px;background:linear-gradient(135deg,#7c3aed,#9333ea);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 8px rgba(147,51,234,0.35);">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+      </div>
+      <div>
+        <h2 style="margin:0;padding:0;border:none;font-size:1.4rem;font-weight:800;color:#0f172a;letter-spacing:-0.03em;line-height:1.15;">Set Point Comparison</h2>
+        <p style="margin:0.2rem 0 0;font-size:0.8rem;color:#64748b;font-weight:400;">Compare ECU parameter files (XLS/XLSX) and ComAp configuration files (CSV) · Highlight differences across multiple units</p>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    _sp_col1, _sp_col2, _sp_col3 = st.columns(3)
+    with _sp_col1:
+        st.subheader("XLS Files")
+        _sp_xls_files = st.file_uploader(
+            "Select .XLS files", type=["xls"], accept_multiple_files=True,
+            key="sp_xls_uploader", help="Upload ECU parameter .XLS files (old format)"
+        )
+    with _sp_col2:
+        st.subheader("XLSX Files")
+        _sp_xlsx_files = st.file_uploader(
+            "Select .XLSX files", type=["xlsx"], accept_multiple_files=True,
+            key="sp_xlsx_uploader", help="Upload ECU parameter .XLSX files (modern format)"
+        )
+    with _sp_col3:
+        st.subheader("CSV Files")
+        _sp_csv_files = st.file_uploader(
+            "Select .CSV files", type=["csv"], accept_multiple_files=True,
+            key="sp_csv_uploader", help="Upload ComAp configuration .CSV files"
+        )
+
+    st.divider()
+
+    _sp_tab1, _sp_tab2, _sp_tab3 = st.tabs(["XLS Comparison", "XLSX Comparison", "CSV Comparison"])
+
+    def _sp_run_xls_xlsx(files_list, label, download_prefix):
+        if files_list and len(files_list) >= 2:
+            if st.button(f"Run {label} Comparison", key=f"sp_{label.lower()}_run", type="primary", use_container_width=True):
+                with st.spinner(f"Loading and comparing {label} files..."):
+                    try:
+                        files_data = {}
+                        with _tempfile.TemporaryDirectory() as _tmpdir:
+                            for _uf in files_list:
+                                _tp = os.path.join(_tmpdir, _uf.name)
+                                with open(_tp, "wb") as _fh:
+                                    _fh.write(_uf.getbuffer())
+                                files_data[Path(_uf.name).stem] = _ecu_parse_file(_tp)
+
+                            _diffs = _ecu_compare_all(files_data)
+
+                        if _diffs:
+                            _df = pd.DataFrame(_diffs)
+                            st.success(f"Found **{len(_df)}** difference locations across **{len(files_list)}** files")
+
+                            _sheet_filter = st.multiselect(
+                                "Filter by Sheet", ["Parameter", "Val_2D", "Val_3D"],
+                                default=["Parameter", "Val_2D", "Val_3D"],
+                                key=f"sp_{label.lower()}_sheet_filter"
+                            )
+                            _fdf = _df[_df["Sheet"].isin(_sheet_filter)].copy()
+                            st.subheader(f"Differences ({len(_fdf)} locations)")
+
+                            _file_cols = [c for c in _fdf.columns if c not in ["Sheet", "Nr", "Name", "Location"]]
+                            _col_cfg = {
+                                "Sheet": st.column_config.TextColumn(width="small"),
+                                "Nr": st.column_config.TextColumn(width="small"),
+                                "Name": st.column_config.TextColumn(width="medium"),
+                                "Location": st.column_config.TextColumn(width="small"),
+                            }
+                            for _fc in _file_cols:
+                                _col_cfg[_fc] = st.column_config.TextColumn(width="small")
+
+                            st.dataframe(_fdf, use_container_width=True, hide_index=True, column_config=_col_cfg)
+                            st.download_button(
+                                "📥 Download as CSV", data=_fdf.to_csv(index=False),
+                                file_name=f"{download_prefix}_differences.csv", mime="text/csv",
+                                key=f"sp_{label.lower()}_download"
+                            )
+                        else:
+                            st.info("No differences found — all files are identical.")
+                    except Exception as _e:
+                        st.error(f"Error during {label} comparison: {str(_e)}")
+        else:
+            st.markdown("""
+            <div style="text-align:center;padding:3rem 2rem;border:2px dashed #e2e8f0;border-radius:12px;color:#94a3b8;margin-top:1rem;">
+              <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:0.75rem;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <p style="margin:0;font-size:0.95rem;font-weight:600;">Upload at least 2 files to compare</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+    with _sp_tab1:
+        _sp_run_xls_xlsx(_sp_xls_files, "XLS", "xls")
+    with _sp_tab2:
+        _sp_run_xls_xlsx(_sp_xlsx_files, "XLSX", "xlsx")
+
+    with _sp_tab3:
+        if _sp_csv_files and len(_sp_csv_files) >= 2:
+            if st.button("Run CSV Comparison", key="sp_csv_run", type="primary", use_container_width=True):
+                with st.spinner("Loading and comparing CSV files..."):
+                    try:
+                        _csv_data = {}
+                        with _tempfile.TemporaryDirectory() as _tmpdir:
+                            for _uf in _sp_csv_files:
+                                _tp = os.path.join(_tmpdir, _uf.name)
+                                with open(_tp, "wb") as _fh:
+                                    _fh.write(_uf.getbuffer())
+                                _csv_data[Path(_uf.name).stem] = _ecu_parse_csv(_tp)
+
+                            _diffs = _ecu_compare_csv(_csv_data)
+
+                        if _diffs:
+                            _df = pd.DataFrame(_diffs)
+                            st.success(f"Found **{len(_df)}** difference locations across **{len(_sp_csv_files)}** files")
+
+                            _groups = _df["Group"].unique().tolist()
+                            _group_filter = st.multiselect(
+                                "Filter by Group", _groups, default=_groups, key="sp_csv_group_filter"
+                            )
+                            _fdf = _df[_df["Group"].isin(_group_filter)].copy()
+                            st.subheader(f"Differences ({len(_fdf)} locations)")
+
+                            _file_cols = [c for c in _fdf.columns if c not in ["Group", "Sub-group", "Name", "Dimension"]]
+                            _col_cfg = {
+                                "Group": st.column_config.TextColumn(width="small"),
+                                "Sub-group": st.column_config.TextColumn(width="small"),
+                                "Name": st.column_config.TextColumn(width="medium"),
+                                "Dimension": st.column_config.TextColumn(width="small"),
+                            }
+                            for _fc in _file_cols:
+                                _col_cfg[_fc] = st.column_config.TextColumn(width="small")
+
+                            st.dataframe(_fdf, use_container_width=True, hide_index=True, column_config=_col_cfg)
+                            st.download_button(
+                                "📥 Download as CSV", data=_fdf.to_csv(index=False),
+                                file_name="csv_differences.csv", mime="text/csv",
+                                key="sp_csv_download"
+                            )
+                        else:
+                            st.info("No differences found — all files are identical.")
+                    except Exception as _e:
+                        st.error(f"Error during CSV comparison: {str(_e)}")
+        else:
+            st.markdown("""
+            <div style="text-align:center;padding:3rem 2rem;border:2px dashed #e2e8f0;border-radius:12px;color:#94a3b8;margin-top:1rem;">
+              <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:0.75rem;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <p style="margin:0;font-size:0.95rem;font-weight:600;">Upload at least 2 CSV files to compare</p>
+            </div>
+            """, unsafe_allow_html=True)
 
 
 # ============================================================
