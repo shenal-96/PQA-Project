@@ -464,7 +464,7 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         if v_to_plot:
             axes[0].legend(loc="upper right", fontsize=10, framealpha=0.9,
                            edgecolor=_GRID, facecolor=_BG)
-    if show_limits:
+    if show_deviation_limits:
         lkw = dict(linewidth=1.5, linestyle="--", alpha=0.75, zorder=4)
         axes[0].axhline(nom_v * (1 + v_max_dev / 100), color=_RED,
                         label=f"Max dev +{v_max_dev}% ({nom_v * (1 + v_max_dev / 100):.1f}V)", **lkw)
@@ -493,7 +493,7 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         axes[2].fill_between(df_win["Timestamp"], y, y.min(), color=_ORANGE, alpha=0.1)
         axes[2].plot(df_win["Timestamp"], y,
                      color=_ORANGE, linewidth=2.0, solid_capstyle="round")
-    if show_limits:
+    if show_deviation_limits:
         lkw = dict(linewidth=1.5, linestyle="--", alpha=0.75, zorder=4)
         axes[2].axhline(nom_f * (1 + f_max_dev / 100), color=_RED,
                         label=f"Max dev +{f_max_dev}% ({nom_f * (1 + f_max_dev / 100):.3f}Hz)", **lkw)
@@ -537,10 +537,11 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         if pd.isnull(f_lower): f_lower = nom_f * (1 - tol_f / 100)
 
         # ── Voltage panel ────────────────────────────────────────────────
-        axes[0].axhline(v_upper_band, color=_AMBER,
-                        label=f"V limit +{tol_v}% ({v_upper_band:.1f} V)", **lkw_dbg)
-        axes[0].axhline(v_lower_band, color=_AMBER,
-                        label=f"V limit -{tol_v}% ({v_lower_band:.1f} V)", **lkw_dbg)
+        if show_tolerance_band:
+            axes[0].axhline(v_upper_band, color=_AMBER,
+                            label=f"V limit +{tol_v}% ({v_upper_band:.1f} V)", **lkw_dbg)
+            axes[0].axhline(v_lower_band, color=_AMBER,
+                            label=f"V limit -{tol_v}% ({v_lower_band:.1f} V)", **lkw_dbg)
 
         v_band_val = v_upper_band if (pd.notnull(v_dev) and v_dev > nom_v) else v_lower_band
 
@@ -581,10 +582,11 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                        loc="upper right", edgecolor=_GRID, facecolor=_BG)
 
         # ── Frequency panel ──────────────────────────────────────────────
-        axes[2].axhline(f_upper, color=_AMBER,
-                        label=f"F limit upper ({f_upper:.3f} Hz)", **lkw_dbg)
-        axes[2].axhline(f_lower, color=_AMBER,
-                        label=f"F limit lower ({f_lower:.3f} Hz)", **lkw_dbg)
+        if show_tolerance_band:
+            axes[2].axhline(f_upper, color=_AMBER,
+                            label=f"F limit upper ({f_upper:.3f} Hz)", **lkw_dbg)
+            axes[2].axhline(f_lower, color=_AMBER,
+                            label=f"F limit lower ({f_lower:.3f} Hz)", **lkw_dbg)
 
         f_band_val = f_upper if (pd.notnull(f_dev) and f_dev > nom_f) else f_lower
 
