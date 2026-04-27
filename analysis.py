@@ -115,6 +115,73 @@ def load_and_prepare_csv(file_path_or_buffer, start_time=None, end_time=None):
     return df
 
 
+def validate_csv_format(df):
+    """
+    Validate CSV format and required columns.
+
+    Returns:
+        tuple: (is_valid: bool, errors: list of error messages, warnings: list of warning messages)
+    """
+    errors = []
+    warnings = []
+
+    # Check timestamp
+    if "Timestamp" not in df.columns:
+        errors.append("❌ Missing Timestamp column. CSV must contain 'Timestamp', 'PC Time', or 'Date'/'Time' columns.")
+    elif df["Timestamp"].isna().all():
+        errors.append("❌ All Timestamp values are empty or unparseable. Ensure dates are in DD/MM/YYYY format.")
+
+    # Check voltage columns
+    v_cols_ln = ["U1_rms_AVG", "U2_rms_AVG", "U3_rms_AVG"]
+    v_cols_ll = ["U12_rms_AVG", "U23_rms_AVG", "U31_rms_AVG"]
+    has_voltage_ll = any(c in df.columns for c in v_cols_ll)
+    has_voltage_ln = all(c in df.columns for c in v_cols_ln)
+    has_voltage_avg = "U_avg_AVG" in df.columns
+
+    if not (has_voltage_ll or has_voltage_ln or has_voltage_avg):
+        errors.append("❌ Missing voltage data. CSV must contain one of:\n   • U12_rms_AVG, U23_rms_AVG, U31_rms_AVG (L-L voltages)\n   • U1_rms_AVG, U2_rms_AVG, U3_rms_AVG (L-N voltages)\n   • U_avg_AVG (Average L-L voltage)")
+    else:
+        # Check if voltage has valid data
+        voltage_cols = [c for c in df.columns if c in v_cols_ll + v_cols_ln + ["U_avg_AVG"]]
+        voltage_valid = pd.to_numeric(df[voltage_cols[0]], errors="coerce").notna().any()
+        if not voltage_valid:
+            errors.append("❌ Voltage column is empty or contains non-numeric values.")
+
+    # Check frequency
+    if "Freq_AVG" not in df.columns:
+        errors.append("❌ Missing 'Freq_AVG' (Frequency) column.")
+    elif pd.to_numeric(df["Freq_AVG"], errors="coerce").isna().all():
+        errors.append("❌ Frequency (Freq_AVG) column is empty or contains non-numeric values.")
+
+    # Check power
+    if "P_sum_AVG" not in df.columns:
+        warnings.append("⚠️ Missing 'P_sum_AVG' (Power) column. Power calculations will not be available.")
+    elif pd.to_numeric(df["P_sum_AVG"], errors="coerce").isna().all():
+        errors.append("❌ Power (P_sum_AVG) column is empty or contains non-numeric values.")
+
+    # Check current (optional but helpful)
+    i_cols = ["I1_rms_AVG", "I2_rms_AVG", "I3_rms_AVG"]
+    if not all(c in df.columns for c in i_cols):
+        warnings.append("⚠️ Missing current columns (I1_rms_AVG, I2_rms_AVG, I3_rms_AVG). Current data unavailable.")
+
+    # Check THD (optional)
+    thd_cols = [c for c in df.columns if "THD" in c.upper() and "AVG" in c.upper()]
+    if not thd_cols:
+        warnings.append("⚠️ Missing THD columns. THD graphs unavailable.")
+
+    # Check power factor (optional)
+    pf_cols = [c for c in df.columns if "PF" in c.upper() and "AVG" in c.upper()]
+    if not pf_cols:
+        warnings.append("⚠️ Missing Power Factor columns. Power factor graphs unavailable.")
+
+    # Check data volume
+    if len(df) < 10:
+        errors.append(f"❌ Insufficient data: only {len(df)} rows found. CSV must contain at least 10 data points.")
+
+    is_valid = len(errors) == 0
+    return is_valid, errors, warnings
+
+
 def load_winscope_xls(file_path_or_buffer):
     """
     Load a WinScope .xls export and return a DataFrame compatible with perform_analysis.

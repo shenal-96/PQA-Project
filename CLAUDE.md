@@ -26,9 +26,26 @@ Logs to `/tmp/pqa_debug.log` (also printed to terminal).
 | `visualizations.py` | Matplotlib plots and snapshots — no UI deps |
 | `report.py` | Word template injection + PDF conversion via LibreOffice |
 | `html_report.py` | HTML template injection + PDF conversion (alternative pipeline) |
+| `ecu_parser.py` | XLS/XLSX ECU parameter file parser (Parameter, Val_2D, Val_3D sheets) |
+| `ecu_csv_parser.py` | ComAp CSV configuration file parser (semicolon-delimited, Group/Sub-group/Name/Value) |
+| `ecu_multi_comparator.py` | Multi-file XLS/XLSX diff engine — finds all locations where values differ |
+| `ecu_csv_comparator.py` | Multi-file CSV diff engine — finds all parameter differences |
 | `uploads/` | Persisted CSV and Word template uploads (survive reruns) |
 | `uploads/dev_settings.json` | Dev mode persisted sidebar settings (survive restarts) |
 | `output/` | Ephemeral per-run artefacts (Graphs/, Snapshots/, Images/, Template/) |
+
+## Top-Level Tabs
+
+The app uses a horizontal `st.radio` as a tab selector (`_TAB_LABELS` / `_TAB_KEYS` in app.py). Adding a new tab requires both lists and an `elif _active_tab_main == "<key>":` block.
+
+| Label | Key | Purpose |
+|---|---|---|
+| ⚡ Compliance Analysis | `compliance` | Main PQA workflow — CSV upload, analysis config, results, report generation |
+| 📊 WinScope Viewer | `winscope` | High-resolution WinScope XLS data viewer with compliance analysis |
+| 🔧 Set Point Comparison | `setpoint` | ECU parameter file comparator — diff XLS/XLSX/CSV files across multiple units |
+
+### Set Point Comparison tab
+Imports `ecu_parser`, `ecu_csv_parser`, `ecu_multi_comparator`, `ecu_csv_comparator` lazily inside the `elif` block (no startup cost on other tabs). Three inner sub-tabs: XLS Comparison / XLSX Comparison / CSV Comparison. Results shown as a filterable dataframe with CSV download.
 
 ## Architecture
 
@@ -66,9 +83,10 @@ Load-step events within this window are merged into one grouped event.
 Prevents double-counting ramp-style load changes.
 
 ### snapshot_window_s (default 10 s, user-configurable 3–60 s)
-The time window used both for snapshot plots (±window_s around the event)
-and for the `_measured_extreme` lookup. Keeping both in sync means the
-table value always reflects exactly what the snapshot shows.
+The **total** time span shown in snapshot plots. The event sits at t=0,
+and the plot spans [-window_s/2, +window_s/2]. Also controls the
+`_measured_extreme` lookup window so the table value matches what the
+snapshot shows. The x-axis is in relative seconds ("Time relative to event").
 
 ### Recovery requires sustained in-band with oscillation handling
 `calculate_recovery_time` uses a candidate-invalidation approach: when a

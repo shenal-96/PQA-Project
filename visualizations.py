@@ -65,10 +65,11 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
         thresh_kw:    load detection threshold in kW (shown on Avg_kW plot when debugging)
 
     Returns:
-        dict: mapping metric name -> file path of saved plot
+        tuple: (paths dict, errors list)
     """
     os.makedirs(output_dir, exist_ok=True)
     paths = {}
+    plot_errors = []
 
     metrics = {
         "Avg_kW":          ("Power (kW)",         _GREEN),
@@ -267,7 +268,7 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
         plt.close(fig)
         paths[col] = fname
 
-    return paths
+    return paths, plot_errors
 
 
 # ── Temperature / Pressure column groups ─────────────────────────────────────
@@ -645,15 +646,16 @@ def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Sn
                            v_max_dev=15.0, f_max_dev=7.0,
                            show_debug=False, show_intersections=False, rated_load_kw=None,
                            window_s=10):
-    """Generate snapshots for all detected events. Returns list of file paths in event order."""
+    """Generate snapshots for all detected events. Returns (list of file paths, list of errors)."""
     import logging
     log = logging.getLogger(__name__)
 
     if df_events.empty:
-        return []
+        return [], []
 
     paths = []
-    for _, row in df_events.iterrows():
+    snapshot_errors = []
+    for idx, (_, row) in enumerate(df_events.iterrows()):
         try:
             path = plot_load_change_snapshot(
                 df_raw,
@@ -673,10 +675,11 @@ def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Sn
                 window_s=window_s,
             )
             paths.append(path)
-        except Exception:
+        except Exception as e:
             log.exception("Snapshot generation failed for event at %s", row["Timestamp"])
+            snapshot_errors.append(f"❌ Event #{idx+1} ({row['Timestamp'].strftime('%H:%M:%S')}): {str(e)}")
             paths.append(None)
-    return paths
+    return paths, snapshot_errors
 
 
 def save_compliance_table_as_image(df, filename, title_text, nom_v=415.0, nom_f=50.0, rated_load_kw=None):

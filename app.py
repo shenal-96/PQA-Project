@@ -17,7 +17,7 @@ import logging
 import json
 from pathlib import Path
 
-from analysis import AnalysisConfig, load_and_prepare_csv, load_winscope_xls, perform_analysis, check_compliance, calculate_recovery_time
+from analysis import AnalysisConfig, load_and_prepare_csv, load_winscope_xls, perform_analysis, check_compliance, calculate_recovery_time, validate_csv_format
 from visualizations import (
     generate_plots,
     generate_all_snapshots,
@@ -1868,6 +1868,8 @@ if _active_tab_main == "compliance":
             )
 
             _prog = st.empty()
+            all_errors = []
+            all_warnings = []
             try:
                 log.info(f"Run Analysis clicked — CSV: {selected_csv_path}, time: {start_time}–{end_time}")
                 _show_progress_popup(_prog, 10, "Loading CSV data…", "Running Analysis")
@@ -1878,6 +1880,35 @@ if _active_tab_main == "compliance":
                     st.error("No data found. Check your CSV and time range.")
                     st.stop()
                 log.info(f"CSV loaded: {len(df_raw)} rows")
+
+                # Validate CSV format
+                is_valid, csv_errors, csv_warnings = validate_csv_format(df_raw)
+                all_errors.extend(csv_errors)
+                all_warnings.extend(csv_warnings)
+
+                if not is_valid:
+                    _prog.empty()
+                    st.error("### ❌ CSV Format Invalid\n\nThe uploaded file is missing required columns or data:")
+                    for error in all_errors:
+                        st.error(error)
+                    st.info("### 📋 How to Fix\n\n" +
+                            "Please regenerate or re-export your CSV file with the following requirements:\n\n" +
+                            "**Required Columns:**\n" +
+                            "- `Timestamp` or `PC Time` or `Date` + `Time` columns\n" +
+                            "- `Freq_AVG` (Frequency in Hz)\n" +
+                            "- Voltage columns: `U12_rms_AVG`, `U23_rms_AVG`, `U31_rms_AVG` (L-L) OR `U1_rms_AVG`, `U2_rms_AVG`, `U3_rms_AVG` (L-N) OR `U_avg_AVG`\n\n" +
+                            "**Optional but Recommended:**\n" +
+                            "- `P_sum_AVG` (Power in W)\n" +
+                            "- `I1_rms_AVG`, `I2_rms_AVG`, `I3_rms_AVG` (Phase currents)\n" +
+                            "- THD columns: `THD_F_AVG`, `THD_I_AVG`\n" +
+                            "- Power factor columns: `PF_sum_AVG` or phase PF columns")
+                    st.stop()
+
+                if csv_warnings:
+                    for warning in csv_warnings:
+                        st.warning(warning)
+                    log.warning(f"CSV warnings: {csv_warnings}")
+
                 _show_progress_popup(_prog, 25, "Running power quality analysis…", "Running Analysis")
                 df_proc, df_events = perform_analysis(df_raw, config)
                 log.info(f"Analysis done: {len(df_events)} events detected")
@@ -1947,24 +1978,33 @@ if _active_tab_main == "compliance":
                 df_events=None,
                 thresh_kw=load_thresh,
             )
+            graph_paths = {}
+            plot_errors = []
             try:
                 _show_progress_popup(_prog, 55, "Generating voltage plot…", "Running Analysis")
-                graph_paths = generate_plots(df_proc, client_name, metric_keys=["Avg_Voltage_LL"], **plot_kwargs)
+                voltage_paths, v_errors = generate_plots(df_proc, client_name, metric_keys=["Avg_Voltage_LL"], **plot_kwargs)
+                graph_paths.update(voltage_paths)
+                plot_errors.extend(v_errors)
                 st.session_state["graph_paths"] = graph_paths
                 log.info("Voltage plot generated")
 
                 _show_progress_popup(_prog, 68, "Generating remaining plots…", "Running Analysis")
-                other_paths = generate_plots(
+                other_paths, other_errors = generate_plots(
                     df_proc, client_name,
                     metric_keys=["Avg_kW", "Avg_Current", "Avg_Frequency", "Avg_PF", "Avg_THD_F"],
                     **plot_kwargs,
                 )
                 graph_paths.update(other_paths)
+                plot_errors.extend(other_errors)
                 st.session_state["graph_paths"] = graph_paths
                 log.info(f"All plots generated: {list(graph_paths.keys())}")
+                if plot_errors:
+                    log.warning(f"Some plots failed: {plot_errors}")
+                    all_errors.extend(plot_errors)
             except Exception:
                 log.exception("Plot generation failed")
-                st.warning("Plot generation failed — see Debug Log.")
+                plot_errors.append("❌ Unexpected error during plot generation")
+                all_errors.extend(plot_errors)
 
             snapshot_paths = []
             table_path = None
@@ -1983,7 +2023,7 @@ if _active_tab_main == "compliance":
                     log.exception("Compliance table generation failed")
                 try:
                     _show_progress_popup(_prog, 90, "Generating event snapshots…", "Running Analysis")
-                    snapshot_paths = generate_all_snapshots(
+                    snapshot_paths, snapshot_errors = generate_all_snapshots(
                         df_raw, df_events, client_name, output_dir=SNAPSHOT_DIR,
                         show_limits=show_limits_snapshots,
                         nom_v=nom_v, nom_f=nom_f, tol_v=v_tol, tol_f=f_tol,
@@ -1993,9 +2033,13 @@ if _active_tab_main == "compliance":
                         rated_load_kw=rated_load_kw,
                         window_s=snapshot_window,
                     )
-                    log.info(f"{len(snapshot_paths)} snapshots generated")
+                    log.info(f"{len([p for p in snapshot_paths if p is not None])} snapshots generated")
+                    if snapshot_errors:
+                        log.warning(f"Snapshot generation errors: {snapshot_errors}")
+                        all_errors.extend(snapshot_errors)
                 except Exception:
                     log.exception("Snapshot generation failed")
+                    all_errors.append("❌ Unexpected error during snapshot generation")
             else:
                 st.warning("No load events detected above the threshold.")
 
@@ -2003,7 +2047,16 @@ if _active_tab_main == "compliance":
             _prog.empty()
             st.session_state["snapshot_paths"] = snapshot_paths
             st.session_state["table_path"] = table_path
-            st.success(f"Analysis complete — **{len(df_events)} events** detected · **{len(graph_paths)} plots** · **{len(snapshot_paths)} snapshots**")
+
+            # Display success with any errors/warnings
+            successful_snapshots = len([p for p in snapshot_paths if p is not None])
+            st.success(f"Analysis complete — **{len(df_events)} events** detected · **{len(graph_paths)} plots** · **{successful_snapshots}/{len(snapshot_paths)} snapshots**")
+
+            if all_errors:
+                st.error("### ⚠️ Generation Issues\n\nThe following plots or snapshots failed to generate:")
+                for error in all_errors:
+                    st.error(error)
+                st.info("Check the **Debug Log** in the sidebar for more details. Some data may be missing or malformed in your CSV file — consider regenerating it.")
 
     else:
         st.markdown("""
@@ -2550,13 +2603,14 @@ elif _active_tab_main == "winscope":
                     v_max_dev=v_max_dev, f_max_dev=f_max_dev,
                     show_debug=False, df_events=None, thresh_kw=load_thresh,
                 )
-                _ws_graph_paths = generate_plots(_ws_df_proc, _ws_client_name,
+                _ws_graph_paths, _ws_plot_errors = generate_plots(_ws_df_proc, _ws_client_name,
                                                  metric_keys=["Avg_Voltage_LL"], **_ws_plot_kw)
                 _show_progress_popup(_ws_prog, 58, "Generating remaining plots…", "WinScope Analysis")
-                _ws_other = generate_plots(_ws_df_proc, _ws_client_name,
+                _ws_other, _ws_other_errors = generate_plots(_ws_df_proc, _ws_client_name,
                                            metric_keys=["Avg_kW", "Avg_Current", "Avg_Frequency", "Avg_PF", "Avg_THD_F"],
                                            **_ws_plot_kw)
                 _ws_graph_paths.update(_ws_other)
+                _ws_plot_errors.extend(_ws_other_errors)
 
                 _show_progress_popup(_ws_prog, 65, "Generating temp/pressure plots…", "WinScope Analysis")
                 try:
@@ -2581,7 +2635,7 @@ elif _active_tab_main == "winscope":
 
                     _show_progress_popup(_ws_prog, 88, "Generating event snapshots…", "WinScope Analysis")
                     try:
-                        _ws_snapshot_paths = generate_all_snapshots(
+                        _ws_snapshot_paths, _ws_snap_errors = generate_all_snapshots(
                             _ws_df_raw, _ws_df_events, _ws_client_name,
                             output_dir=_ws_snap_dir,
                             show_limits=show_limits_snapshots,
@@ -2591,6 +2645,9 @@ elif _active_tab_main == "winscope":
                             show_intersections=show_intersections,
                             window_s=snapshot_window,
                         )
+                        if _ws_snap_errors:
+                            log.warning(f"WinScope snapshot errors: {_ws_snap_errors}")
+                            _ws_plot_errors.extend(_ws_snap_errors)
                     except Exception:
                         log.exception("WinScope snapshot generation failed")
                         _ws_snapshot_paths = []
@@ -2612,6 +2669,7 @@ elif _active_tab_main == "winscope":
                 st.session_state["ws_graph_dir"]        = _ws_graph_dir
                 st.session_state["ws_snap_dir"]         = _ws_snap_dir
                 st.session_state["ws_img_dir"]          = _ws_img_dir
+                st.session_state["ws_plot_errors"]      = _ws_plot_errors
                 _show_progress_popup(_ws_prog, 100, "Complete!", "WinScope Analysis")
                 log.info("WinScope analysis complete")
             except Exception as _wex:
@@ -2666,6 +2724,13 @@ elif _active_tab_main == "winscope":
               </div>
             </div>
             """, unsafe_allow_html=True)
+
+        # Display any generation errors
+        _ws_plot_errors = st.session_state.get("ws_plot_errors", [])
+        if _ws_plot_errors:
+            st.error("### ⚠️ Generation Issues\n\nThe following plots or snapshots failed to generate:")
+            for error in _ws_plot_errors:
+                st.error(error)
 
         # Compliance table
         if not _ws_ev.empty:
