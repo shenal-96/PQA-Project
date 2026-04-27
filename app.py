@@ -2341,6 +2341,8 @@ if _active_tab_main == "compliance":
                                 nom_f=config.nominal_frequency,
                                 tol_v=config.voltage_tolerance_pct,
                                 tol_f=config.frequency_tolerance_pct,
+                                v_max_dev=config.voltage_max_deviation_pct,
+                                f_max_dev=config.frequency_max_deviation_pct,
                                 show_debug=st.session_state.get("show_debug", False),
                                 show_intersections=st.session_state.get("show_intersections", False),
                                 event_row=row,
