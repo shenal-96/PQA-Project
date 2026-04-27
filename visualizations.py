@@ -349,7 +349,8 @@ def generate_temp_pressure_plots(df, client_name, output_dir="output/Graphs"):
 
 def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_after,
                               client_name, output_dir="output/Snapshots",
-                              show_limits=False, nom_v=415.0, nom_f=50.0, tol_v=1.0, tol_f=0.5,
+                              show_limits=False, show_tolerance_band=True, show_deviation_limits=True,
+                              nom_v=415.0, nom_f=50.0, tol_v=1.0, tol_f=0.5,
                               v_max_dev=15.0, f_max_dev=7.0,
                               show_debug=False, show_intersections=False, event_row=None,
                               rated_load_kw=None, window_s=10):
@@ -558,13 +559,25 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                                  textcoords="offset points",
                                  fontsize=7, color=_LIME, fontweight="700")
 
-        v_legend = [
-            Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"+{tol_v}% ({v_upper_band:.1f} V)"),
-            Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"-{tol_v}% ({v_lower_band:.1f} V)"),
+        v_upper_dev = nom_v * (1 + v_max_dev / 100)
+        v_lower_dev = nom_v * (1 - v_max_dev / 100)
+
+        v_legend = []
+        if show_tolerance_band:
+            v_legend.extend([
+                Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"Tolerance +{tol_v}% ({v_upper_band:.1f} V)"),
+                Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"Tolerance -{tol_v}% ({v_lower_band:.1f} V)"),
+            ])
+        if show_deviation_limits:
+            v_legend.extend([
+                Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev +{v_max_dev}% ({v_upper_dev:.1f} V)"),
+                Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev -{v_max_dev}% ({v_lower_dev:.1f} V)"),
+            ])
+        v_legend.extend([
             Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=10, label="exit"),
             Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=10, label="recovery"),
-        ]
-        axes[0].legend(handles=v_legend, fontsize=9, framealpha=0.9,
+        ])
+        axes[0].legend(handles=v_legend, fontsize=8, framealpha=0.9,
                        loc="upper right", edgecolor=_GRID, facecolor=_BG)
 
         # ── Frequency panel ──────────────────────────────────────────────
@@ -590,13 +603,25 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                                  textcoords="offset points",
                                  fontsize=7, color=_LIME, fontweight="700")
 
-        f_legend = [
-            Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"upper ({f_upper:.3f} Hz)"),
-            Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"lower ({f_lower:.3f} Hz)"),
+        f_upper_dev = nom_f * (1 + f_max_dev / 100)
+        f_lower_dev = nom_f * (1 - f_max_dev / 100)
+
+        f_legend = []
+        if show_tolerance_band:
+            f_legend.extend([
+                Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"Recovery upper ({f_upper:.3f} Hz)"),
+                Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"Recovery lower ({f_lower:.3f} Hz)"),
+            ])
+        if show_deviation_limits:
+            f_legend.extend([
+                Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev +{f_max_dev}% ({f_upper_dev:.3f} Hz)"),
+                Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev -{f_max_dev}% ({f_lower_dev:.3f} Hz)"),
+            ])
+        f_legend.extend([
             Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=10, label="exit"),
             Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=10, label="recovery"),
-        ]
-        axes[2].legend(handles=f_legend, fontsize=9, framealpha=0.9,
+        ])
+        axes[2].legend(handles=f_legend, fontsize=8, framealpha=0.9,
                        loc="upper right", edgecolor=_GRID, facecolor=_BG)
 
     axes[3].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
@@ -642,7 +667,8 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
 
 
 def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Snapshots",
-                           show_limits=False, nom_v=415.0, nom_f=50.0, tol_v=1.0, tol_f=0.5,
+                           show_limits=False, show_tolerance_band=True, show_deviation_limits=True,
+                           nom_v=415.0, nom_f=50.0, tol_v=1.0, tol_f=0.5,
                            v_max_dev=15.0, f_max_dev=7.0,
                            show_debug=False, show_intersections=False, rated_load_kw=None,
                            window_s=10):
@@ -666,6 +692,8 @@ def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Sn
                 client_name=client_name,
                 output_dir=output_dir,
                 show_limits=show_limits,
+                show_tolerance_band=show_tolerance_band,
+                show_deviation_limits=show_deviation_limits,
                 nom_v=nom_v, nom_f=nom_f, tol_v=tol_v, tol_f=tol_f,
                 v_max_dev=v_max_dev, f_max_dev=f_max_dev,
                 show_debug=show_debug,

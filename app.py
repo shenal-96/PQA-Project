@@ -101,8 +101,11 @@ _DEV_DEFAULTS: dict = {
     "selected_csv_name": "",
     # Acceptance Criteria
     "apply_iso": False,
+    "apply_asymmetric_freq": False,
     "show_limits": False,
     "show_limits_snapshots": False,
+    "show_tolerance_band_snapshots": True,
+    "show_deviation_limits_snapshots": True,
     "show_intersections": False,
     "show_debug": False,
     "detection_window": 5.0,
@@ -439,7 +442,9 @@ def _render_intersection_footer(overrides):
             new_snap_paths = generate_all_snapshots(
                 st.session_state["df_raw"], df_ev, client,
                 output_dir=SNAPSHOT_DIR,
-                show_limits=st.session_state.get("show_limits_snapshots", False),
+                show_limits=False,
+                show_tolerance_band=st.session_state.get("show_tolerance_band_snapshots", True),
+                show_deviation_limits=st.session_state.get("show_deviation_limits_snapshots", True),
                 nom_v=cfg.nominal_voltage,
                 nom_f=cfg.nominal_frequency,
                 tol_v=cfg.voltage_tolerance_pct,
@@ -1265,7 +1270,9 @@ with st.sidebar:
     st.subheader("Acceptance Criteria")
     apply_iso = st.checkbox("Apply ISO 8528 Presets", value=_ds.get("apply_iso", False))
     show_limits = st.checkbox("Show Limits on Graphs", value=_ds.get("show_limits", False))
-    show_limits_snapshots = st.checkbox("Show Limits on Snapshots", value=_ds.get("show_limits_snapshots", False))
+    st.markdown("**Snapshot Display Options**")
+    show_tolerance_band_snapshots = st.checkbox("Show Tolerance Band on Snapshots", value=_ds.get("show_tolerance_band_snapshots", True))
+    show_deviation_limits_snapshots = st.checkbox("Show Deviation Limits on Snapshots", value=_ds.get("show_deviation_limits_snapshots", True))
     show_intersections = st.checkbox(
         "Show Intersection Points",
         value=_ds.get("show_intersections", False),
@@ -1306,7 +1313,8 @@ with st.sidebar:
         )
     _ds["apply_iso"] = apply_iso
     _ds["show_limits"] = show_limits
-    _ds["show_limits_snapshots"] = show_limits_snapshots
+    _ds["show_tolerance_band_snapshots"] = show_tolerance_band_snapshots
+    _ds["show_deviation_limits_snapshots"] = show_deviation_limits_snapshots
     _ds["show_intersections"] = show_intersections
     _ds["show_debug"] = show_debug
     _ds["detection_window"] = detection_window
@@ -1316,6 +1324,13 @@ with st.sidebar:
     if apply_iso:
         load_thresh = 50.0; v_tol = 1.0; v_rec = 4.0; v_max_dev = 15.0
         f_tol = 0.5; f_rec = 3.0; f_max_dev = 7.0
+        f_rec_upper_inc = 50.50; f_rec_lower_inc = 49.75
+        f_rec_upper_dec = 50.25; f_rec_lower_dec = 49.50
+        st.session_state["fri_upper"] = 50.50
+        st.session_state["fri_lower"] = 49.75
+        st.session_state["frd_upper"] = 50.25
+        st.session_state["frd_lower"] = 49.50
+        _ds["apply_asymmetric_freq"] = True
     else:
         load_thresh = float(_ds.get("load_thresh", 50.0))
         v_tol      = float(_ds.get("v_tol", 1.0))
@@ -1332,7 +1347,8 @@ with st.sidebar:
         v_rec = st.number_input("Voltage Recovery (s)", value=v_rec, min_value=0.0, step=0.5, disabled=apply_iso)
         v_max_dev = st.number_input("Max Voltage Dev (%)", value=v_max_dev, min_value=0.0, step=1.0, disabled=apply_iso)
     with col2:
-        f_tol = st.number_input("Frequency Tolerance (%)", value=f_tol, min_value=0.0, step=0.1, disabled=apply_iso)
+        apply_asymmetric_freq = st.checkbox("Apply asymmetric Frequency tolerance band", value=_ds.get("apply_asymmetric_freq", False))
+        f_tol = st.number_input("Frequency Tolerance (%)", value=f_tol, min_value=0.0, step=0.1, disabled=apply_iso or apply_asymmetric_freq)
         f_rec = st.number_input("Frequency Recovery (s)", value=f_rec, min_value=0.0, step=0.5, disabled=apply_iso)
         f_max_dev = st.number_input("Max Frequency Dev (%)", value=f_max_dev, min_value=0.0, step=1.0, disabled=apply_iso)
 
@@ -1341,18 +1357,19 @@ with st.sidebar:
         _ds["v_rec"] = v_rec;             _ds["v_max_dev"] = v_max_dev
         _ds["f_tol"] = f_tol;             _ds["f_rec"] = f_rec
         _ds["f_max_dev"] = f_max_dev
+    _ds["apply_asymmetric_freq"] = apply_asymmetric_freq
 
     st.markdown("**Frequency Recovery Bands (Hz)**")
     col_fi, col_fd = st.columns(2)
     with col_fi:
         st.caption("Load Increase")
         # No value= — session_state pre-populated from _ds on cold start
-        f_rec_upper_inc = st.number_input("Upper (Hz)", min_value=0.0, step=0.05, format="%.2f", key="fri_upper", disabled=apply_iso)
-        f_rec_lower_inc = st.number_input("Lower (Hz)", min_value=0.0, step=0.05, format="%.2f", key="fri_lower", disabled=apply_iso)
+        f_rec_upper_inc = st.number_input("Upper (Hz)", min_value=0.0, step=0.05, format="%.2f", key="fri_upper", disabled=apply_iso or not apply_asymmetric_freq)
+        f_rec_lower_inc = st.number_input("Lower (Hz)", min_value=0.0, step=0.05, format="%.2f", key="fri_lower", disabled=apply_iso or not apply_asymmetric_freq)
     with col_fd:
         st.caption("Load Decrease")
-        f_rec_upper_dec = st.number_input("Upper (Hz)", min_value=0.0, step=0.05, format="%.2f", key="frd_upper", disabled=apply_iso)
-        f_rec_lower_dec = st.number_input("Lower (Hz)", min_value=0.0, step=0.05, format="%.2f", key="frd_lower", disabled=apply_iso)
+        f_rec_upper_dec = st.number_input("Upper (Hz)", min_value=0.0, step=0.05, format="%.2f", key="frd_upper", disabled=apply_iso or not apply_asymmetric_freq)
+        f_rec_lower_dec = st.number_input("Lower (Hz)", min_value=0.0, step=0.05, format="%.2f", key="frd_lower", disabled=apply_iso or not apply_asymmetric_freq)
 
     st.divider()
 
@@ -1931,7 +1948,8 @@ if _active_tab_main == "compliance":
                 "event_window_overrides": {},   # clear per-event snapshot window overrides
                 "show_debug": show_debug,
                 "show_intersections": show_intersections,
-                "show_limits_snapshots": show_limits_snapshots,
+                "show_tolerance_band_snapshots": show_tolerance_band_snapshots,
+                "show_deviation_limits_snapshots": show_deviation_limits_snapshots,
             })
 
             _n_pass = int((df_events["Compliance_Status"] == "Pass").sum()) if not df_events.empty and "Compliance_Status" in df_events.columns else 0
@@ -2025,7 +2043,9 @@ if _active_tab_main == "compliance":
                     _show_progress_popup(_prog, 90, "Generating event snapshots…", "Running Analysis")
                     snapshot_paths, snapshot_errors = generate_all_snapshots(
                         df_raw, df_events, client_name, output_dir=SNAPSHOT_DIR,
-                        show_limits=show_limits_snapshots,
+                        show_limits=False,
+                        show_tolerance_band=show_tolerance_band_snapshots,
+                        show_deviation_limits=show_deviation_limits_snapshots,
                         nom_v=nom_v, nom_f=nom_f, tol_v=v_tol, tol_f=f_tol,
                         v_max_dev=v_max_dev, f_max_dev=f_max_dev,
                         show_debug=show_debug,
@@ -2314,7 +2334,9 @@ if _active_tab_main == "compliance":
                                 load_after=row["Avg_kW"],
                                 client_name=client_name_display,
                                 output_dir=SNAPSHOT_DIR,
-                                show_limits=st.session_state.get("show_limits_snapshots", False),
+                                show_limits=False,
+                                show_tolerance_band=st.session_state.get("show_tolerance_band_snapshots", True),
+                                show_deviation_limits=st.session_state.get("show_deviation_limits_snapshots", True),
                                 nom_v=config.nominal_voltage,
                                 nom_f=config.nominal_frequency,
                                 tol_v=config.voltage_tolerance_pct,
@@ -2400,7 +2422,9 @@ if _active_tab_main == "compliance":
                 generate_all_snapshots(
                     st.session_state["df_raw"], _df_ev_clean, client_name_display,
                     output_dir=_snap_dir_clean,
-                    show_limits=st.session_state.get("show_limits_snapshots", False),
+                    show_limits=False,
+                    show_tolerance_band=st.session_state.get("show_tolerance_band_snapshots", True),
+                    show_deviation_limits=st.session_state.get("show_deviation_limits_snapshots", True),
                     nom_v=_cfg.nominal_voltage if _cfg else 415.0,
                     nom_f=_cfg.nominal_frequency if _cfg else 50.0,
                     tol_v=_cfg.voltage_tolerance_pct if _cfg else 1.0,
@@ -2638,7 +2662,9 @@ elif _active_tab_main == "winscope":
                         _ws_snapshot_paths, _ws_snap_errors = generate_all_snapshots(
                             _ws_df_raw, _ws_df_events, _ws_client_name,
                             output_dir=_ws_snap_dir,
-                            show_limits=show_limits_snapshots,
+                            show_limits=False,
+                            show_tolerance_band=show_tolerance_band_snapshots,
+                            show_deviation_limits=show_deviation_limits_snapshots,
                             nom_v=nom_v, nom_f=nom_f, tol_v=v_tol, tol_f=f_tol,
                             v_max_dev=v_max_dev, f_max_dev=f_max_dev,
                             show_debug=show_debug,
