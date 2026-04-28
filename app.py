@@ -108,9 +108,9 @@ _DEV_DEFAULTS: dict = {
     "show_deviation_limits_snapshots": True,
     "show_intersections": False,
     "show_debug": False,
-    "detection_window": 5.0,
+    "detection_window": 3.0,
     "recovery_verify_s": 6.0,
-    "snapshot_window": 10.0,
+    "snapshot_window": 8.0,
     "load_thresh": 50.0,
     "v_tol": 1.0,
     "v_rec": 4.0,
@@ -1104,7 +1104,8 @@ if "_ds" not in st.session_state:
     for _k in ("fri_upper", "fri_lower", "frd_upper", "frd_lower",
                 "vri_upper", "vri_lower", "vrd_upper", "vrd_lower",
                 "nom_v_preset", "nom_v_custom", "rated_load_input",
-                "expected_steps_input", "report_format", "detection_window"):
+                "expected_steps_input", "report_format", "detection_window",
+                "snapshot_window", "recovery_verify_s"):
         if _k not in st.session_state:
             st.session_state[_k] = _loaded.get(_k, _DEV_DEFAULTS[_k])
     # Time filter: restore only if the saved CSV path still matches
@@ -1314,22 +1315,36 @@ with st.sidebar:
     with _dw_rst:
         st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
         if st.button("↺", key="reset_detection_window"):
-            st.session_state["detection_window"] = 5.0
+            st.session_state["detection_window"] = 3.0
             st.rerun()
-    snapshot_window = st.number_input(
-        "Snapshot Window (s)",
-        value=float(_ds.get("snapshot_window", 10.0)),
-        min_value=3.0, max_value=60.0, step=1.0,
-        help="Seconds shown either side of each event in snapshots. Also sets the window used to find peak voltage/frequency deviation.",
-    )
+    _sw_col, _sw_rst = st.columns([7, 1])
+    with _sw_col:
+        snapshot_window = st.number_input(
+            "Snapshot Window (s)",
+            key="snapshot_window",
+            min_value=3.0, max_value=60.0, step=1.0,
+            help="Seconds shown either side of each event in snapshots. Also sets the window used to find peak voltage/frequency deviation.",
+        )
+    with _sw_rst:
+        st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
+        if st.button("↺", key="reset_snapshot_window"):
+            st.session_state["snapshot_window"] = 8.0
+            st.rerun()
     recovery_verify_s = 6.0
     if dev_mode:
-        recovery_verify_s = st.number_input(
-            "Recovery Verify Window (s)",
-            value=float(_ds.get("recovery_verify_s", 6.0)),
-            min_value=1.0, max_value=30.0, step=1.0,
-            help="After a recovery candidate is found, verify the signal stays in-band for this many seconds. Handles oscillating waveforms.",
-        )
+        _rv_col, _rv_rst = st.columns([7, 1])
+        with _rv_col:
+            recovery_verify_s = st.number_input(
+                "Recovery Verify Window (s)",
+                key="recovery_verify_s",
+                min_value=1.0, max_value=30.0, step=1.0,
+                help="After a recovery candidate is found, verify the signal stays in-band for this many seconds. Handles oscillating waveforms.",
+            )
+        with _rv_rst:
+            st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
+            if st.button("↺", key="reset_recovery_verify"):
+                st.session_state["recovery_verify_s"] = 6.0
+                st.rerun()
     _ds["apply_iso"] = apply_iso
     _ds["show_limits"] = show_limits
     _ds["show_tolerance_band_snapshots"] = show_tolerance_band_snapshots
