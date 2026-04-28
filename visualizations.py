@@ -359,6 +359,7 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                               nom_v=415.0, nom_f=50.0, tol_v=1.0, tol_f=0.5,
                               v_max_dev=15.0, f_max_dev=7.0,
                               show_debug=False, show_intersections=False, event_row=None,
+                              show_max_deviation=False,
                               rated_load_kw=None, window_s=10):
     """
     Generate a +-5 second snapshot around a load event showing V, I, F, kW.
@@ -476,10 +477,15 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         _snap_v_lo = event_row.get("V_max_dev_lower_pct", v_max_dev) if event_row is not None else v_max_dev
         if pd.isnull(_snap_v_up): _snap_v_up = v_max_dev
         if pd.isnull(_snap_v_lo): _snap_v_lo = v_max_dev
-        axes[0].axhline(nom_v * (1 + _snap_v_up / 100), color=_RED,
-                        label=f"Max dev +{_snap_v_up}% ({nom_v * (1 + _snap_v_up / 100):.1f}V)", **lkw)
-        axes[0].axhline(nom_v * (1 - _snap_v_lo / 100), color=_RED,
-                        label=f"Max dev -{_snap_v_lo}% ({nom_v * (1 - _snap_v_lo / 100):.1f}V)", **lkw)
+        # Load increase → voltage drops → only the lower limit is the applicable
+        # threshold. Load decrease → voltage rises → only the upper limit applies.
+        _v_dkw = event_row.get("dKw", 0) if event_row is not None else 0
+        if _v_dkw <= 0:
+            axes[0].axhline(nom_v * (1 + _snap_v_up / 100), color=_RED,
+                            label=f"Max dev +{_snap_v_up}% ({nom_v * (1 + _snap_v_up / 100):.1f}V)", **lkw)
+        else:
+            axes[0].axhline(nom_v * (1 - _snap_v_lo / 100), color=_RED,
+                            label=f"Max dev -{_snap_v_lo}% ({nom_v * (1 - _snap_v_lo / 100):.1f}V)", **lkw)
         axes[0].legend(loc="upper right", fontsize=10, framealpha=0.9,
                        edgecolor=_GRID, facecolor=_BG)
 
@@ -509,10 +515,15 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         _snap_f_lo = event_row.get("F_max_dev_lower_pct", f_max_dev) if event_row is not None else f_max_dev
         if pd.isnull(_snap_f_up): _snap_f_up = f_max_dev
         if pd.isnull(_snap_f_lo): _snap_f_lo = f_max_dev
-        axes[2].axhline(nom_f * (1 + _snap_f_up / 100), color=_RED,
-                        label=f"Max dev +{_snap_f_up}% ({nom_f * (1 + _snap_f_up / 100):.3f}Hz)", **lkw)
-        axes[2].axhline(nom_f * (1 - _snap_f_lo / 100), color=_RED,
-                        label=f"Max dev -{_snap_f_lo}% ({nom_f * (1 - _snap_f_lo / 100):.3f}Hz)", **lkw)
+        # Load increase → freq drops → only the lower limit applies.
+        # Load decrease → freq rises → only the upper limit applies.
+        _f_dkw = event_row.get("dKw", 0) if event_row is not None else 0
+        if _f_dkw <= 0:
+            axes[2].axhline(nom_f * (1 + _snap_f_up / 100), color=_RED,
+                            label=f"Max dev +{_snap_f_up}% ({nom_f * (1 + _snap_f_up / 100):.3f}Hz)", **lkw)
+        else:
+            axes[2].axhline(nom_f * (1 - _snap_f_lo / 100), color=_RED,
+                            label=f"Max dev -{_snap_f_lo}% ({nom_f * (1 - _snap_f_lo / 100):.3f}Hz)", **lkw)
         axes[2].legend(loc="upper right", fontsize=10, framealpha=0.9,
                        edgecolor=_GRID, facecolor=_BG)
 
@@ -531,7 +542,7 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         axes[2].axvline(event_ts, color=_AMBER, **ev_kw)
 
     # ── Tolerance band + Intersection points overlay ─────────────────────
-    if (show_tolerance_band or show_intersections) and event_row is not None:
+    if (show_tolerance_band or show_intersections or show_max_deviation) and event_row is not None:
         from matplotlib.lines import Line2D
         cross_kw = dict(linewidth=1.0, linestyle=":", zorder=5, alpha=0.85)
         lkw_dbg  = dict(lw=1.2, ls="--", alpha=0.85, zorder=4)
@@ -576,6 +587,38 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                                  textcoords="offset points",
                                  fontsize=7, color=_LIME, fontweight="700")
 
+        # Max-deviation marker — red ★ at the actual extreme of the signal
+        # within the post-event 5 s window (matches _measured_extreme()).
+        v_dev_t = None
+        f_dev_t = None
+        if show_max_deviation:
+            _post_end = event_ts + pd.Timedelta(seconds=5)
+            _post = df_win[
+                (df_win["Timestamp"] >= event_ts) &
+                (df_win["Timestamp"] <= _post_end)
+            ]
+            _dkw = event_row.get("dKw", 0) if event_row is not None else 0
+            if not _post.empty and pd.notnull(v_dev) and "Avg_Voltage_LL" in _post.columns:
+                _vs = pd.to_numeric(_post["Avg_Voltage_LL"], errors="coerce")
+                _vidx = _vs.idxmin() if _dkw > 0 else _vs.idxmax()
+                if pd.notnull(_vidx):
+                    v_dev_t = _post.loc[_vidx, "Timestamp"]
+                    axes[0].scatter([v_dev_t], [v_dev], color=_RED, marker="*",
+                                    s=160, zorder=8, edgecolor="white", linewidth=1.0)
+                    axes[0].annotate(f"{v_dev:.1f} V", xy=(v_dev_t, v_dev), xytext=(4, -14),
+                                     textcoords="offset points",
+                                     fontsize=7, color=_RED, fontweight="700")
+            if not _post.empty and pd.notnull(f_dev) and "Avg_Frequency" in _post.columns:
+                _fs = pd.to_numeric(_post["Avg_Frequency"], errors="coerce")
+                _fidx = _fs.idxmin() if _dkw > 0 else _fs.idxmax()
+                if pd.notnull(_fidx):
+                    f_dev_t = _post.loc[_fidx, "Timestamp"]
+                    axes[2].scatter([f_dev_t], [f_dev], color=_RED, marker="*",
+                                    s=160, zorder=8, edgecolor="white", linewidth=1.0)
+                    axes[2].annotate(f"{f_dev:.3f} Hz", xy=(f_dev_t, f_dev), xytext=(4, -14),
+                                     textcoords="offset points",
+                                     fontsize=7, color=_RED, fontweight="700")
+
         _leg_v_up = event_row.get("V_max_dev_upper_pct", v_max_dev) if event_row is not None else v_max_dev
         _leg_v_lo = event_row.get("V_max_dev_lower_pct", v_max_dev) if event_row is not None else v_max_dev
         if pd.isnull(_leg_v_up): _leg_v_up = v_max_dev
@@ -590,15 +633,26 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                 Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"Tolerance -{tol_v}% ({v_lower_band:.1f} V)"),
             ])
         if show_deviation_limits:
-            v_legend.extend([
-                Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev +{_leg_v_up}% ({v_upper_dev:.1f} V)"),
-                Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev -{_leg_v_lo}% ({v_lower_dev:.1f} V)"),
-            ])
+            _v_dkw_leg = event_row.get("dKw", 0) if event_row is not None else 0
+            if _v_dkw_leg <= 0:
+                v_legend.append(
+                    Line2D([0], [0], color=_RED, ls="--", lw=1.5, label=f"Max Dev +{_leg_v_up}% ({v_upper_dev:.1f} V)")
+                )
+            else:
+                v_legend.append(
+                    Line2D([0], [0], color=_RED, ls="--", lw=1.5, label=f"Max Dev -{_leg_v_lo}% ({v_lower_dev:.1f} V)")
+                )
         if show_intersections:
             v_legend.extend([
                 Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=10, label="exit"),
                 Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=10, label="recovery"),
             ])
+        if show_max_deviation and pd.notnull(v_dev):
+            v_legend.append(
+                Line2D([0], [0], color=_RED, marker="*", ls="none", markersize=11,
+                       markeredgecolor="white", markeredgewidth=1.0,
+                       label=f"Max Deviation ({v_dev:.1f} V)")
+            )
         if v_legend:
             axes[0].legend(handles=v_legend, fontsize=8, framealpha=0.9,
                            loc="upper right", edgecolor=_GRID, facecolor=_BG)
@@ -641,15 +695,26 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                 Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"Recovery lower ({f_lower:.3f} Hz)"),
             ])
         if show_deviation_limits:
-            f_legend.extend([
-                Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev +{_leg_f_up}% ({f_upper_dev:.3f} Hz)"),
-                Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev -{_leg_f_lo}% ({f_lower_dev:.3f} Hz)"),
-            ])
+            _f_dkw_leg = event_row.get("dKw", 0) if event_row is not None else 0
+            if _f_dkw_leg <= 0:
+                f_legend.append(
+                    Line2D([0], [0], color=_RED, ls="--", lw=1.5, label=f"Max Dev +{_leg_f_up}% ({f_upper_dev:.3f} Hz)")
+                )
+            else:
+                f_legend.append(
+                    Line2D([0], [0], color=_RED, ls="--", lw=1.5, label=f"Max Dev -{_leg_f_lo}% ({f_lower_dev:.3f} Hz)")
+                )
         if show_intersections:
             f_legend.extend([
                 Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=10, label="exit"),
                 Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=10, label="recovery"),
             ])
+        if show_max_deviation and pd.notnull(f_dev):
+            f_legend.append(
+                Line2D([0], [0], color=_RED, marker="*", ls="none", markersize=11,
+                       markeredgecolor="white", markeredgewidth=1.0,
+                       label=f"Max Deviation ({f_dev:.3f} Hz)")
+            )
         if f_legend:
             axes[2].legend(handles=f_legend, fontsize=8, framealpha=0.9,
                            loc="upper right", edgecolor=_GRID, facecolor=_BG)
@@ -700,7 +765,8 @@ def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Sn
                            show_limits=False, show_tolerance_band=True, show_deviation_limits=True,
                            nom_v=415.0, nom_f=50.0, tol_v=1.0, tol_f=0.5,
                            v_max_dev=15.0, f_max_dev=7.0,
-                           show_debug=False, show_intersections=False, rated_load_kw=None,
+                           show_debug=False, show_intersections=False,
+                           show_max_deviation=False, rated_load_kw=None,
                            window_s=10):
     """Generate snapshots for all detected events. Returns (list of file paths, list of errors)."""
     import logging
@@ -729,6 +795,7 @@ def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Sn
                 show_debug=show_debug,
                 show_intersections=show_intersections,
                 event_row=row,
+                show_max_deviation=show_max_deviation,
                 rated_load_kw=rated_load_kw,
                 window_s=window_s,
             )

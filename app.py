@@ -106,12 +106,15 @@ _DEV_DEFAULTS: dict = {
     "selected_csv_name": "",
     # Acceptance Criteria
     "apply_iso": False,
+    "apply_iso_g2": False,
+    "apply_iso_g1": False,
     "apply_asymmetric_freq": False,
     "show_limits": False,
     "show_limits_snapshots": False,
     "show_tolerance_band_snapshots": True,
     "show_deviation_limits_snapshots": True,
     "show_intersections": False,
+    "show_max_deviation": False,
     "show_debug": False,
     "detection_window": 3.0,
     "recovery_verify_s": 6.0,
@@ -469,6 +472,7 @@ def _render_intersection_footer(overrides):
                 f_max_dev=cfg.frequency_max_deviation_pct,
                 show_debug=st.session_state.get("show_debug", False),
                 show_intersections=st.session_state.get("show_intersections", False),
+                show_max_deviation=st.session_state.get("show_max_deviation", False),
                 rated_load_kw=st.session_state.get("rated_load_kw"),
                 window_s=cfg.snapshot_window_s,
             )
@@ -494,7 +498,9 @@ html, body, [class*="css"] {
 .main .block-container {
     padding-top: 1.5rem;
     padding-bottom: 2.5rem;
-    max-width: 1240px;
+    padding-left: clamp(1rem, 3vw, 3rem) !important;
+    padding-right: clamp(1rem, 3vw, 3rem) !important;
+    max-width: 100%;
 }
 
 /* ── Sidebar ── */
@@ -614,29 +620,29 @@ div[data-testid="stSidebar"] button[data-testid="baseButton-secondary"]:hover {
 }
 
 /* ── Sidebar inline reset icon buttons ─────────────────────────────────────
-   Number inputs use st.columns([1, 7]) — ↺ button in narrow LEFT col, input in wide col.
-   Text inputs use st.columns([7, 1]) — input in wide col, ↺ button in narrow RIGHT col.
+   All inputs use st.columns([7, 1]) — input in wide LEFT col, ↺ button in narrow RIGHT col.
    .pqa-rst-btn is an invisible marker div placed inside the narrow column so
    we can target that column's stVerticalBlock via :has().
-   Making the stVerticalBlock flex + justify-content:flex-end pushes the button
-   to the bottom of the column, aligning it with the input box (not the label).
+   padding-top skips the label area so the button sits next to the input box.
    ──────────────────────────────────────────────────────────────────────── */
 
 /* Hide the marker — it's only a CSS hook, not visible content */
 .pqa-rst-btn { display: none !important; }
 
-/* Push the reset button to the bottom of its column (aligns with input box) */
+/* Skip the label area so the button aligns with the input box.
+   Use stHorizontalBlock > to target only column-level vertical blocks,
+   not outer sidebar containers that also match :has(.pqa-rst-btn). */
 div[data-testid="stSidebar"]
-div[data-testid="stVerticalBlock"]:has(.pqa-rst-btn) {
-    display: flex !important;
-    flex-direction: column !important;
-    justify-content: flex-end !important;
-    padding-bottom: 0.55rem !important;
+div[data-testid="stHorizontalBlock"]
+> div[data-testid="stVerticalBlock"]:has(.pqa-rst-btn) {
+    padding-top: 2.4rem !important;
+    padding-bottom: 0 !important;
 }
 
 /* Collapse the stButton wrapper so no extra padding inflates the height */
 div[data-testid="stSidebar"]
-div[data-testid="stVerticalBlock"]:has(.pqa-rst-btn)
+div[data-testid="stHorizontalBlock"]
+> div[data-testid="stVerticalBlock"]:has(.pqa-rst-btn)
 [data-testid="stButton"] {
     padding: 0 !important;
     margin: 0 !important;
@@ -644,7 +650,8 @@ div[data-testid="stVerticalBlock"]:has(.pqa-rst-btn)
 
 /* Style the reset button as a small square */
 div[data-testid="stSidebar"]
-div[data-testid="stVerticalBlock"]:has(.pqa-rst-btn)
+div[data-testid="stHorizontalBlock"]
+> div[data-testid="stVerticalBlock"]:has(.pqa-rst-btn)
 button[data-testid="baseButton-secondary"] {
     background: transparent !important;
     color: #64748b !important;
@@ -665,7 +672,8 @@ button[data-testid="baseButton-secondary"] {
     transition: color 0.15s, border-color 0.15s, background 0.15s !important;
 }
 div[data-testid="stSidebar"]
-div[data-testid="stVerticalBlock"]:has(.pqa-rst-btn)
+div[data-testid="stHorizontalBlock"]
+> div[data-testid="stVerticalBlock"]:has(.pqa-rst-btn)
 button[data-testid="baseButton-secondary"]:hover {
     color: #94a3b8 !important;
     border-color: #94a3b8 !important;
@@ -910,14 +918,16 @@ hr {
 
 /* ── PQA custom metric strip ── */
 .pqa-metrics {
-    display: flex; gap: 12px; margin: 1.25rem 0;
+    display: grid; gap: 12px; margin: 1.25rem 0;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 .pqa-metric-card {
-    flex: 1; background: linear-gradient(145deg, #0c1a30, #111e35);
+    background: linear-gradient(145deg, #0c1a30, #111e35);
     border: 1px solid #1e3050; border-radius: 10px;
-    padding: 1rem 1.25rem;
+    padding: clamp(0.75rem, 0.5rem + 0.5vw, 1.1rem) clamp(0.85rem, 0.5rem + 0.6vw, 1.35rem);
     box-shadow: 0 2px 8px rgba(0,0,0,0.2);
     transition: box-shadow 0.2s ease;
+    min-width: 0;
 }
 .pqa-metric-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
 .pqa-metric-card.pass  { border-color: #166534; box-shadow: 0 2px 8px rgba(22,101,52,0.2); }
@@ -930,7 +940,8 @@ hr {
 }
 .pqa-metric-value {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 1.7rem; font-weight: 700; color: #e2e8f0; line-height: 1;
+    font-size: clamp(1.2rem, 0.9rem + 0.9vw, 1.85rem);
+    font-weight: 700; color: #e2e8f0; line-height: 1;
 }
 .pqa-metric-card.pass  .pqa-metric-value { color: #4ade80; }
 .pqa-metric-card.fail  .pqa-metric-value { color: #f87171; }
@@ -955,7 +966,8 @@ hr {
     width: 4px; height: 22px; border-radius: 2px; background: #2563eb; flex-shrink: 0;
 }
 .pqa-section-title {
-    font-size: 1.05rem; font-weight: 700; color: #0f172a; letter-spacing: -0.01em;
+    font-size: clamp(0.95rem, 0.85rem + 0.35vw, 1.2rem);
+    font-weight: 700; color: #0f172a; letter-spacing: -0.01em;
 }
 .pqa-section-badge {
     font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.55rem;
@@ -1054,7 +1066,7 @@ def _render_compliance_html(df):
                     )
                 cells.append(f'<td style="background:{row_bg};white-space:nowrap;">{badge}</td>')
             elif c == "Event Time":
-                cells.append(f'<td style="background:{row_bg};font-family:\'JetBrains Mono\',monospace;font-size:12px;white-space:nowrap;">{v}</td>')
+                cells.append(f'<td style="background:{row_bg};font-family:\'JetBrains Mono\',monospace;font-size:12px;">{v}</td>')
             else:
                 cells.append(f'<td style="background:{row_bg};">{v}</td>')
         rows_html.append(
@@ -1074,10 +1086,11 @@ def _render_compliance_html(df):
       }}
       .pqa-table th {{
         background: #f8fafc; font-weight: 700; color: #374151;
-        padding: 10px 14px; text-align: left;
+        padding: 10px 12px; text-align: left;
         border-bottom: 2px solid #e2e8f0;
         font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
-        white-space: nowrap;
+        white-space: normal; line-height: 1.3; vertical-align: bottom;
+        word-break: break-word;
       }}
       .pqa-table th:not(:last-child) {{ border-right: 1px solid #e5e7eb; }}
       .pqa-table td {{
@@ -1291,7 +1304,19 @@ with st.sidebar:
     # ── 2. Acceptance Criteria ────────────────────────────────
     st.subheader("Acceptance Criteria")
     apply_iso = st.checkbox("Apply ISO 8528 Presets", value=_ds.get("apply_iso", False),
-        help="Lock all acceptance criteria to ISO 8528 standard values: load threshold 50 kW, voltage ±1% / 4 s, frequency asymmetric bands (49.75–50.50 Hz increase, 49.50–50.25 Hz decrease) / 3 s, max deviation V 15% / F 7%.")
+        help="Lock acceptance criteria to ISO 8528 standard values: V ±1% / 4 s / 15–20% dev, F asymmetric bands 50.50/49.75 & 50.25/49.50 Hz / 3 s / 7–10% dev.")
+    apply_g2 = st.checkbox("Apply ISO G2 Presets", value=_ds.get("apply_iso_g2", False),
+        help="Lock acceptance criteria to ISO 8528 G2 standard values: V ±5% / 6 s / 20–25% dev, F asymmetric bands 51.50/48.75 & 51.25/48.50 Hz / 5 s / 10–12% dev.")
+    apply_g1 = st.checkbox("Apply ISO G1 Presets", value=_ds.get("apply_iso_g1", False),
+        help="Lock acceptance criteria to ISO 8528 G1 standard values: V ±10% / 10 s / 25–30% dev, F asymmetric bands 51.50/48.75 & 51.25/48.50 Hz / 10 s / 15–18% dev.")
+
+    # Mutual exclusivity — keep the one that just turned on
+    _presets_on = [apply_iso, apply_g2, apply_g1]
+    if sum(_presets_on) > 1:
+        _was = [_ds.get("apply_iso", False), _ds.get("apply_iso_g2", False), _ds.get("apply_iso_g1", False)]
+        _just_on = [i for i in range(3) if _presets_on[i] and not _was[i]]
+        _keep = _just_on[0] if _just_on else next(i for i in range(3) if _presets_on[i])
+        apply_iso, apply_g2, apply_g1 = (_keep == 0), (_keep == 1), (_keep == 2)
     show_limits = st.checkbox("Show Limits on Graphs", value=_ds.get("show_limits", False),
         help="Overlay max deviation limit lines (red dashed) on the full time-series voltage and frequency plots.")
     st.markdown("**Snapshot Display Options**")
@@ -1306,16 +1331,17 @@ with st.sidebar:
              "along with the compliance band limits used for each event. "
              "Useful for verifying that calculated recovery times match the waveform.",
     )
+    show_max_deviation = st.checkbox(
+        "Show Max Deviation",
+        value=_ds.get("show_max_deviation", False),
+        help="Mark the actual peak voltage and frequency deviation point on each event snapshot (red ★) "
+             "with a legend entry showing the measured value.",
+    )
     if _ds.get("dev_mode", False):
         show_debug = st.checkbox("Show Event Detection (De-bugging)", value=_ds.get("show_debug", False))
     else:
         show_debug = False
-    _dw_rst, _dw_col = st.columns([1, 7])
-    with _dw_rst:
-        st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
-        if st.button("↺", key="reset_detection_window"):
-            st.session_state["detection_window"] = 3.0
-            st.rerun()
+    _dw_col, _dw_rst = st.columns([7, 1])
     with _dw_col:
         detection_window = st.number_input(
             "Detection Window (s)",
@@ -1323,12 +1349,12 @@ with st.sidebar:
             min_value=1.0, max_value=30.0, step=1.0,
             help="Time window used to group consecutive load step rows into a single event.",
         )
-    _sw_rst, _sw_col = st.columns([1, 7])
-    with _sw_rst:
+    with _dw_rst:
         st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
-        if st.button("↺", key="reset_snapshot_window"):
-            st.session_state["snapshot_window"] = 8.0
+        if st.button("↺", key="reset_detection_window"):
+            st.session_state["detection_window"] = 3.0
             st.rerun()
+    _sw_col, _sw_rst = st.columns([7, 1])
     with _sw_col:
         snapshot_window = st.number_input(
             "Snapshot Window (s)",
@@ -1336,14 +1362,14 @@ with st.sidebar:
             min_value=3.0, max_value=60.0, step=1.0,
             help="Seconds shown either side of each event in snapshots. Also sets the window used to find peak voltage/frequency deviation.",
         )
+    with _sw_rst:
+        st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
+        if st.button("↺", key="reset_snapshot_window"):
+            st.session_state["snapshot_window"] = 8.0
+            st.rerun()
     recovery_verify_s = 6.0
     if dev_mode:
-        _rv_rst, _rv_col = st.columns([1, 7])
-        with _rv_rst:
-            st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
-            if st.button("↺", key="reset_recovery_verify"):
-                st.session_state["recovery_verify_s"] = 6.0
-                st.rerun()
+        _rv_col, _rv_rst = st.columns([7, 1])
         with _rv_col:
             recovery_verify_s = st.number_input(
                 "Recovery Verify Window (s)",
@@ -1351,33 +1377,87 @@ with st.sidebar:
                 min_value=1.0, max_value=30.0, step=1.0,
                 help="After a recovery candidate is found, verify the signal stays in-band for this many seconds. Handles oscillating waveforms.",
             )
+        with _rv_rst:
+            st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
+            if st.button("↺", key="reset_recovery_verify"):
+                st.session_state["recovery_verify_s"] = 6.0
+                st.rerun()
     _ds["apply_iso"] = apply_iso
+    _ds["apply_iso_g2"] = apply_g2
+    _ds["apply_iso_g1"] = apply_g1
+    _any_preset = apply_iso or apply_g2 or apply_g1
+
+    # In dev mode with a preset active: fields are enabled but visually muted.
+    # :user-valid fires after the user has edited a field and permanently
+    # removes the grey for that input — no CSS reset on blur.
+    if _any_preset and dev_mode:
+        st.markdown("""
+        <style>
+        section[data-testid="stSidebar"] .stNumberInput input:not(:focus):not(:user-valid) {
+            opacity: 0.45 !important;
+            color: #64748b !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
     _ds["show_limits"] = show_limits
     _ds["show_tolerance_band_snapshots"] = show_tolerance_band_snapshots
     _ds["show_deviation_limits_snapshots"] = show_deviation_limits_snapshots
     _ds["show_intersections"] = show_intersections
+    _ds["show_max_deviation"] = show_max_deviation
     _ds["show_debug"] = show_debug
     _ds["detection_window"] = detection_window
     _ds["snapshot_window"] = snapshot_window
     _ds["recovery_verify_s"] = recovery_verify_s
 
+    load_thresh = float(_ds.get("load_thresh", 50.0))
+
     if apply_iso:
-        load_thresh = 50.0; v_tol = 1.0; v_rec = 4.0; v_max_dev = 15.0
+        v_tol = 1.0; v_rec = 4.0; v_max_dev = 15.0
         f_tol = 0.5; f_rec = 3.0; f_max_dev = 7.0
         f_rec_upper_inc = 50.50; f_rec_lower_inc = 49.75
         f_rec_upper_dec = 50.25; f_rec_lower_dec = 49.50
-        v_max_dev_inc = v_max_dev_dec = 15.0
-        f_max_dev_inc = f_max_dev_dec = 7.0
+        v_max_dev_inc = 15.0; v_max_dev_dec = 20.0
+        f_max_dev_inc = 7.0;  f_max_dev_dec = 10.0
         st.session_state["fri_upper"] = 50.50
         st.session_state["fri_lower"] = 49.75
         st.session_state["frd_upper"] = 50.25
         st.session_state["frd_lower"] = 49.50
         _ds["apply_asymmetric_freq"] = True
         _ds["apply_asymmetric_volt"] = False
-        _ds["apply_asymmetric_volt_dev"] = False
-        _ds["apply_asymmetric_freq_dev"] = False
+        _ds["apply_asymmetric_volt_dev"] = True
+        _ds["apply_asymmetric_freq_dev"] = True
+    elif apply_g2:
+        v_tol = 5.0; v_rec = 6.0; v_max_dev = 15.0
+        f_tol = 0.5; f_rec = 5.0; f_max_dev = 7.0
+        f_rec_upper_inc = 51.50; f_rec_lower_inc = 48.75
+        f_rec_upper_dec = 51.25; f_rec_lower_dec = 48.50
+        v_max_dev_inc = 20.0; v_max_dev_dec = 25.0
+        f_max_dev_inc = 10.0; f_max_dev_dec = 12.0
+        st.session_state["fri_upper"] = 51.50
+        st.session_state["fri_lower"] = 48.75
+        st.session_state["frd_upper"] = 51.25
+        st.session_state["frd_lower"] = 48.50
+        _ds["apply_asymmetric_freq"] = True
+        _ds["apply_asymmetric_volt"] = False
+        _ds["apply_asymmetric_volt_dev"] = True
+        _ds["apply_asymmetric_freq_dev"] = True
+    elif apply_g1:
+        v_tol = 10.0; v_rec = 10.0; v_max_dev = 15.0
+        f_tol = 0.5; f_rec = 10.0; f_max_dev = 7.0
+        f_rec_upper_inc = 51.50; f_rec_lower_inc = 48.75
+        f_rec_upper_dec = 51.25; f_rec_lower_dec = 48.50
+        v_max_dev_inc = 25.0; v_max_dev_dec = 30.0
+        f_max_dev_inc = 15.0; f_max_dev_dec = 18.0
+        st.session_state["fri_upper"] = 51.50
+        st.session_state["fri_lower"] = 48.75
+        st.session_state["frd_upper"] = 51.25
+        st.session_state["frd_lower"] = 48.50
+        _ds["apply_asymmetric_freq"] = True
+        _ds["apply_asymmetric_volt"] = False
+        _ds["apply_asymmetric_volt_dev"] = True
+        _ds["apply_asymmetric_freq_dev"] = True
     else:
-        load_thresh = float(_ds.get("load_thresh", 50.0))
         v_tol      = float(_ds.get("v_tol", 1.0))
         v_rec      = float(_ds.get("v_rec", 4.0))
         v_max_dev  = float(_ds.get("v_max_dev", 15.0))
@@ -1389,7 +1469,7 @@ with st.sidebar:
         f_max_dev_inc = float(_ds.get("f_max_dev_inc", 7.0))
         f_max_dev_dec = float(_ds.get("f_max_dev_dec", 7.0))
 
-    load_thresh = st.number_input("Load Threshold (kW)", value=load_thresh, min_value=0.0, step=10.0, disabled=apply_iso,
+    load_thresh = st.number_input("Load Threshold (kW)", value=load_thresh, min_value=0.0, step=10.0,
         help="Minimum load step size (kW) to register as a compliance event. Changes smaller than this are ignored.")
 
     apply_asymmetric_volt = st.checkbox("Apply asymmetric Voltage tolerance band", value=_ds.get("apply_asymmetric_volt", False),
@@ -1403,21 +1483,21 @@ with st.sidebar:
 
     col1, col2 = st.columns(2)
     with col1:
-        v_tol = st.number_input("Voltage Tolerance (%)", value=v_tol, min_value=0.0, step=0.5, disabled=apply_iso or apply_asymmetric_volt,
+        v_tol = st.number_input("Voltage Tolerance (%)", value=v_tol, min_value=0.0, step=0.5, disabled=(_any_preset and not dev_mode) or apply_asymmetric_volt,
             help="Symmetric ±% band around nominal voltage used as the recovery target. Voltage must re-enter this band and stay in for 0.3 s to be considered recovered.")
-        v_rec = st.number_input("Voltage Recovery (s)", value=v_rec, min_value=0.0, step=0.5, disabled=apply_iso,
+        v_rec = st.number_input("Voltage Recovery (s)", value=v_rec, min_value=0.0, step=0.5, disabled=_any_preset and not dev_mode,
             help="Maximum allowed recovery time for voltage after a load event. Events where voltage takes longer than this to return in-band fail compliance.")
-        v_max_dev = st.number_input("Max Voltage Dev (%)", value=v_max_dev, min_value=0.0, step=1.0, disabled=apply_iso or apply_asymmetric_volt_dev,
+        v_max_dev = st.number_input("Max Voltage Dev (%)", value=v_max_dev, min_value=0.0, step=1.0, disabled=(_any_preset and not dev_mode) or apply_asymmetric_volt_dev,
             help="Maximum allowed voltage excursion from nominal (%). Events where the peak deviation exceeds this value fail compliance regardless of recovery time.")
     with col2:
-        f_tol = st.number_input("Frequency Tolerance (%)", value=f_tol, min_value=0.0, step=0.1, disabled=apply_iso or apply_asymmetric_freq,
+        f_tol = st.number_input("Frequency Tolerance (%)", value=f_tol, min_value=0.0, step=0.1, disabled=(_any_preset and not dev_mode) or apply_asymmetric_freq,
             help="Symmetric ±% band around nominal frequency used as the recovery target. Frequency must re-enter this band and stay in for 0.3 s to be considered recovered.")
-        f_rec = st.number_input("Frequency Recovery (s)", value=f_rec, min_value=0.0, step=0.5, disabled=apply_iso,
+        f_rec = st.number_input("Frequency Recovery (s)", value=f_rec, min_value=0.0, step=0.5, disabled=_any_preset and not dev_mode,
             help="Maximum allowed recovery time for frequency after a load event. Events where frequency takes longer than this to return in-band fail compliance.")
-        f_max_dev = st.number_input("Max Frequency Dev (%)", value=f_max_dev, min_value=0.0, step=1.0, disabled=apply_iso or apply_asymmetric_freq_dev,
+        f_max_dev = st.number_input("Max Frequency Dev (%)", value=f_max_dev, min_value=0.0, step=1.0, disabled=(_any_preset and not dev_mode) or apply_asymmetric_freq_dev,
             help="Maximum allowed frequency excursion from nominal (%). Events where the peak deviation exceeds this value fail compliance regardless of recovery time.")
 
-    if not apply_iso:
+    if not _any_preset:
         _ds["load_thresh"] = load_thresh; _ds["v_tol"] = v_tol
         _ds["v_rec"] = v_rec;             _ds["v_max_dev"] = v_max_dev
         _ds["f_tol"] = f_tol;             _ds["f_rec"] = f_rec
@@ -1437,15 +1517,15 @@ with st.sidebar:
         col_vi, col_vd = st.columns(2)
         with col_vi:
             st.caption("Load Increase")
-            v_rec_upper_inc = st.number_input("Upper (V)", min_value=0.0, step=1.0, format="%.2f", key="vri_upper", disabled=apply_iso,
+            v_rec_upper_inc = st.number_input("Upper (V)", min_value=0.0, step=1.0, format="%.2f", key="vri_upper", disabled=_any_preset and not dev_mode,
                 help="Upper recovery band limit (V) for load increase events (voltage drops). Voltage must re-enter below this level to start the recovery timer.")
-            v_rec_lower_inc = st.number_input("Lower (V)", min_value=0.0, step=1.0, format="%.2f", key="vri_lower", disabled=apply_iso,
+            v_rec_lower_inc = st.number_input("Lower (V)", min_value=0.0, step=1.0, format="%.2f", key="vri_lower", disabled=_any_preset and not dev_mode,
                 help="Lower recovery band limit (V) for load increase events (voltage drops). Voltage must re-enter above this level to start the recovery timer.")
         with col_vd:
             st.caption("Load Decrease")
-            v_rec_upper_dec = st.number_input("Upper (V)", min_value=0.0, step=1.0, format="%.2f", key="vrd_upper", disabled=apply_iso,
+            v_rec_upper_dec = st.number_input("Upper (V)", min_value=0.0, step=1.0, format="%.2f", key="vrd_upper", disabled=_any_preset and not dev_mode,
                 help="Upper recovery band limit (V) for load decrease events (voltage rises). Voltage must re-enter below this level to start the recovery timer.")
-            v_rec_lower_dec = st.number_input("Lower (V)", min_value=0.0, step=1.0, format="%.2f", key="vrd_lower", disabled=apply_iso,
+            v_rec_lower_dec = st.number_input("Lower (V)", min_value=0.0, step=1.0, format="%.2f", key="vrd_lower", disabled=_any_preset and not dev_mode,
                 help="Lower recovery band limit (V) for load decrease events (voltage rises). Voltage must re-enter above this level to start the recovery timer.")
     else:
         v_rec_upper_inc = _vri_upper_def
@@ -1459,13 +1539,13 @@ with st.sidebar:
         col_vdi, col_vdd = st.columns(2)
         with col_vdi:
             st.caption("Load Increase")
-            v_max_dev_inc = st.number_input("Increase (%)", value=v_max_dev_inc, min_value=0.0, step=1.0, disabled=apply_iso,
+            v_max_dev_inc = st.number_input("Increase (%)", value=v_max_dev_inc, min_value=0.0, step=1.0, disabled=_any_preset and not dev_mode,
                 help="Max allowed voltage drop as a % of nominal for load increase events. Voltage below nom × (1 − this%) fails compliance.")
         with col_vdd:
             st.caption("Load Decrease")
-            v_max_dev_dec = st.number_input("Decrease (%)", value=v_max_dev_dec, min_value=0.0, step=1.0, disabled=apply_iso,
+            v_max_dev_dec = st.number_input("Decrease (%)", value=v_max_dev_dec, min_value=0.0, step=1.0, disabled=_any_preset and not dev_mode,
                 help="Max allowed voltage rise as a % of nominal for load decrease events. Voltage above nom × (1 + this%) fails compliance.")
-    if not apply_iso:
+    if not _any_preset:
         _ds["v_max_dev_inc"] = v_max_dev_inc; _ds["v_max_dev_dec"] = v_max_dev_dec
 
     # ── Frequency Recovery Bands ───────────────────────────────
@@ -1478,15 +1558,15 @@ with st.sidebar:
         col_fi, col_fd = st.columns(2)
         with col_fi:
             st.caption("Load Increase")
-            f_rec_upper_inc = st.number_input("Upper (Hz)", min_value=0.0, step=0.05, format="%.2f", key="fri_upper", disabled=apply_iso,
+            f_rec_upper_inc = st.number_input("Upper (Hz)", min_value=0.0, step=0.05, format="%.2f", key="fri_upper", disabled=_any_preset and not dev_mode,
                 help="Upper recovery band (Hz) for load increase events (frequency drops). ISO 8528 default: 50.50 Hz.")
-            f_rec_lower_inc = st.number_input("Lower (Hz)", min_value=0.0, step=0.05, format="%.2f", key="fri_lower", disabled=apply_iso,
+            f_rec_lower_inc = st.number_input("Lower (Hz)", min_value=0.0, step=0.05, format="%.2f", key="fri_lower", disabled=_any_preset and not dev_mode,
                 help="Lower recovery band (Hz) for load increase events (frequency drops). ISO 8528 default: 49.75 Hz.")
         with col_fd:
             st.caption("Load Decrease")
-            f_rec_upper_dec = st.number_input("Upper (Hz)", min_value=0.0, step=0.05, format="%.2f", key="frd_upper", disabled=apply_iso,
+            f_rec_upper_dec = st.number_input("Upper (Hz)", min_value=0.0, step=0.05, format="%.2f", key="frd_upper", disabled=_any_preset and not dev_mode,
                 help="Upper recovery band (Hz) for load decrease events (frequency rises). ISO 8528 default: 50.25 Hz.")
-            f_rec_lower_dec = st.number_input("Lower (Hz)", min_value=0.0, step=0.05, format="%.2f", key="frd_lower", disabled=apply_iso,
+            f_rec_lower_dec = st.number_input("Lower (Hz)", min_value=0.0, step=0.05, format="%.2f", key="frd_lower", disabled=_any_preset and not dev_mode,
                 help="Lower recovery band (Hz) for load decrease events (frequency rises). ISO 8528 default: 49.50 Hz.")
     else:
         f_rec_upper_inc = _fri_upper_def
@@ -1500,13 +1580,13 @@ with st.sidebar:
         col_fdi, col_fdd = st.columns(2)
         with col_fdi:
             st.caption("Load Increase")
-            f_max_dev_inc = st.number_input("Increase (%)", value=f_max_dev_inc, min_value=0.0, step=1.0, disabled=apply_iso,
+            f_max_dev_inc = st.number_input("Increase (%)", value=f_max_dev_inc, min_value=0.0, step=1.0, disabled=_any_preset and not dev_mode,
                 help="Max allowed frequency drop as a % of nominal for load increase events. Frequency below nom × (1 − this%) fails compliance.")
         with col_fdd:
             st.caption("Load Decrease")
-            f_max_dev_dec = st.number_input("Decrease (%)", value=f_max_dev_dec, min_value=0.0, step=1.0, disabled=apply_iso,
+            f_max_dev_dec = st.number_input("Decrease (%)", value=f_max_dev_dec, min_value=0.0, step=1.0, disabled=_any_preset and not dev_mode,
                 help="Max allowed frequency rise as a % of nominal for load decrease events. Frequency above nom × (1 + this%) fails compliance.")
-    if not apply_iso:
+    if not _any_preset:
         _ds["f_max_dev_inc"] = f_max_dev_inc; _ds["f_max_dev_dec"] = f_max_dev_dec
 
     st.divider()
@@ -2192,6 +2272,7 @@ if _active_tab_main == "compliance":
                 "event_window_overrides": {},   # clear per-event snapshot window overrides
                 "show_debug": show_debug,
                 "show_intersections": show_intersections,
+                "show_max_deviation": show_max_deviation,
                 "show_tolerance_band_snapshots": show_tolerance_band_snapshots,
                 "show_deviation_limits_snapshots": show_deviation_limits_snapshots,
             })
@@ -2298,6 +2379,7 @@ if _active_tab_main == "compliance":
                         v_max_dev=v_max_dev, f_max_dev=f_max_dev,
                         show_debug=show_debug,
                         show_intersections=show_intersections,
+                        show_max_deviation=show_max_deviation,
                         rated_load_kw=rated_load_kw,
                         window_s=snapshot_window,
                     )
@@ -2348,6 +2430,33 @@ if _active_tab_main == "compliance":
         table_path = st.session_state.get("table_path")
         client_name_display = st.session_state["client_name"]
         config = st.session_state["config"]
+
+        # Time-Series Plots
+        st.markdown("""
+        <div class="pqa-section-header">
+          <div class="pqa-section-bar" style="background:#0891b2;"></div>
+          <span class="pqa-section-title">Time-Series Plots</span>
+        </div>""", unsafe_allow_html=True)
+        if graph_paths:
+            tabs = st.tabs([n.replace("Avg_", "").replace("_", " ") for n in graph_paths.keys()])
+            for tab, (name, path) in zip(tabs, graph_paths.items()):
+                with tab:
+                    if path.endswith(".svg"):
+                        import re as _re
+                        with open(path, "r", encoding="utf-8") as _f:
+                            _svg = _f.read()
+                        # Strip fixed pixel dimensions so the SVG fills container width
+                        # and the browser calculates height from the viewBox aspect ratio.
+                        _svg = _re.sub(r'(<svg\b[^>]*?)\s+width="[^"]*"', r'\1 width="100%"', _svg, count=1)
+                        _svg = _re.sub(r'(<svg\b[^>]*?)\s+height="[^"]*"', r'\1', _svg, count=1)
+                        st.components.v1.html(
+                            f'<div style="width:100%">{_svg}</div>',
+                            height=540,
+                        )
+                    else:
+                        st.image(path, use_container_width=True)
+        else:
+            st.info("No plots generated.")
 
         # Compliance Table
         if not df_events.empty:
@@ -2413,7 +2522,7 @@ if _active_tab_main == "compliance":
                     e = row.get("End_Timestamp", s)
                     if pd.isna(e) or s == e:
                         return s.strftime("%H:%M:%S")
-                    return s.strftime("%H:%M:%S") + f"–{e.strftime('%H:%M:%S')}"
+                    return s.strftime("%H:%M:%S") + f"<br>{e.strftime('%H:%M:%S')}"
                 disp["Event Time"] = src.apply(_fmt_ts, axis=1)
 
             # Load Change
@@ -2465,14 +2574,15 @@ if _active_tab_main == "compliance":
                 disp["Failure Reasons"] = src["Failure_Reasons"].fillna("").astype(str).str.replace(";", "<br>")
 
 
-            # Height: header (~50px) + per row (~80px base for 2-line cells) +
-            # extra for any rows with failure reasons (up to 3 wrapped lines).
+            # Height: header (~54px, may wrap to 2 lines) + per row (~66px for
+            # 2-line cells like Event Time + Deviation) + ~22px per extra
+            # wrapped failure-reason line.
             _row_heights = []
             for _, _r in disp.iterrows():
                 _fr = str(_r.get("Failure Reasons", ""))
                 _extra_lines = _fr.count("<br>") if _fr not in ("", "nan") else 0
-                _row_heights.append(80 + _extra_lines * 20)
-            table_height = 60 + sum(_row_heights)
+                _row_heights.append(66 + _extra_lines * 22)
+            table_height = 54 + sum(_row_heights)
             st.components.v1.html(_render_compliance_html(disp), height=table_height, scrolling=False)
             if table_path and os.path.exists(table_path):
                 with st.expander("View Compliance Table Image"):
@@ -2482,33 +2592,6 @@ if _active_tab_main == "compliance":
                         f'<div style="overflow-x:auto;background:#fff">{_svg_content}</div>',
                         height=600, scrolling=True,
                     )
-
-        # Time-Series Plots
-        st.markdown("""
-        <div class="pqa-section-header">
-          <div class="pqa-section-bar" style="background:#0891b2;"></div>
-          <span class="pqa-section-title">Time-Series Plots</span>
-        </div>""", unsafe_allow_html=True)
-        if graph_paths:
-            tabs = st.tabs([n.replace("Avg_", "").replace("_", " ") for n in graph_paths.keys()])
-            for tab, (name, path) in zip(tabs, graph_paths.items()):
-                with tab:
-                    if path.endswith(".svg"):
-                        import re as _re
-                        with open(path, "r", encoding="utf-8") as _f:
-                            _svg = _f.read()
-                        # Strip fixed pixel dimensions so the SVG fills container width
-                        # and the browser calculates height from the viewBox aspect ratio.
-                        _svg = _re.sub(r'(<svg\b[^>]*?)\s+width="[^"]*"', r'\1 width="100%"', _svg, count=1)
-                        _svg = _re.sub(r'(<svg\b[^>]*?)\s+height="[^"]*"', r'\1', _svg, count=1)
-                        st.components.v1.html(
-                            f'<div style="width:100%">{_svg}</div>',
-                            height=480,
-                        )
-                    else:
-                        st.image(path, use_container_width=True)
-        else:
-            st.info("No plots generated.")
 
         # Event Snapshots
         st.markdown("""
@@ -2593,6 +2676,7 @@ if _active_tab_main == "compliance":
                                 f_max_dev=config.frequency_max_deviation_pct,
                                 show_debug=st.session_state.get("show_debug", False),
                                 show_intersections=st.session_state.get("show_intersections", False),
+                                show_max_deviation=st.session_state.get("show_max_deviation", False),
                                 event_row=row,
                                 rated_load_kw=st.session_state.get("rated_load_kw"),
                                 window_s=_new_win,
@@ -2935,6 +3019,7 @@ elif _active_tab_main == "winscope":
                             v_max_dev=v_max_dev, f_max_dev=f_max_dev,
                             show_debug=show_debug,
                             show_intersections=show_intersections,
+                            show_max_deviation=show_max_deviation,
                             window_s=snapshot_window,
                         )
                         if _ws_snap_errors:
@@ -3024,6 +3109,26 @@ elif _active_tab_main == "winscope":
             for error in _ws_plot_errors:
                 st.error(error)
 
+        # Time-series plots
+        if _ws_gp:
+            st.markdown("""
+            <div class="pqa-section-header">
+              <div class="pqa-section-bar" style="background:#0891b2;"></div>
+              <span class="pqa-section-title">Time-Series Plots</span>
+            </div>""", unsafe_allow_html=True)
+            import re as _re_ws
+            _ws_plot_tabs = st.tabs([n.replace("Avg_", "").replace("_", " ") for n in _ws_gp.keys()])
+            for _wt, (_wn, _wp) in zip(_ws_plot_tabs, _ws_gp.items()):
+                with _wt:
+                    if _wp.endswith(".svg") and os.path.exists(_wp):
+                        with open(_wp, "r", encoding="utf-8") as _wf:
+                            _wsvg = _wf.read()
+                        _wsvg = _re_ws.sub(r'(<svg\b[^>]*?)\s+width="[^"]*"',  r'\1 width="100%"', _wsvg, count=1)
+                        _wsvg = _re_ws.sub(r'(<svg\b[^>]*?)\s+height="[^"]*"', r'\1',              _wsvg, count=1)
+                        st.components.v1.html(f'<div style="width:100%">{_wsvg}</div>', height=540, scrolling=False)
+                    elif os.path.exists(_wp):
+                        st.image(_wp, use_container_width=True)
+
         # Compliance table
         if not _ws_ev.empty:
             st.markdown(f"""
@@ -3039,7 +3144,7 @@ elif _active_tab_main == "winscope":
                 def _ws_fmt_ts(row):
                     s = row["Timestamp"]
                     e = row.get("End_Timestamp", s)
-                    return s.strftime("%H:%M:%S") if (pd.isna(e) or s == e) else s.strftime("%H:%M:%S") + f"–{e.strftime('%H:%M:%S')}"
+                    return s.strftime("%H:%M:%S") if (pd.isna(e) or s == e) else s.strftime("%H:%M:%S") + f"<br>{e.strftime('%H:%M:%S')}"
                 _ws_disp["Event Time"] = _ws_src.apply(_ws_fmt_ts, axis=1)
             if "dKw" in _ws_src.columns:
                 _ws_disp["Load Change (kW)"] = _ws_src["dKw"].apply(lambda x: f"+{x:.1f}" if x > 0 else f"{x:.1f}")
@@ -3059,28 +3164,8 @@ elif _active_tab_main == "winscope":
             if "Compliance_Status" in _ws_src.columns:
                 _ws_disp["Compliance Status"] = _ws_src["Compliance_Status"]
 
-            _ws_tbl_h = 60 + len(_ws_disp) * 60
+            _ws_tbl_h = 54 + len(_ws_disp) * 66
             st.components.v1.html(_render_compliance_html(_ws_disp), height=_ws_tbl_h, scrolling=False)
-
-        # Time-series plots
-        if _ws_gp:
-            st.markdown("""
-            <div class="pqa-section-header">
-              <div class="pqa-section-bar" style="background:#0891b2;"></div>
-              <span class="pqa-section-title">Time-Series Plots</span>
-            </div>""", unsafe_allow_html=True)
-            import re as _re_ws
-            _ws_plot_tabs = st.tabs([n.replace("Avg_", "").replace("_", " ") for n in _ws_gp.keys()])
-            for _wt, (_wn, _wp) in zip(_ws_plot_tabs, _ws_gp.items()):
-                with _wt:
-                    if _wp.endswith(".svg") and os.path.exists(_wp):
-                        with open(_wp, "r", encoding="utf-8") as _wf:
-                            _wsvg = _wf.read()
-                        _wsvg = _re_ws.sub(r'(<svg\b[^>]*?)\s+width="[^"]*"',  r'\1 width="100%"', _wsvg, count=1)
-                        _wsvg = _re_ws.sub(r'(<svg\b[^>]*?)\s+height="[^"]*"', r'\1',              _wsvg, count=1)
-                        st.components.v1.html(f'<div style="width:100%">{_wsvg}</div>', height=480, scrolling=False)
-                    elif os.path.exists(_wp):
-                        st.image(_wp, use_container_width=True)
 
         # Temperature & Pressure plots
         _ws_tpp = st.session_state.get("ws_tp_paths", {})
@@ -3100,7 +3185,7 @@ elif _active_tab_main == "winscope":
                             _tpsvg = _tpf.read()
                         _tpsvg = _re_tp.sub(r'(<svg\b[^>]*?)\s+width="[^"]*"',  r'\1 width="100%"', _tpsvg, count=1)
                         _tpsvg = _re_tp.sub(r'(<svg\b[^>]*?)\s+height="[^"]*"', r'\1',              _tpsvg, count=1)
-                        st.components.v1.html(f'<div style="width:100%">{_tpsvg}</div>', height=480, scrolling=False)
+                        st.components.v1.html(f'<div style="width:100%">{_tpsvg}</div>', height=540, scrolling=False)
                     elif os.path.exists(_tpp):
                         st.image(_tpp, use_container_width=True)
 
@@ -3128,7 +3213,7 @@ elif _active_tab_main == "winscope":
                             _wsnap = _wsf2.read()
                         _wsnap = _re_ws2.sub(r'(<svg\b[^>]*?)\s+width="[^"]*"',  r'\1 width="100%"', _wsnap, count=1)
                         _wsnap = _re_ws2.sub(r'(<svg\b[^>]*?)\s+height="[^"]*"', r'\1',              _wsnap, count=1)
-                        st.components.v1.html(f'<div style="width:100%">{_wsnap}</div>', height=520, scrolling=False)
+                        st.components.v1.html(f'<div style="width:100%">{_wsnap}</div>', height=600, scrolling=False)
                     elif os.path.exists(_wsp):
                         st.image(_wsp, use_container_width=True)
 

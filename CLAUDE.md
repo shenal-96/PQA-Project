@@ -104,6 +104,17 @@ Load decrease (dKw ≤ 0): freq rises → band `[49.50, 50.25]` Hz
 Rationale: generator governor response is asymmetric; ISO 8528 recovery
 tolerance is not simply ±0.5 Hz around nominal.
 
+### Asymmetric max-deviation display in snapshots
+`plot_load_change_snapshot()` draws **only the relevant** max-deviation
+limit line (red dashed) per event:
+- Load increase (dKw > 0) → voltage/freq drops → only the **lower** limit
+- Load decrease (dKw ≤ 0) → voltage/freq rises → only the **upper** limit
+
+The legend entry for the deviation limit follows the same rule. This
+matches `check_compliance()` in `analysis.py`, which has always picked
+the direction-appropriate limit for evaluation; the snapshot display is
+now consistent with the evaluation.
+
 ### Multi-voltage support
 `nom_v` is configurable in the sidebar (415 V, 690 V, 11000 V presets or
 custom input). The `AnalysisConfig.nominal_voltage` field carries this into
@@ -212,7 +223,7 @@ Direction: **Industrial Precision** — authoritative, data-forward, dark sideba
 
 | Class | Purpose |
 |---|---|
-| `.pqa-metrics` | Flex container for the 5-card metric strip after Run Analysis |
+| `.pqa-metrics` | CSS Grid container (`auto-fit, minmax(160px, 1fr)`) for the 5-card metric strip — uniform column widths, wraps to a 2nd row on narrow windows |
 | `.pqa-metric-card` | Individual metric card (dark gradient, border-radius 10px) |
 | `.pqa-metric-card.pass` | Green border + green value text |
 | `.pqa-metric-card.fail` | Red border + red value text |
@@ -229,6 +240,30 @@ Direction: **Industrial Precision** — authoritative, data-forward, dark sideba
 | Compliance Results | `#2563eb` (blue) |
 | Time-Series Plots | `#0891b2` (cyan) |
 | Event Snapshots | `#9333ea` (purple) |
+
+### Responsive layout
+
+- `.main .block-container` has `max-width: 100%` with fluid horizontal
+  padding (`clamp(1rem, 3vw, 3rem)`) — the app stretches to fill any
+  window width instead of being capped at 1240px.
+- Metric value font-size, section title font-size, and metric-card
+  padding all use `clamp()` for fluid scaling.
+- Compliance / WinScope tab order: Time-Series Plots → Compliance
+  Results → (Temperatures & Pressures, WinScope only) → Event Snapshots.
+  Time-Series moved above the table so the highest-signal visual lands
+  first on the page.
+
+### Compliance table HTML embed (`_render_compliance_html`)
+
+- Headers wrap (`white-space: normal`, `word-break: break-word`,
+  `vertical-align: bottom`) so the rightmost column is never cropped at
+  narrow widths.
+- Event Time column uses `<br>` between start and end timestamps
+  (formatted in `_fmt_ts` / `_ws_fmt_ts`); the cell does not have
+  `white-space: nowrap`.
+- Iframe height = `54 + len(rows) * 66` plus `+22` per `<br>` in the
+  Failure Reasons column. Tuned for the 2-line cells in the deviation
+  columns; do not raise unnecessarily.
 
 ### Key UI components
 
@@ -252,6 +287,15 @@ Direction: **Industrial Precision** — authoritative, data-forward, dark sideba
 
 Band boundary marker selection: `v_dev > nom_v` → upper band (voltage rose);
 otherwise lower band (voltage dropped). Same logic for frequency.
+
+## Snapshot Toggles (sidebar → Snapshot Display Options)
+
+| Toggle | Effect on `plot_load_change_snapshot()` |
+|---|---|
+| Show Tolerance Band on Snapshots | Amber dashed lines at the recovery band |
+| Show Deviation Limits on Snapshots | Red dashed line — only the direction-relevant max-dev limit |
+| Show Intersection Points | Orange ★ at exit, lime ★ at recovery, plus vertical guide lines |
+| Show Max Deviation | Red ★ at the V/F extreme within the 5 s post-event window — value matches the V_dev / F_dev in the compliance table. Marker is placed using `Avg_Voltage_LL` / `Avg_Frequency` (idxmin on increase, idxmax on decrease) so it lands on the same point analysis used. Adds a `Max Deviation (xx V/Hz)` legend entry. |
 
 ## Known Gotchas
 
