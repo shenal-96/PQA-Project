@@ -1229,11 +1229,13 @@ with st.sidebar:
                 _csv_idx = all_csv_names.index(_saved_csv)
             else:
                 _csv_idx = None
-            selected_name = st.selectbox("Select CSV to analyse", all_csv_names, index=_csv_idx)
+            selected_name = st.selectbox("Select CSV to analyse", all_csv_names, index=_csv_idx, placeholder="Choose a file...")
             _ds["selected_csv_name"] = selected_name
-            selected_csv_path = os.path.join(UPLOADS_CSV_DIR, selected_name)
-            client_name = os.path.splitext(selected_name)[0]
-            auto_start, auto_end = _get_csv_time_range(selected_csv_path)
+            # Only proceed if a file is selected (not None)
+            if selected_name:
+                selected_csv_path = os.path.join(UPLOADS_CSV_DIR, selected_name)
+                client_name = os.path.splitext(selected_name)[0]
+                auto_start, auto_end = _get_csv_time_range(selected_csv_path)
 
     else:
         # ── 1. WinScope Files ──────────────────────────────────────
@@ -1256,13 +1258,14 @@ with st.sidebar:
         _saved_ws = sorted(glob.glob(os.path.join(UPLOADS_WINSCOPE_DIR, "*.xls")))
         _ws_names = [os.path.basename(p) for p in _saved_ws]
         if _ws_names:
-            _ws_sel_name = st.selectbox("Select WinScope file", _ws_names, key="ws_selector")
-            _selected_ws_path = os.path.join(UPLOADS_WINSCOPE_DIR, _ws_sel_name)
-            _ws_client_name = os.path.splitext(_ws_sel_name)[0]
-            _ws_tr_key = f"_ws_tr_{_selected_ws_path}"
-            if _ws_tr_key not in st.session_state:
-                st.session_state[_ws_tr_key] = _get_ws_time_range(_selected_ws_path)
-            auto_start, auto_end = st.session_state[_ws_tr_key]
+            _ws_sel_name = st.selectbox("Select WinScope file", _ws_names, key="ws_selector", placeholder="Choose a file...")
+            if _ws_sel_name:
+                _selected_ws_path = os.path.join(UPLOADS_WINSCOPE_DIR, _ws_sel_name)
+                _ws_client_name = os.path.splitext(_ws_sel_name)[0]
+                _ws_tr_key = f"_ws_tr_{_selected_ws_path}"
+                if _ws_tr_key not in st.session_state:
+                    st.session_state[_ws_tr_key] = _get_ws_time_range(_selected_ws_path)
+                auto_start, auto_end = st.session_state[_ws_tr_key]
 
     st.divider()
 
