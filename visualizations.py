@@ -522,8 +522,10 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         cross_kw = dict(linewidth=1.0, linestyle=":", zorder=5, alpha=0.85)
         lkw_dbg  = dict(lw=1.2, ls="--", alpha=0.85, zorder=4)
 
-        v_upper_band = nom_v * (1 + tol_v / 100)
-        v_lower_band = nom_v * (1 - tol_v / 100)
+        v_upper_band = event_row.get("V_rec_upper", nom_v * (1 + tol_v / 100))
+        v_lower_band = event_row.get("V_rec_lower", nom_v * (1 - tol_v / 100))
+        if pd.isnull(v_upper_band): v_upper_band = nom_v * (1 + tol_v / 100)
+        if pd.isnull(v_lower_band): v_lower_band = nom_v * (1 - tol_v / 100)
 
         v_dev   = event_row.get("V_dev",       np.nan)
         v_exit  = event_row.get("V_exit_ts")

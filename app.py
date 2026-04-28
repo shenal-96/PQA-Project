@@ -122,6 +122,11 @@ _DEV_DEFAULTS: dict = {
     "fri_lower": 49.75,
     "frd_upper": 50.25,
     "frd_lower": 49.50,
+    "apply_asymmetric_volt": False,
+    "vri_upper": 419.15,
+    "vri_lower": 410.85,
+    "vrd_upper": 419.15,
+    "vrd_lower": 410.85,
     # Rated load
     "rated_load_input": "",
     "expected_steps_input": "",
@@ -1091,6 +1096,7 @@ if "_ds" not in st.session_state:
     # Pre-populate keyed widgets that have NO value= parameter (safe — no conflict).
     # Widgets with key= + value= are handled by passing value=_ds.get(...) instead.
     for _k in ("fri_upper", "fri_lower", "frd_upper", "frd_lower",
+                "vri_upper", "vri_lower", "vrd_upper", "vrd_lower",
                 "nom_v_preset", "nom_v_custom", "rated_load_input",
                 "expected_steps_input", "report_format", "detection_window"):
         if _k not in st.session_state:
@@ -1331,6 +1337,7 @@ with st.sidebar:
         st.session_state["frd_upper"] = 50.25
         st.session_state["frd_lower"] = 49.50
         _ds["apply_asymmetric_freq"] = True
+        _ds["apply_asymmetric_volt"] = False
     else:
         load_thresh = float(_ds.get("load_thresh", 50.0))
         v_tol      = float(_ds.get("v_tol", 1.0))
@@ -1343,7 +1350,8 @@ with st.sidebar:
     col1, col2 = st.columns(2)
     with col1:
         load_thresh = st.number_input("Load Threshold (kW)", value=load_thresh, min_value=0.0, step=10.0, disabled=apply_iso)
-        v_tol = st.number_input("Voltage Tolerance (%)", value=v_tol, min_value=0.0, step=0.5, disabled=apply_iso)
+        apply_asymmetric_volt = st.checkbox("Apply asymmetric Voltage tolerance band", value=_ds.get("apply_asymmetric_volt", False))
+        v_tol = st.number_input("Voltage Tolerance (%)", value=v_tol, min_value=0.0, step=0.5, disabled=apply_iso or apply_asymmetric_volt)
         v_rec = st.number_input("Voltage Recovery (s)", value=v_rec, min_value=0.0, step=0.5, disabled=apply_iso)
         v_max_dev = st.number_input("Max Voltage Dev (%)", value=v_max_dev, min_value=0.0, step=1.0, disabled=apply_iso)
     with col2:
@@ -1358,6 +1366,18 @@ with st.sidebar:
         _ds["f_tol"] = f_tol;             _ds["f_rec"] = f_rec
         _ds["f_max_dev"] = f_max_dev
     _ds["apply_asymmetric_freq"] = apply_asymmetric_freq
+    _ds["apply_asymmetric_volt"] = apply_asymmetric_volt
+
+    st.markdown("**Voltage Recovery Bands (V)**")
+    col_vi, col_vd = st.columns(2)
+    with col_vi:
+        st.caption("Load Increase")
+        v_rec_upper_inc = st.number_input("Upper (V)", min_value=0.0, step=1.0, format="%.2f", key="vri_upper", disabled=apply_iso or not apply_asymmetric_volt)
+        v_rec_lower_inc = st.number_input("Lower (V)", min_value=0.0, step=1.0, format="%.2f", key="vri_lower", disabled=apply_iso or not apply_asymmetric_volt)
+    with col_vd:
+        st.caption("Load Decrease")
+        v_rec_upper_dec = st.number_input("Upper (V)", min_value=0.0, step=1.0, format="%.2f", key="vrd_upper", disabled=apply_iso or not apply_asymmetric_volt)
+        v_rec_lower_dec = st.number_input("Lower (V)", min_value=0.0, step=1.0, format="%.2f", key="vrd_lower", disabled=apply_iso or not apply_asymmetric_volt)
 
     st.markdown("**Frequency Recovery Bands (Hz)**")
     col_fi, col_fd = st.columns(2)
@@ -1864,6 +1884,8 @@ if _active_tab_main == "compliance":
         if run_clicked:
             init_output_dirs()
 
+            _v_sym_up = nom_v * (1 + v_tol / 100)
+            _v_sym_lo = nom_v * (1 - v_tol / 100)
             config = AnalysisConfig(
                 nominal_voltage=nom_v,
                 nominal_frequency=nom_f,
@@ -1878,6 +1900,10 @@ if _active_tab_main == "compliance":
                 freq_recovery_lower_increase=f_rec_lower_inc,
                 freq_recovery_upper_decrease=f_rec_upper_dec,
                 freq_recovery_lower_decrease=f_rec_lower_dec,
+                volt_recovery_upper_increase=v_rec_upper_inc if apply_asymmetric_volt else _v_sym_up,
+                volt_recovery_lower_increase=v_rec_lower_inc if apply_asymmetric_volt else _v_sym_lo,
+                volt_recovery_upper_decrease=v_rec_upper_dec if apply_asymmetric_volt else _v_sym_up,
+                volt_recovery_lower_decrease=v_rec_lower_dec if apply_asymmetric_volt else _v_sym_lo,
                 detection_window_s=detection_window,
                 snapshot_window_s=snapshot_window,
                 ln_to_ll_mode=ln_to_ll_mode,
@@ -2600,6 +2626,8 @@ elif _active_tab_main == "winscope":
                         log.warning(f"WinScope time filter failed: {_tfe}")
 
                 _show_progress_popup(_ws_prog, 20, "Running event detection…",  "WinScope Analysis")
+                _ws_v_sym_up = nom_v * (1 + v_tol / 100)
+                _ws_v_sym_lo = nom_v * (1 - v_tol / 100)
                 _ws_config = AnalysisConfig(
                     nominal_voltage=nom_v,
                     nominal_frequency=nom_f,
@@ -2614,6 +2642,10 @@ elif _active_tab_main == "winscope":
                     freq_recovery_lower_increase=f_rec_lower_inc,
                     freq_recovery_upper_decrease=f_rec_upper_dec,
                     freq_recovery_lower_decrease=f_rec_lower_dec,
+                    volt_recovery_upper_increase=v_rec_upper_inc if apply_asymmetric_volt else _ws_v_sym_up,
+                    volt_recovery_lower_increase=v_rec_lower_inc if apply_asymmetric_volt else _ws_v_sym_lo,
+                    volt_recovery_upper_decrease=v_rec_upper_dec if apply_asymmetric_volt else _ws_v_sym_up,
+                    volt_recovery_lower_decrease=v_rec_lower_dec if apply_asymmetric_volt else _ws_v_sym_lo,
                     detection_window_s=detection_window,
                     snapshot_window_s=snapshot_window,
                     ln_to_ll_mode="force_ll",
@@ -3121,6 +3153,7 @@ elif _active_tab_main == "setpoint":
 if _ds.get("dev_mode"):
     # Collect values from already-keyed widgets via session_state
     for _k in ("fri_upper", "fri_lower", "frd_upper", "frd_lower",
+                "vri_upper", "vri_lower", "vrd_upper", "vrd_lower",
                 "rated_load_input", "expected_steps_input",
                 "nom_v_preset", "nom_v_custom", "report_format"):
         _ds[_k] = st.session_state.get(_k, _DEV_DEFAULTS.get(_k))

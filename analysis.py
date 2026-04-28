@@ -39,6 +39,13 @@ class AnalysisConfig:
     freq_recovery_lower_increase: float = 49.75
     freq_recovery_upper_decrease: float = 50.25
     freq_recovery_lower_decrease: float = 49.50
+    # Asymmetric voltage recovery bands (absolute V).
+    # Load increase (dKw > 0): voltage drops → lower band matters more.
+    # Load decrease (dKw <= 0): voltage rises → upper band matters more.
+    volt_recovery_upper_increase: float = 419.15  # 415 * 1.01
+    volt_recovery_lower_increase: float = 410.85  # 415 * 0.99
+    volt_recovery_upper_decrease: float = 419.15
+    volt_recovery_lower_decrease: float = 410.85
     # After a sustained in-band window is found, keep verifying for this many
     # seconds.  If the signal exits the band again during verification
     # (oscillation), the candidate is discarded and the search resumes.
@@ -637,13 +644,25 @@ def perform_analysis(df, config: AnalysisConfig):
         tol_v = config.voltage_tolerance_pct
         tol_f = config.frequency_tolerance_pct
 
-        # Peak deviations — maximum absolute excursion from nominal in the
-        # 30s window after each event, measured on the 100ms interpolated series.
-        # Voltage band (symmetric percentage)
-        v_upper = nom_v * (1 + tol_v / 100)
-        v_lower = nom_v * (1 - tol_v / 100)
+        # Voltage band is direction-dependent (asymmetric).
+        # Load increase (dKw > 0): voltage drops → use increase band.
+        # Load decrease (dKw <= 0): voltage rises → use decrease band.
+        def _v_band(dkw):
+            if dkw > 0:
+                return (config.volt_recovery_upper_increase,
+                        config.volt_recovery_lower_increase)
+            return (config.volt_recovery_upper_decrease,
+                    config.volt_recovery_lower_decrease)
 
         if "Avg_Voltage_LL" in df_interp.columns and df_interp["Avg_Voltage_LL"].notna().any():
+            events["V_rec_upper"] = events["dKw"].apply(
+                lambda dk: config.volt_recovery_upper_increase if dk > 0
+                           else config.volt_recovery_upper_decrease
+            )
+            events["V_rec_lower"] = events["dKw"].apply(
+                lambda dk: config.volt_recovery_lower_increase if dk > 0
+                           else config.volt_recovery_lower_decrease
+            )
             # Compute V_dev first so we can gate the forward scan on it.
             events["V_dev"] = events.apply(
                 lambda row: _measured_extreme(df_proc, row["Timestamp"], "Avg_Voltage_LL",
@@ -653,6 +672,7 @@ def perform_analysis(df, config: AnalysisConfig):
             v_exit_vals = []
             for _, row in events.iterrows():
                 ts = row["Timestamp"]
+                v_upper, v_lower = _v_band(row["dKw"])
                 exit_ts = calculate_exit_time(df_interp, ts, "Avg_Voltage_LL", v_upper, v_lower)
                 if exit_ts is None:
                     # Only scan forward if the measured extreme actually left the band.
@@ -666,13 +686,15 @@ def perform_analysis(df, config: AnalysisConfig):
 
             events["V_rec_s"] = events.apply(
                 lambda row: calculate_recovery_time(
-                    df_interp, row["V_exit_ts"], "Avg_Voltage_LL", v_upper, v_lower,
+                    df_interp, row["V_exit_ts"], "Avg_Voltage_LL", *_v_band(row["dKw"]),
                     verify_s=config.recovery_verify_s,
                 ) if pd.notnull(row["V_exit_ts"]) else None,
                 axis=1,
             )
         else:
             events["V_exit_ts"] = pd.NaT
+            events["V_rec_upper"] = np.nan
+            events["V_rec_lower"] = np.nan
             events["V_dev"] = np.nan
             events["V_rec_s"] = np.nan
 
@@ -753,9 +775,13 @@ def perform_analysis(df, config: AnalysisConfig):
             return val < lower or val > upper
 
         if "V_exit_ts" in events.columns:
-            events["V_not_recovered"] = events["Timestamp"].apply(
-                lambda ts: _already_out_of_band(ts, "Avg_Voltage_LL", v_upper, v_lower)
-                if "Avg_Voltage_LL" in df_interp.columns else False
+            events["V_not_recovered"] = events.apply(
+                lambda row: _already_out_of_band(
+                    row["Timestamp"], "Avg_Voltage_LL",
+                    row.get("V_rec_upper", nom_v * (1 + tol_v / 100)),
+                    row.get("V_rec_lower", nom_v * (1 - tol_v / 100)),
+                ) if "Avg_Voltage_LL" in df_interp.columns else False,
+                axis=1,
             )
         else:
             events["V_not_recovered"] = False
