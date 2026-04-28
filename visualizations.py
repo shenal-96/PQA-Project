@@ -530,8 +530,8 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         axes[0].axvline(event_ts, color=_AMBER, **ev_kw)
         axes[2].axvline(event_ts, color=_AMBER, **ev_kw)
 
-    # ── Intersection points overlay (band-exit / recovery crossings) ──────
-    if show_intersections and event_row is not None:
+    # ── Tolerance band + Intersection points overlay ─────────────────────
+    if (show_tolerance_band or show_intersections) and event_row is not None:
         from matplotlib.lines import Line2D
         cross_kw = dict(linewidth=1.0, linestyle=":", zorder=5, alpha=0.85)
         lkw_dbg  = dict(lw=1.2, ls="--", alpha=0.85, zorder=4)
@@ -561,7 +561,7 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
 
         v_band_val = v_upper_band if (pd.notnull(v_dev) and v_dev > nom_v) else v_lower_band
 
-        if pd.notnull(v_exit):
+        if show_intersections and pd.notnull(v_exit):
             vx = pd.Timestamp(v_exit)
             axes[0].axvline(vx, color=_ORANGE, **cross_kw)
             axes[0].scatter([vx], [v_band_val], color=_ORANGE, marker="*", s=140, zorder=7)
@@ -594,12 +594,14 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                 Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev +{_leg_v_up}% ({v_upper_dev:.1f} V)"),
                 Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev -{_leg_v_lo}% ({v_lower_dev:.1f} V)"),
             ])
-        v_legend.extend([
-            Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=10, label="exit"),
-            Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=10, label="recovery"),
-        ])
-        axes[0].legend(handles=v_legend, fontsize=8, framealpha=0.9,
-                       loc="upper right", edgecolor=_GRID, facecolor=_BG)
+        if show_intersections:
+            v_legend.extend([
+                Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=10, label="exit"),
+                Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=10, label="recovery"),
+            ])
+        if v_legend:
+            axes[0].legend(handles=v_legend, fontsize=8, framealpha=0.9,
+                           loc="upper right", edgecolor=_GRID, facecolor=_BG)
 
         # ── Frequency panel ──────────────────────────────────────────────
         if show_tolerance_band:
@@ -610,7 +612,7 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
 
         f_band_val = f_upper if (pd.notnull(f_dev) and f_dev > nom_f) else f_lower
 
-        if pd.notnull(f_exit):
+        if show_intersections and pd.notnull(f_exit):
             fx = pd.Timestamp(f_exit)
             axes[2].axvline(fx, color=_ORANGE, **cross_kw)
             axes[2].scatter([fx], [f_band_val], color=_ORANGE, marker="*", s=140, zorder=7)
@@ -643,12 +645,14 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                 Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev +{_leg_f_up}% ({f_upper_dev:.3f} Hz)"),
                 Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev -{_leg_f_lo}% ({f_lower_dev:.3f} Hz)"),
             ])
-        f_legend.extend([
-            Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=10, label="exit"),
-            Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=10, label="recovery"),
-        ])
-        axes[2].legend(handles=f_legend, fontsize=8, framealpha=0.9,
-                       loc="upper right", edgecolor=_GRID, facecolor=_BG)
+        if show_intersections:
+            f_legend.extend([
+                Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=10, label="exit"),
+                Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=10, label="recovery"),
+            ])
+        if f_legend:
+            axes[2].legend(handles=f_legend, fontsize=8, framealpha=0.9,
+                           loc="upper right", edgecolor=_GRID, facecolor=_BG)
 
     axes[3].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
     fig.autofmt_xdate(rotation=0, ha="center")
