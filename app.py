@@ -1999,17 +1999,17 @@ if _active_tab_main == "compliance":
             graph_paths = {}
             plot_errors = []
             try:
-                _show_progress_popup(_prog, 55, "Generating voltage plot…", "Running Analysis")
-                voltage_paths, v_errors = generate_plots(df_proc, client_name, metric_keys=["Avg_Voltage_LL"], **plot_kwargs)
-                graph_paths.update(voltage_paths)
-                plot_errors.extend(v_errors)
+                _show_progress_popup(_prog, 55, "Generating power plot…", "Running Analysis")
+                kw_paths, kw_errors = generate_plots(df_proc, client_name, metric_keys=["Avg_kW"], **plot_kwargs)
+                graph_paths.update(kw_paths)
+                plot_errors.extend(kw_errors)
                 st.session_state["graph_paths"] = graph_paths
-                log.info("Voltage plot generated")
+                log.info("Power plot generated")
 
                 _show_progress_popup(_prog, 68, "Generating remaining plots…", "Running Analysis")
                 other_paths, other_errors = generate_plots(
                     df_proc, client_name,
-                    metric_keys=["Avg_kW", "Avg_Current", "Avg_Frequency", "Avg_PF", "Avg_THD_F"],
+                    metric_keys=["Avg_Voltage_LL", "Avg_Current", "Avg_Frequency", "Avg_PF", "Avg_THD_F"],
                     **plot_kwargs,
                 )
                 graph_paths.update(other_paths)
