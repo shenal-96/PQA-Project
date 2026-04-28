@@ -46,6 +46,13 @@ class AnalysisConfig:
     volt_recovery_lower_increase: float = 410.85  # 415 * 0.99
     volt_recovery_upper_decrease: float = 419.15
     volt_recovery_lower_decrease: float = 410.85
+    # Asymmetric max deviation limits (%).
+    # Load increase (dKw > 0): signal drops → lower_pct governs.
+    # Load decrease (dKw <= 0): signal rises → upper_pct governs.
+    volt_max_dev_pct_increase: float = 15.0
+    volt_max_dev_pct_decrease: float = 15.0
+    freq_max_dev_pct_increase: float = 7.0
+    freq_max_dev_pct_decrease: float = 7.0
     # After a sustained in-band window is found, keep verifying for this many
     # seconds.  If the signal exits the band again during verification
     # (oscillation), the candidate is discarded and the search resumes.
@@ -490,9 +497,16 @@ def check_compliance(row, config: AnalysisConfig):
     # Voltage checks — V_dev is the actual measured value (V), not a signed deviation
     if pd.notnull(row["V_dev"]):
         v_dev_pct = (abs(row["V_dev"] - nom_v) / nom_v) * 100
-        if v_dev_pct > config.voltage_max_deviation_pct:
+        # Select applicable limit based on load direction.
+        if row.get("dKw", 0) > 0:  # load increase → voltage drops → use lower limit
+            v_max = row.get("V_max_dev_lower_pct", config.voltage_max_deviation_pct)
+        else:  # load decrease → voltage rises → use upper limit
+            v_max = row.get("V_max_dev_upper_pct", config.voltage_max_deviation_pct)
+        if pd.isna(v_max):
+            v_max = config.voltage_max_deviation_pct
+        if v_dev_pct > v_max:
             status = "Fail"
-            reasons.append(f"Voltage Dev {v_dev_pct:.1f}% > {config.voltage_max_deviation_pct}%")
+            reasons.append(f"Voltage Dev {v_dev_pct:.1f}% > {v_max:.1f}%")
         # Only check recovery if voltage actually left the tolerance band.
         # V_exit_ts is None when the signal stayed in-band throughout the event.
         v_exited = pd.notnull(row.get("V_exit_ts"))
@@ -506,9 +520,16 @@ def check_compliance(row, config: AnalysisConfig):
 
     # Frequency checks — F_dev is the actual measured value (Hz), not a signed deviation
     f_dev_pct = (abs(row["F_dev"] - nom_f) / nom_f) * 100
-    if f_dev_pct > config.frequency_max_deviation_pct:
+    # Select applicable limit based on load direction.
+    if row.get("dKw", 0) > 0:  # load increase → freq drops → use lower limit
+        f_max = row.get("F_max_dev_lower_pct", config.frequency_max_deviation_pct)
+    else:  # load decrease → freq rises → use upper limit
+        f_max = row.get("F_max_dev_upper_pct", config.frequency_max_deviation_pct)
+    if pd.isna(f_max):
+        f_max = config.frequency_max_deviation_pct
+    if f_dev_pct > f_max:
         status = "Fail"
-        reasons.append(f"Freq Dev {f_dev_pct:.1f}% > {config.frequency_max_deviation_pct}%")
+        reasons.append(f"Freq Dev {f_dev_pct:.1f}% > {f_max:.1f}%")
     # Only check recovery if frequency actually left the tolerance band.
     f_exited = pd.notnull(row.get("F_exit_ts"))
     if f_exited:
@@ -751,6 +772,14 @@ def perform_analysis(df, config: AnalysisConfig):
             events["F_rec_lower"] = np.nan
             events["F_dev"] = np.nan
             events["F_rec_s"] = np.nan
+
+        # Per-event deviation limit columns.
+        # Upper line = limit for signal rise (load decrease direction).
+        # Lower line = limit for signal drop (load increase direction).
+        events["V_max_dev_upper_pct"] = config.volt_max_dev_pct_decrease
+        events["V_max_dev_lower_pct"] = config.volt_max_dev_pct_increase
+        events["F_max_dev_upper_pct"] = config.freq_max_dev_pct_decrease
+        events["F_max_dev_lower_pct"] = config.freq_max_dev_pct_increase
 
         # Detect events where V or F was already out of band at event time
         # (not recovered from a previous step).

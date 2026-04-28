@@ -127,6 +127,12 @@ _DEV_DEFAULTS: dict = {
     "vri_lower": 410.85,
     "vrd_upper": 419.15,
     "vrd_lower": 410.85,
+    "apply_asymmetric_volt_dev": False,
+    "v_max_dev_inc": 15.0,
+    "v_max_dev_dec": 15.0,
+    "apply_asymmetric_freq_dev": False,
+    "f_max_dev_inc": 7.0,
+    "f_max_dev_dec": 7.0,
     # Rated load
     "rated_load_input": "",
     "expected_steps_input": "",
@@ -1332,12 +1338,16 @@ with st.sidebar:
         f_tol = 0.5; f_rec = 3.0; f_max_dev = 7.0
         f_rec_upper_inc = 50.50; f_rec_lower_inc = 49.75
         f_rec_upper_dec = 50.25; f_rec_lower_dec = 49.50
+        v_max_dev_inc = v_max_dev_dec = 15.0
+        f_max_dev_inc = f_max_dev_dec = 7.0
         st.session_state["fri_upper"] = 50.50
         st.session_state["fri_lower"] = 49.75
         st.session_state["frd_upper"] = 50.25
         st.session_state["frd_lower"] = 49.50
         _ds["apply_asymmetric_freq"] = True
         _ds["apply_asymmetric_volt"] = False
+        _ds["apply_asymmetric_volt_dev"] = False
+        _ds["apply_asymmetric_freq_dev"] = False
     else:
         load_thresh = float(_ds.get("load_thresh", 50.0))
         v_tol      = float(_ds.get("v_tol", 1.0))
@@ -1346,6 +1356,10 @@ with st.sidebar:
         f_tol      = float(_ds.get("f_tol", 0.5))
         f_rec      = float(_ds.get("f_rec", 3.0))
         f_max_dev  = float(_ds.get("f_max_dev", 7.0))
+        v_max_dev_inc = float(_ds.get("v_max_dev_inc", 15.0))
+        v_max_dev_dec = float(_ds.get("v_max_dev_dec", 15.0))
+        f_max_dev_inc = float(_ds.get("f_max_dev_inc", 7.0))
+        f_max_dev_dec = float(_ds.get("f_max_dev_dec", 7.0))
 
     col1, col2 = st.columns(2)
     with col1:
@@ -1353,12 +1367,14 @@ with st.sidebar:
         apply_asymmetric_volt = st.checkbox("Apply asymmetric Voltage tolerance band", value=_ds.get("apply_asymmetric_volt", False))
         v_tol = st.number_input("Voltage Tolerance (%)", value=v_tol, min_value=0.0, step=0.5, disabled=apply_iso or apply_asymmetric_volt)
         v_rec = st.number_input("Voltage Recovery (s)", value=v_rec, min_value=0.0, step=0.5, disabled=apply_iso)
-        v_max_dev = st.number_input("Max Voltage Dev (%)", value=v_max_dev, min_value=0.0, step=1.0, disabled=apply_iso)
+        apply_asymmetric_volt_dev = st.checkbox("Apply asymmetric Voltage deviation limit", value=_ds.get("apply_asymmetric_volt_dev", False))
+        v_max_dev = st.number_input("Max Voltage Dev (%)", value=v_max_dev, min_value=0.0, step=1.0, disabled=apply_iso or apply_asymmetric_volt_dev)
     with col2:
         apply_asymmetric_freq = st.checkbox("Apply asymmetric Frequency tolerance band", value=_ds.get("apply_asymmetric_freq", False))
         f_tol = st.number_input("Frequency Tolerance (%)", value=f_tol, min_value=0.0, step=0.1, disabled=apply_iso or apply_asymmetric_freq)
         f_rec = st.number_input("Frequency Recovery (s)", value=f_rec, min_value=0.0, step=0.5, disabled=apply_iso)
-        f_max_dev = st.number_input("Max Frequency Dev (%)", value=f_max_dev, min_value=0.0, step=1.0, disabled=apply_iso)
+        apply_asymmetric_freq_dev = st.checkbox("Apply asymmetric Frequency deviation limit", value=_ds.get("apply_asymmetric_freq_dev", False))
+        f_max_dev = st.number_input("Max Frequency Dev (%)", value=f_max_dev, min_value=0.0, step=1.0, disabled=apply_iso or apply_asymmetric_freq_dev)
 
     if not apply_iso:
         _ds["load_thresh"] = load_thresh; _ds["v_tol"] = v_tol
@@ -1367,6 +1383,8 @@ with st.sidebar:
         _ds["f_max_dev"] = f_max_dev
     _ds["apply_asymmetric_freq"] = apply_asymmetric_freq
     _ds["apply_asymmetric_volt"] = apply_asymmetric_volt
+    _ds["apply_asymmetric_volt_dev"] = apply_asymmetric_volt_dev
+    _ds["apply_asymmetric_freq_dev"] = apply_asymmetric_freq_dev
 
     st.markdown("**Voltage Recovery Bands (V)**")
     col_vi, col_vd = st.columns(2)
@@ -1379,6 +1397,17 @@ with st.sidebar:
         v_rec_upper_dec = st.number_input("Upper (V)", min_value=0.0, step=1.0, format="%.2f", key="vrd_upper", disabled=apply_iso or not apply_asymmetric_volt)
         v_rec_lower_dec = st.number_input("Lower (V)", min_value=0.0, step=1.0, format="%.2f", key="vrd_lower", disabled=apply_iso or not apply_asymmetric_volt)
 
+    st.markdown("**Voltage Max Deviation (%)**")
+    col_vdi, col_vdd = st.columns(2)
+    with col_vdi:
+        st.caption("Load Increase")
+        v_max_dev_inc = st.number_input("Increase (%)", value=v_max_dev_inc, min_value=0.0, step=1.0, disabled=apply_iso or not apply_asymmetric_volt_dev)
+    with col_vdd:
+        st.caption("Load Decrease")
+        v_max_dev_dec = st.number_input("Decrease (%)", value=v_max_dev_dec, min_value=0.0, step=1.0, disabled=apply_iso or not apply_asymmetric_volt_dev)
+    if not apply_iso:
+        _ds["v_max_dev_inc"] = v_max_dev_inc; _ds["v_max_dev_dec"] = v_max_dev_dec
+
     st.markdown("**Frequency Recovery Bands (Hz)**")
     col_fi, col_fd = st.columns(2)
     with col_fi:
@@ -1390,6 +1419,17 @@ with st.sidebar:
         st.caption("Load Decrease")
         f_rec_upper_dec = st.number_input("Upper (Hz)", min_value=0.0, step=0.05, format="%.2f", key="frd_upper", disabled=apply_iso or not apply_asymmetric_freq)
         f_rec_lower_dec = st.number_input("Lower (Hz)", min_value=0.0, step=0.05, format="%.2f", key="frd_lower", disabled=apply_iso or not apply_asymmetric_freq)
+
+    st.markdown("**Frequency Max Deviation (%)**")
+    col_fdi, col_fdd = st.columns(2)
+    with col_fdi:
+        st.caption("Load Increase")
+        f_max_dev_inc = st.number_input("Increase (%)", value=f_max_dev_inc, min_value=0.0, step=1.0, disabled=apply_iso or not apply_asymmetric_freq_dev)
+    with col_fdd:
+        st.caption("Load Decrease")
+        f_max_dev_dec = st.number_input("Decrease (%)", value=f_max_dev_dec, min_value=0.0, step=1.0, disabled=apply_iso or not apply_asymmetric_freq_dev)
+    if not apply_iso:
+        _ds["f_max_dev_inc"] = f_max_dev_inc; _ds["f_max_dev_dec"] = f_max_dev_dec
 
     st.divider()
 
@@ -1904,6 +1944,10 @@ if _active_tab_main == "compliance":
                 volt_recovery_lower_increase=v_rec_lower_inc if apply_asymmetric_volt else _v_sym_lo,
                 volt_recovery_upper_decrease=v_rec_upper_dec if apply_asymmetric_volt else _v_sym_up,
                 volt_recovery_lower_decrease=v_rec_lower_dec if apply_asymmetric_volt else _v_sym_lo,
+                volt_max_dev_pct_increase=v_max_dev_inc if apply_asymmetric_volt_dev else v_max_dev,
+                volt_max_dev_pct_decrease=v_max_dev_dec if apply_asymmetric_volt_dev else v_max_dev,
+                freq_max_dev_pct_increase=f_max_dev_inc if apply_asymmetric_freq_dev else f_max_dev,
+                freq_max_dev_pct_decrease=f_max_dev_dec if apply_asymmetric_freq_dev else f_max_dev,
                 detection_window_s=detection_window,
                 snapshot_window_s=snapshot_window,
                 ln_to_ll_mode=ln_to_ll_mode,
@@ -2018,6 +2062,10 @@ if _active_tab_main == "compliance":
                 output_dir=GRAPH_DIR, show_limits=show_limits,
                 nom_v=nom_v, nom_f=nom_f, tol_v=v_tol, tol_f=f_tol,
                 v_max_dev=v_max_dev, f_max_dev=f_max_dev,
+                v_max_dev_upper=v_max_dev_dec if apply_asymmetric_volt_dev else None,
+                v_max_dev_lower=v_max_dev_inc if apply_asymmetric_volt_dev else None,
+                f_max_dev_upper=f_max_dev_dec if apply_asymmetric_freq_dev else None,
+                f_max_dev_lower=f_max_dev_inc if apply_asymmetric_freq_dev else None,
                 show_debug=False,
                 df_events=None,
                 thresh_kw=load_thresh,
@@ -2646,6 +2694,10 @@ elif _active_tab_main == "winscope":
                     volt_recovery_lower_increase=v_rec_lower_inc if apply_asymmetric_volt else _ws_v_sym_lo,
                     volt_recovery_upper_decrease=v_rec_upper_dec if apply_asymmetric_volt else _ws_v_sym_up,
                     volt_recovery_lower_decrease=v_rec_lower_dec if apply_asymmetric_volt else _ws_v_sym_lo,
+                    volt_max_dev_pct_increase=v_max_dev_inc if apply_asymmetric_volt_dev else v_max_dev,
+                    volt_max_dev_pct_decrease=v_max_dev_dec if apply_asymmetric_volt_dev else v_max_dev,
+                    freq_max_dev_pct_increase=f_max_dev_inc if apply_asymmetric_freq_dev else f_max_dev,
+                    freq_max_dev_pct_decrease=f_max_dev_dec if apply_asymmetric_freq_dev else f_max_dev,
                     detection_window_s=detection_window,
                     snapshot_window_s=snapshot_window,
                     ln_to_ll_mode="force_ll",
@@ -2659,6 +2711,10 @@ elif _active_tab_main == "winscope":
                     output_dir=_ws_graph_dir, show_limits=show_limits,
                     nom_v=nom_v, nom_f=nom_f, tol_v=v_tol, tol_f=f_tol,
                     v_max_dev=v_max_dev, f_max_dev=f_max_dev,
+                    v_max_dev_upper=v_max_dev_dec if apply_asymmetric_volt_dev else None,
+                    v_max_dev_lower=v_max_dev_inc if apply_asymmetric_volt_dev else None,
+                    f_max_dev_upper=f_max_dev_dec if apply_asymmetric_freq_dev else None,
+                    f_max_dev_lower=f_max_dev_inc if apply_asymmetric_freq_dev else None,
                     show_debug=False, df_events=None, thresh_kw=load_thresh,
                 )
                 _ws_graph_paths, _ws_plot_errors = generate_plots(_ws_df_proc, _ws_client_name,

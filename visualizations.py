@@ -53,6 +53,8 @@ def _style_ax(ax, ylabel, color):
 def generate_plots(df_proc, client_name, output_dir="output/Graphs",
                    show_limits=False, nom_v=415.0, nom_f=50.0,
                    tol_v=1.0, tol_f=0.5, v_max_dev=15.0, f_max_dev=7.0,
+                   v_max_dev_upper=None, v_max_dev_lower=None,
+                   f_max_dev_upper=None, f_max_dev_lower=None,
                    metric_keys=None,
                    show_debug=False, show_intersections=False, df_events=None, thresh_kw=50.0):
     """
@@ -106,16 +108,20 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
         if show_limits:
             limit_kw = dict(linewidth=1.5, alpha=0.7, zorder=3)
             if col == "Avg_Voltage_LL":
-                upper = nom_v * (1 + v_max_dev / 100)
-                lower = nom_v * (1 - v_max_dev / 100)
-                ax.axhline(upper, color=_RED, ls="--", label=f"Max dev +{v_max_dev}% ({upper:.1f}V)", **limit_kw)
-                ax.axhline(lower, color=_RED, ls="--", label=f"Max dev -{v_max_dev}% ({lower:.1f}V)", **limit_kw)
+                _vup = v_max_dev_upper if v_max_dev_upper is not None else v_max_dev
+                _vlo = v_max_dev_lower if v_max_dev_lower is not None else v_max_dev
+                upper = nom_v * (1 + _vup / 100)
+                lower = nom_v * (1 - _vlo / 100)
+                ax.axhline(upper, color=_RED, ls="--", label=f"Max dev +{_vup}% ({upper:.1f}V)", **limit_kw)
+                ax.axhline(lower, color=_RED, ls="--", label=f"Max dev -{_vlo}% ({lower:.1f}V)", **limit_kw)
                 ax.legend(fontsize=10, framealpha=0.9, loc="upper right", edgecolor=_GRID)
             elif col == "Avg_Frequency":
-                upper = nom_f * (1 + f_max_dev / 100)
-                lower = nom_f * (1 - f_max_dev / 100)
-                ax.axhline(upper, color=_RED, ls="--", label=f"Max dev +{f_max_dev}% ({upper:.3f}Hz)", **limit_kw)
-                ax.axhline(lower, color=_RED, ls="--", label=f"Max dev -{f_max_dev}% ({lower:.3f}Hz)", **limit_kw)
+                _fup = f_max_dev_upper if f_max_dev_upper is not None else f_max_dev
+                _flo = f_max_dev_lower if f_max_dev_lower is not None else f_max_dev
+                upper = nom_f * (1 + _fup / 100)
+                lower = nom_f * (1 - _flo / 100)
+                ax.axhline(upper, color=_RED, ls="--", label=f"Max dev +{_fup}% ({upper:.3f}Hz)", **limit_kw)
+                ax.axhline(lower, color=_RED, ls="--", label=f"Max dev -{_flo}% ({lower:.3f}Hz)", **limit_kw)
                 ax.legend(fontsize=10, framealpha=0.9, loc="upper right", edgecolor=_GRID)
 
         # ── Debug overlay ────────────────────────────────────────────────────
@@ -466,10 +472,14 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                            edgecolor=_GRID, facecolor=_BG)
     if show_deviation_limits:
         lkw = dict(linewidth=1.5, linestyle="--", alpha=0.75, zorder=4)
-        axes[0].axhline(nom_v * (1 + v_max_dev / 100), color=_RED,
-                        label=f"Max dev +{v_max_dev}% ({nom_v * (1 + v_max_dev / 100):.1f}V)", **lkw)
-        axes[0].axhline(nom_v * (1 - v_max_dev / 100), color=_RED,
-                        label=f"Max dev -{v_max_dev}% ({nom_v * (1 - v_max_dev / 100):.1f}V)", **lkw)
+        _snap_v_up = event_row.get("V_max_dev_upper_pct", v_max_dev) if event_row is not None else v_max_dev
+        _snap_v_lo = event_row.get("V_max_dev_lower_pct", v_max_dev) if event_row is not None else v_max_dev
+        if pd.isnull(_snap_v_up): _snap_v_up = v_max_dev
+        if pd.isnull(_snap_v_lo): _snap_v_lo = v_max_dev
+        axes[0].axhline(nom_v * (1 + _snap_v_up / 100), color=_RED,
+                        label=f"Max dev +{_snap_v_up}% ({nom_v * (1 + _snap_v_up / 100):.1f}V)", **lkw)
+        axes[0].axhline(nom_v * (1 - _snap_v_lo / 100), color=_RED,
+                        label=f"Max dev -{_snap_v_lo}% ({nom_v * (1 - _snap_v_lo / 100):.1f}V)", **lkw)
         axes[0].legend(loc="upper right", fontsize=10, framealpha=0.9,
                        edgecolor=_GRID, facecolor=_BG)
 
@@ -495,10 +505,14 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                      color=_ORANGE, linewidth=2.0, solid_capstyle="round")
     if show_deviation_limits:
         lkw = dict(linewidth=1.5, linestyle="--", alpha=0.75, zorder=4)
-        axes[2].axhline(nom_f * (1 + f_max_dev / 100), color=_RED,
-                        label=f"Max dev +{f_max_dev}% ({nom_f * (1 + f_max_dev / 100):.3f}Hz)", **lkw)
-        axes[2].axhline(nom_f * (1 - f_max_dev / 100), color=_RED,
-                        label=f"Max dev -{f_max_dev}% ({nom_f * (1 - f_max_dev / 100):.3f}Hz)", **lkw)
+        _snap_f_up = event_row.get("F_max_dev_upper_pct", f_max_dev) if event_row is not None else f_max_dev
+        _snap_f_lo = event_row.get("F_max_dev_lower_pct", f_max_dev) if event_row is not None else f_max_dev
+        if pd.isnull(_snap_f_up): _snap_f_up = f_max_dev
+        if pd.isnull(_snap_f_lo): _snap_f_lo = f_max_dev
+        axes[2].axhline(nom_f * (1 + _snap_f_up / 100), color=_RED,
+                        label=f"Max dev +{_snap_f_up}% ({nom_f * (1 + _snap_f_up / 100):.3f}Hz)", **lkw)
+        axes[2].axhline(nom_f * (1 - _snap_f_lo / 100), color=_RED,
+                        label=f"Max dev -{_snap_f_lo}% ({nom_f * (1 - _snap_f_lo / 100):.3f}Hz)", **lkw)
         axes[2].legend(loc="upper right", fontsize=10, framealpha=0.9,
                        edgecolor=_GRID, facecolor=_BG)
 
@@ -562,8 +576,12 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                                  textcoords="offset points",
                                  fontsize=7, color=_LIME, fontweight="700")
 
-        v_upper_dev = nom_v * (1 + v_max_dev / 100)
-        v_lower_dev = nom_v * (1 - v_max_dev / 100)
+        _leg_v_up = event_row.get("V_max_dev_upper_pct", v_max_dev) if event_row is not None else v_max_dev
+        _leg_v_lo = event_row.get("V_max_dev_lower_pct", v_max_dev) if event_row is not None else v_max_dev
+        if pd.isnull(_leg_v_up): _leg_v_up = v_max_dev
+        if pd.isnull(_leg_v_lo): _leg_v_lo = v_max_dev
+        v_upper_dev = nom_v * (1 + _leg_v_up / 100)
+        v_lower_dev = nom_v * (1 - _leg_v_lo / 100)
 
         v_legend = []
         if show_tolerance_band:
@@ -573,8 +591,8 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
             ])
         if show_deviation_limits:
             v_legend.extend([
-                Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev +{v_max_dev}% ({v_upper_dev:.1f} V)"),
-                Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev -{v_max_dev}% ({v_lower_dev:.1f} V)"),
+                Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev +{_leg_v_up}% ({v_upper_dev:.1f} V)"),
+                Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev -{_leg_v_lo}% ({v_lower_dev:.1f} V)"),
             ])
         v_legend.extend([
             Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=10, label="exit"),
@@ -607,8 +625,12 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                                  textcoords="offset points",
                                  fontsize=7, color=_LIME, fontweight="700")
 
-        f_upper_dev = nom_f * (1 + f_max_dev / 100)
-        f_lower_dev = nom_f * (1 - f_max_dev / 100)
+        _leg_f_up = event_row.get("F_max_dev_upper_pct", f_max_dev) if event_row is not None else f_max_dev
+        _leg_f_lo = event_row.get("F_max_dev_lower_pct", f_max_dev) if event_row is not None else f_max_dev
+        if pd.isnull(_leg_f_up): _leg_f_up = f_max_dev
+        if pd.isnull(_leg_f_lo): _leg_f_lo = f_max_dev
+        f_upper_dev = nom_f * (1 + _leg_f_up / 100)
+        f_lower_dev = nom_f * (1 - _leg_f_lo / 100)
 
         f_legend = []
         if show_tolerance_band:
@@ -618,8 +640,8 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
             ])
         if show_deviation_limits:
             f_legend.extend([
-                Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev +{f_max_dev}% ({f_upper_dev:.3f} Hz)"),
-                Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev -{f_max_dev}% ({f_lower_dev:.3f} Hz)"),
+                Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev +{_leg_f_up}% ({f_upper_dev:.3f} Hz)"),
+                Line2D([0], [0], color=_RED,    ls="--",   lw=1.5,      label=f"Max Dev -{_leg_f_lo}% ({f_lower_dev:.3f} Hz)"),
             ])
         f_legend.extend([
             Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=10, label="exit"),
