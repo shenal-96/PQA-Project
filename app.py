@@ -1406,60 +1406,85 @@ with st.sidebar:
     _ds["apply_asymmetric_volt_dev"] = apply_asymmetric_volt_dev
     _ds["apply_asymmetric_freq_dev"] = apply_asymmetric_freq_dev
 
-    st.markdown("**Voltage Recovery Bands (V)**")
-    col_vi, col_vd = st.columns(2)
-    with col_vi:
-        st.caption("Load Increase")
-        v_rec_upper_inc = st.number_input("Upper (V)", min_value=0.0, step=1.0, format="%.2f", key="vri_upper", disabled=apply_iso or not apply_asymmetric_volt,
-            help="Upper recovery band limit (V) for load increase events (voltage drops). Voltage must re-enter below this level to start the recovery timer.")
-        v_rec_lower_inc = st.number_input("Lower (V)", min_value=0.0, step=1.0, format="%.2f", key="vri_lower", disabled=apply_iso or not apply_asymmetric_volt,
-            help="Lower recovery band limit (V) for load increase events (voltage drops). Voltage must re-enter above this level to start the recovery timer.")
-    with col_vd:
-        st.caption("Load Decrease")
-        v_rec_upper_dec = st.number_input("Upper (V)", min_value=0.0, step=1.0, format="%.2f", key="vrd_upper", disabled=apply_iso or not apply_asymmetric_volt,
-            help="Upper recovery band limit (V) for load decrease events (voltage rises). Voltage must re-enter below this level to start the recovery timer.")
-        v_rec_lower_dec = st.number_input("Lower (V)", min_value=0.0, step=1.0, format="%.2f", key="vrd_lower", disabled=apply_iso or not apply_asymmetric_volt,
-            help="Lower recovery band limit (V) for load decrease events (voltage rises). Voltage must re-enter above this level to start the recovery timer.")
+    # ── Voltage Recovery Bands ─────────────────────────────────
+    _vri_upper_def = float(st.session_state.get("vri_upper", _ds.get("vri_upper", 419.15)))
+    _vri_lower_def = float(st.session_state.get("vri_lower", _ds.get("vri_lower", 410.85)))
+    _vrd_upper_def = float(st.session_state.get("vrd_upper", _ds.get("vrd_upper", 419.15)))
+    _vrd_lower_def = float(st.session_state.get("vrd_lower", _ds.get("vrd_lower", 410.85)))
+    if apply_asymmetric_volt:
+        st.markdown("**Voltage Recovery Bands (V)**")
+        col_vi, col_vd = st.columns(2)
+        with col_vi:
+            st.caption("Load Increase")
+            v_rec_upper_inc = st.number_input("Upper (V)", min_value=0.0, step=1.0, format="%.2f", key="vri_upper", disabled=apply_iso,
+                help="Upper recovery band limit (V) for load increase events (voltage drops). Voltage must re-enter below this level to start the recovery timer.")
+            v_rec_lower_inc = st.number_input("Lower (V)", min_value=0.0, step=1.0, format="%.2f", key="vri_lower", disabled=apply_iso,
+                help="Lower recovery band limit (V) for load increase events (voltage drops). Voltage must re-enter above this level to start the recovery timer.")
+        with col_vd:
+            st.caption("Load Decrease")
+            v_rec_upper_dec = st.number_input("Upper (V)", min_value=0.0, step=1.0, format="%.2f", key="vrd_upper", disabled=apply_iso,
+                help="Upper recovery band limit (V) for load decrease events (voltage rises). Voltage must re-enter below this level to start the recovery timer.")
+            v_rec_lower_dec = st.number_input("Lower (V)", min_value=0.0, step=1.0, format="%.2f", key="vrd_lower", disabled=apply_iso,
+                help="Lower recovery band limit (V) for load decrease events (voltage rises). Voltage must re-enter above this level to start the recovery timer.")
+    else:
+        v_rec_upper_inc = _vri_upper_def
+        v_rec_lower_inc = _vri_lower_def
+        v_rec_upper_dec = _vrd_upper_def
+        v_rec_lower_dec = _vrd_lower_def
 
-    st.markdown("**Voltage Max Deviation (%)**")
-    col_vdi, col_vdd = st.columns(2)
-    with col_vdi:
-        st.caption("Load Increase")
-        v_max_dev_inc = st.number_input("Increase (%)", value=v_max_dev_inc, min_value=0.0, step=1.0, disabled=apply_iso or not apply_asymmetric_volt_dev,
-            help="Max allowed voltage drop as a % of nominal for load increase events. Voltage below nom × (1 − this%) fails compliance.")
-    with col_vdd:
-        st.caption("Load Decrease")
-        v_max_dev_dec = st.number_input("Decrease (%)", value=v_max_dev_dec, min_value=0.0, step=1.0, disabled=apply_iso or not apply_asymmetric_volt_dev,
-            help="Max allowed voltage rise as a % of nominal for load decrease events. Voltage above nom × (1 + this%) fails compliance.")
+    # ── Voltage Max Deviation ──────────────────────────────────
+    if apply_asymmetric_volt_dev:
+        st.markdown("**Voltage Max Deviation (%)**")
+        col_vdi, col_vdd = st.columns(2)
+        with col_vdi:
+            st.caption("Load Increase")
+            v_max_dev_inc = st.number_input("Increase (%)", value=v_max_dev_inc, min_value=0.0, step=1.0, disabled=apply_iso,
+                help="Max allowed voltage drop as a % of nominal for load increase events. Voltage below nom × (1 − this%) fails compliance.")
+        with col_vdd:
+            st.caption("Load Decrease")
+            v_max_dev_dec = st.number_input("Decrease (%)", value=v_max_dev_dec, min_value=0.0, step=1.0, disabled=apply_iso,
+                help="Max allowed voltage rise as a % of nominal for load decrease events. Voltage above nom × (1 + this%) fails compliance.")
     if not apply_iso:
         _ds["v_max_dev_inc"] = v_max_dev_inc; _ds["v_max_dev_dec"] = v_max_dev_dec
 
-    st.markdown("**Frequency Recovery Bands (Hz)**")
-    col_fi, col_fd = st.columns(2)
-    with col_fi:
-        st.caption("Load Increase")
-        # No value= — session_state pre-populated from _ds on cold start
-        f_rec_upper_inc = st.number_input("Upper (Hz)", min_value=0.0, step=0.05, format="%.2f", key="fri_upper", disabled=apply_iso or not apply_asymmetric_freq,
-            help="Upper recovery band (Hz) for load increase events (frequency drops). ISO 8528 default: 50.50 Hz.")
-        f_rec_lower_inc = st.number_input("Lower (Hz)", min_value=0.0, step=0.05, format="%.2f", key="fri_lower", disabled=apply_iso or not apply_asymmetric_freq,
-            help="Lower recovery band (Hz) for load increase events (frequency drops). ISO 8528 default: 49.75 Hz.")
-    with col_fd:
-        st.caption("Load Decrease")
-        f_rec_upper_dec = st.number_input("Upper (Hz)", min_value=0.0, step=0.05, format="%.2f", key="frd_upper", disabled=apply_iso or not apply_asymmetric_freq,
-            help="Upper recovery band (Hz) for load decrease events (frequency rises). ISO 8528 default: 50.25 Hz.")
-        f_rec_lower_dec = st.number_input("Lower (Hz)", min_value=0.0, step=0.05, format="%.2f", key="frd_lower", disabled=apply_iso or not apply_asymmetric_freq,
-            help="Lower recovery band (Hz) for load decrease events (frequency rises). ISO 8528 default: 49.50 Hz.")
+    # ── Frequency Recovery Bands ───────────────────────────────
+    _fri_upper_def = float(st.session_state.get("fri_upper", _ds.get("fri_upper", 50.50)))
+    _fri_lower_def = float(st.session_state.get("fri_lower", _ds.get("fri_lower", 49.75)))
+    _frd_upper_def = float(st.session_state.get("frd_upper", _ds.get("frd_upper", 50.25)))
+    _frd_lower_def = float(st.session_state.get("frd_lower", _ds.get("frd_lower", 49.50)))
+    if apply_asymmetric_freq:
+        st.markdown("**Frequency Recovery Bands (Hz)**")
+        col_fi, col_fd = st.columns(2)
+        with col_fi:
+            st.caption("Load Increase")
+            f_rec_upper_inc = st.number_input("Upper (Hz)", min_value=0.0, step=0.05, format="%.2f", key="fri_upper", disabled=apply_iso,
+                help="Upper recovery band (Hz) for load increase events (frequency drops). ISO 8528 default: 50.50 Hz.")
+            f_rec_lower_inc = st.number_input("Lower (Hz)", min_value=0.0, step=0.05, format="%.2f", key="fri_lower", disabled=apply_iso,
+                help="Lower recovery band (Hz) for load increase events (frequency drops). ISO 8528 default: 49.75 Hz.")
+        with col_fd:
+            st.caption("Load Decrease")
+            f_rec_upper_dec = st.number_input("Upper (Hz)", min_value=0.0, step=0.05, format="%.2f", key="frd_upper", disabled=apply_iso,
+                help="Upper recovery band (Hz) for load decrease events (frequency rises). ISO 8528 default: 50.25 Hz.")
+            f_rec_lower_dec = st.number_input("Lower (Hz)", min_value=0.0, step=0.05, format="%.2f", key="frd_lower", disabled=apply_iso,
+                help="Lower recovery band (Hz) for load decrease events (frequency rises). ISO 8528 default: 49.50 Hz.")
+    else:
+        f_rec_upper_inc = _fri_upper_def
+        f_rec_lower_inc = _fri_lower_def
+        f_rec_upper_dec = _frd_upper_def
+        f_rec_lower_dec = _frd_lower_def
 
-    st.markdown("**Frequency Max Deviation (%)**")
-    col_fdi, col_fdd = st.columns(2)
-    with col_fdi:
-        st.caption("Load Increase")
-        f_max_dev_inc = st.number_input("Increase (%)", value=f_max_dev_inc, min_value=0.0, step=1.0, disabled=apply_iso or not apply_asymmetric_freq_dev,
-            help="Max allowed frequency drop as a % of nominal for load increase events. Frequency below nom × (1 − this%) fails compliance.")
-    with col_fdd:
-        st.caption("Load Decrease")
-        f_max_dev_dec = st.number_input("Decrease (%)", value=f_max_dev_dec, min_value=0.0, step=1.0, disabled=apply_iso or not apply_asymmetric_freq_dev,
-            help="Max allowed frequency rise as a % of nominal for load decrease events. Frequency above nom × (1 + this%) fails compliance.")
+    # ── Frequency Max Deviation ────────────────────────────────
+    if apply_asymmetric_freq_dev:
+        st.markdown("**Frequency Max Deviation (%)**")
+        col_fdi, col_fdd = st.columns(2)
+        with col_fdi:
+            st.caption("Load Increase")
+            f_max_dev_inc = st.number_input("Increase (%)", value=f_max_dev_inc, min_value=0.0, step=1.0, disabled=apply_iso,
+                help="Max allowed frequency drop as a % of nominal for load increase events. Frequency below nom × (1 − this%) fails compliance.")
+        with col_fdd:
+            st.caption("Load Decrease")
+            f_max_dev_dec = st.number_input("Decrease (%)", value=f_max_dev_dec, min_value=0.0, step=1.0, disabled=apply_iso,
+                help="Max allowed frequency rise as a % of nominal for load decrease events. Frequency above nom × (1 + this%) fails compliance.")
     if not apply_iso:
         _ds["f_max_dev_inc"] = f_max_dev_inc; _ds["f_max_dev_dec"] = f_max_dev_dec
 
