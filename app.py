@@ -2093,6 +2093,8 @@ if _active_tab_main == "compliance":
 
             _v_sym_up = nom_v * (1 + v_tol / 100)
             _v_sym_lo = nom_v * (1 - v_tol / 100)
+            _f_sym_up = nom_f * (1 + f_tol / 100)
+            _f_sym_lo = nom_f * (1 - f_tol / 100)
             config = AnalysisConfig(
                 nominal_voltage=nom_v,
                 nominal_frequency=nom_f,
@@ -2103,10 +2105,10 @@ if _active_tab_main == "compliance":
                 frequency_tolerance_pct=f_tol,
                 frequency_recovery_time_s=f_rec,
                 frequency_max_deviation_pct=f_max_dev,
-                freq_recovery_upper_increase=f_rec_upper_inc,
-                freq_recovery_lower_increase=f_rec_lower_inc,
-                freq_recovery_upper_decrease=f_rec_upper_dec,
-                freq_recovery_lower_decrease=f_rec_lower_dec,
+                freq_recovery_upper_increase=f_rec_upper_inc if apply_asymmetric_freq else _f_sym_up,
+                freq_recovery_lower_increase=f_rec_lower_inc if apply_asymmetric_freq else _f_sym_lo,
+                freq_recovery_upper_decrease=f_rec_upper_dec if apply_asymmetric_freq else _f_sym_up,
+                freq_recovery_lower_decrease=f_rec_lower_dec if apply_asymmetric_freq else _f_sym_lo,
                 volt_recovery_upper_increase=v_rec_upper_inc if apply_asymmetric_volt else _v_sym_up,
                 volt_recovery_lower_increase=v_rec_lower_inc if apply_asymmetric_volt else _v_sym_lo,
                 volt_recovery_upper_decrease=v_rec_upper_dec if apply_asymmetric_volt else _v_sym_up,
@@ -2843,6 +2845,8 @@ elif _active_tab_main == "winscope":
                 _show_progress_popup(_ws_prog, 20, "Running event detection…",  "WinScope Analysis")
                 _ws_v_sym_up = nom_v * (1 + v_tol / 100)
                 _ws_v_sym_lo = nom_v * (1 - v_tol / 100)
+                _ws_f_sym_up = nom_f * (1 + f_tol / 100)
+                _ws_f_sym_lo = nom_f * (1 - f_tol / 100)
                 _ws_config = AnalysisConfig(
                     nominal_voltage=nom_v,
                     nominal_frequency=nom_f,
@@ -2853,10 +2857,10 @@ elif _active_tab_main == "winscope":
                     frequency_tolerance_pct=f_tol,
                     frequency_recovery_time_s=f_rec,
                     frequency_max_deviation_pct=f_max_dev,
-                    freq_recovery_upper_increase=f_rec_upper_inc,
-                    freq_recovery_lower_increase=f_rec_lower_inc,
-                    freq_recovery_upper_decrease=f_rec_upper_dec,
-                    freq_recovery_lower_decrease=f_rec_lower_dec,
+                    freq_recovery_upper_increase=f_rec_upper_inc if apply_asymmetric_freq else _ws_f_sym_up,
+                    freq_recovery_lower_increase=f_rec_lower_inc if apply_asymmetric_freq else _ws_f_sym_lo,
+                    freq_recovery_upper_decrease=f_rec_upper_dec if apply_asymmetric_freq else _ws_f_sym_up,
+                    freq_recovery_lower_decrease=f_rec_lower_dec if apply_asymmetric_freq else _ws_f_sym_lo,
                     volt_recovery_upper_increase=v_rec_upper_inc if apply_asymmetric_volt else _ws_v_sym_up,
                     volt_recovery_lower_increase=v_rec_lower_inc if apply_asymmetric_volt else _ws_v_sym_lo,
                     volt_recovery_upper_decrease=v_rec_upper_dec if apply_asymmetric_volt else _ws_v_sym_up,
