@@ -1368,29 +1368,31 @@ with st.sidebar:
         f_max_dev_inc = float(_ds.get("f_max_dev_inc", 7.0))
         f_max_dev_dec = float(_ds.get("f_max_dev_dec", 7.0))
 
+    load_thresh = st.number_input("Load Threshold (kW)", value=load_thresh, min_value=0.0, step=10.0, disabled=apply_iso,
+        help="Minimum load step size (kW) to register as a compliance event. Changes smaller than this are ignored.")
+
+    apply_asymmetric_volt = st.checkbox("Apply asymmetric Voltage tolerance band", value=_ds.get("apply_asymmetric_volt", False),
+        help="Enable separate recovery band limits for voltage — one set for load increase events (voltage drops) and another for load decrease (voltage rises). Unlocks the Voltage Recovery Bands inputs below.")
+    apply_asymmetric_volt_dev = st.checkbox("Apply asymmetric Voltage deviation limit", value=_ds.get("apply_asymmetric_volt_dev", False),
+        help="Enable separate max deviation limits for voltage — one for load increase events (voltage drops below nominal) and another for load decrease (voltage rises above nominal). Unlocks the Voltage Max Deviation inputs below.")
+    apply_asymmetric_freq = st.checkbox("Apply asymmetric Frequency tolerance band", value=_ds.get("apply_asymmetric_freq", False),
+        help="Enable separate recovery band limits for frequency — one set for load increase events (frequency drops) and another for load decrease (frequency rises). Unlocks the Frequency Recovery Bands inputs below.")
+    apply_asymmetric_freq_dev = st.checkbox("Apply asymmetric Frequency deviation limit", value=_ds.get("apply_asymmetric_freq_dev", False),
+        help="Enable separate max deviation limits for frequency — one for load increase events (frequency drops below nominal) and another for load decrease (frequency rises above nominal). Unlocks the Frequency Max Deviation inputs below.")
+
     col1, col2 = st.columns(2)
     with col1:
-        load_thresh = st.number_input("Load Threshold (kW)", value=load_thresh, min_value=0.0, step=10.0, disabled=apply_iso,
-            help="Minimum load step size (kW) to register as a compliance event. Changes smaller than this are ignored.")
-        apply_asymmetric_volt = st.checkbox("Apply asymmetric Voltage tolerance band", value=_ds.get("apply_asymmetric_volt", False),
-            help="Enable separate recovery band limits for voltage — one set for load increase events (voltage drops) and another for load decrease (voltage rises). Unlocks the Voltage Recovery Bands inputs below.")
         v_tol = st.number_input("Voltage Tolerance (%)", value=v_tol, min_value=0.0, step=0.5, disabled=apply_iso or apply_asymmetric_volt,
             help="Symmetric ±% band around nominal voltage used as the recovery target. Voltage must re-enter this band and stay in for 0.3 s to be considered recovered.")
         v_rec = st.number_input("Voltage Recovery (s)", value=v_rec, min_value=0.0, step=0.5, disabled=apply_iso,
             help="Maximum allowed recovery time for voltage after a load event. Events where voltage takes longer than this to return in-band fail compliance.")
-        apply_asymmetric_volt_dev = st.checkbox("Apply asymmetric Voltage deviation limit", value=_ds.get("apply_asymmetric_volt_dev", False),
-            help="Enable separate max deviation limits for voltage — one for load increase events (voltage drops below nominal) and another for load decrease (voltage rises above nominal). Unlocks the Voltage Max Deviation inputs below.")
         v_max_dev = st.number_input("Max Voltage Dev (%)", value=v_max_dev, min_value=0.0, step=1.0, disabled=apply_iso or apply_asymmetric_volt_dev,
             help="Maximum allowed voltage excursion from nominal (%). Events where the peak deviation exceeds this value fail compliance regardless of recovery time.")
     with col2:
-        apply_asymmetric_freq = st.checkbox("Apply asymmetric Frequency tolerance band", value=_ds.get("apply_asymmetric_freq", False),
-            help="Enable separate recovery band limits for frequency — one set for load increase events (frequency drops) and another for load decrease (frequency rises). Unlocks the Frequency Recovery Bands inputs below.")
         f_tol = st.number_input("Frequency Tolerance (%)", value=f_tol, min_value=0.0, step=0.1, disabled=apply_iso or apply_asymmetric_freq,
             help="Symmetric ±% band around nominal frequency used as the recovery target. Frequency must re-enter this band and stay in for 0.3 s to be considered recovered.")
         f_rec = st.number_input("Frequency Recovery (s)", value=f_rec, min_value=0.0, step=0.5, disabled=apply_iso,
             help="Maximum allowed recovery time for frequency after a load event. Events where frequency takes longer than this to return in-band fail compliance.")
-        apply_asymmetric_freq_dev = st.checkbox("Apply asymmetric Frequency deviation limit", value=_ds.get("apply_asymmetric_freq_dev", False),
-            help="Enable separate max deviation limits for frequency — one for load increase events (frequency drops below nominal) and another for load decrease (frequency rises above nominal). Unlocks the Frequency Max Deviation inputs below.")
         f_max_dev = st.number_input("Max Frequency Dev (%)", value=f_max_dev, min_value=0.0, step=1.0, disabled=apply_iso or apply_asymmetric_freq_dev,
             help="Maximum allowed frequency excursion from nominal (%). Events where the peak deviation exceeds this value fail compliance regardless of recovery time.")
 
