@@ -15,6 +15,7 @@ import glob
 import datetime
 import logging
 import json
+import uuid
 from pathlib import Path
 
 from analysis import AnalysisConfig, load_and_prepare_csv, load_winscope_xls, perform_analysis, check_compliance, calculate_recovery_time, validate_csv_format
@@ -84,10 +85,14 @@ SNAPSHOT_DIR = os.path.join(OUTPUT_BASE, "Snapshots")
 IMAGE_DIR = os.path.join(OUTPUT_BASE, "Images")
 TEMPLATE_DIR = os.path.join(OUTPUT_BASE, "Template")
 
-# --- Persistent upload directories ---
-UPLOADS_CSV_DIR = os.path.join(_APP_DIR, "uploads", "csv")
-UPLOADS_TEMPLATE_DIR = os.path.join(_APP_DIR, "uploads", "templates")
-UPLOADS_WINSCOPE_DIR = os.path.join(_APP_DIR, "uploads", "winscope")
+# --- Session-scoped upload directories (one subdirectory per browser session) ---
+# Each Streamlit session gets a unique ID so users never see each other's files.
+if "_session_id" not in st.session_state:
+    st.session_state["_session_id"] = uuid.uuid4().hex
+_SESSION_ID = st.session_state["_session_id"]
+UPLOADS_CSV_DIR = os.path.join(_APP_DIR, "uploads", "csv", _SESSION_ID)
+UPLOADS_TEMPLATE_DIR = os.path.join(_APP_DIR, "uploads", "templates", _SESSION_ID)
+UPLOADS_WINSCOPE_DIR = os.path.join(_APP_DIR, "uploads", "winscope", _SESSION_ID)
 os.makedirs(UPLOADS_CSV_DIR, exist_ok=True)
 os.makedirs(UPLOADS_TEMPLATE_DIR, exist_ok=True)
 os.makedirs(UPLOADS_WINSCOPE_DIR, exist_ok=True)
@@ -1195,7 +1200,7 @@ with st.sidebar:
             "Upload CSV files",
             type=["csv"],
             accept_multiple_files=True,
-            help="Files are saved locally — no need to re-upload each session.",
+            help="Files are saved for this session only — re-upload when starting a new session.",
         )
         if new_csvs:
             _saved, _failed = [], []
@@ -1722,7 +1727,7 @@ with st.sidebar:
             "Upload Word Templates (.docx)",
             type=["docx"],
             accept_multiple_files=True,
-            help="Files are saved locally — no need to re-upload each session.",
+            help="Files are saved for this session only — re-upload when starting a new session.",
         )
         if new_templates:
             _saved_tpl, _failed_tpl = [], []
