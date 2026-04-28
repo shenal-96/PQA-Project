@@ -1909,6 +1909,91 @@ with st.sidebar:
             st.session_state["_dl_all_html"] = None
 
 
+@st.dialog("PQA — User Guide", width="large")
+def _help_dialog():
+    st.markdown("""
+### Overview
+PQA processes data-logger CSV files to detect load events and verify that generator
+voltage and frequency comply with ISO 8528 (or custom) acceptance criteria.
+Results are shown as a compliance table, time-series plots, per-event snapshots,
+and an exportable Word/PDF report.
+
+---
+
+### Workflow
+
+**1 · Upload your CSV**
+Upload a logger CSV from the sidebar. The file must contain a **Timestamp** column
+plus voltage (U1/U2/U3 L-N, or U12/U23/U31 L-L), frequency, and active power (kW)
+columns. Uploaded files are retained between sessions.
+
+**2 · Configure acceptance criteria**
+Set your pass/fail thresholds in the sidebar, or click **Apply ISO 8528 Presets**
+to lock all values to the standard. Key settings:
+
+| Setting | What it controls |
+|---|---|
+| Load Threshold (kW) | Minimum step size to count as an event |
+| Voltage / Frequency Tolerance | Recovery band width around nominal |
+| Recovery Time (s) | Max allowed time to return in-band |
+| Max Deviation (%) | Max allowed transient excursion from nominal |
+
+Enable **asymmetric** mode for direction-specific bands or limits — e.g. ISO 8528
+frequency bands differ for load increase vs. load decrease events.
+
+**3 · Set nominal values**
+In the **Display Options** section choose the nominal voltage (415 V, 690 V, 11 kV,
+or custom) and frequency. All compliance checks are relative to these values.
+
+**4 · Run Analysis**
+Click **Run Analysis**. The tool detects load events, calculates recovery times on
+100 ms interpolated data, and checks each event against your criteria.
+
+**5 · Review results**
+
+- **Compliance table** — one row per event with Pass/Fail, peak deviation, and recovery time
+- **Time-series plots** — full-run voltage, current, frequency, and power graphs
+- **Event snapshots** — ±window zoom around each load change with band and deviation overlays
+
+Red rows and red-tinted snapshots indicate failures. A **Not Recovered** warning
+appears when the signal was still out of band when the next load step occurred.
+
+**6 · Override recovery points**
+If a recovery crossing was misidentified, enable **Show Intersection Points** in the
+sidebar, then use the per-event override controls inside the snapshot expander to
+set an exact recovery time manually.
+
+**7 · Export a report**
+Fill in the **Report Details** section, choose *Word Template* or *HTML Template*
+format, and click **Generate Report**. The report includes the compliance table,
+all plots, snapshots, and a test summary.
+
+---
+
+### Tabs
+
+| Tab | Purpose |
+|---|---|
+| ⚡ Compliance Analysis | Main workflow — CSV upload, analysis, report |
+| 📊 WinScope Viewer | High-resolution WinScope XLS data with the same compliance engine |
+| 🔧 Set Point Comparison | Diff ECU parameter files (XLS / XLSX / CSV) across multiple units |
+
+---
+
+### Tips
+
+- **Time Filter** — use the start/end time fields to analyse only a specific window
+  within your CSV (useful when the file spans multiple test runs).
+- **Snapshot Window** — increase to see more context around each event, and to widen
+  the window used to find the peak deviation value.
+- **Detection Window** — increase if consecutive ramp steps are being split into
+  separate events instead of grouped into one.
+- **Dev Mode** — enable in the sidebar expander to persist all settings between
+  restarts and to access debug overlays on plots.
+""")
+
+
+
 # ============================================================
 # MAIN AREA
 # ============================================================
@@ -1916,7 +2001,9 @@ _dev_mode = st.session_state.get("_ds", {}).get("dev_mode", False)
 _build_version = _get_build_version() if _dev_mode else ""
 _version_badge = f' <span style="font-size:1.3rem;color:#64748b;font-weight:500;margin-left:0.5rem;">build {_build_version}</span>' if _build_version else ""
 
-st.markdown(f"""
+_title_col, _help_col = st.columns([14, 1])
+with _title_col:
+    st.markdown(f"""
 <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:1.5rem;padding-bottom:1.25rem;border-bottom:2px solid #e2e8f0;">
   <div style="width:42px;height:42px;background:linear-gradient(135deg,#1d4ed8,#2563eb);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 8px rgba(37,99,235,0.35);">
     <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polyline></svg>
@@ -1927,6 +2014,10 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+with _help_col:
+    st.markdown('<div style="padding-top:0.35rem;"></div>', unsafe_allow_html=True)
+    if st.button("?", key="help_btn", use_container_width=True, help="Open user guide"):
+        _help_dialog()
 
 _active_tab_main = st.session_state.get("_active_tab", "compliance")
 _TAB_LABELS = ["⚡ Compliance Analysis", "📊 WinScope Viewer", "🔧 Set Point Comparison"]
