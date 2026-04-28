@@ -609,7 +609,8 @@ div[data-testid="stSidebar"] button[data-testid="baseButton-secondary"]:hover {
 }
 
 /* ── Sidebar inline reset icon buttons ─────────────────────────────────────
-   Layout: st.columns([7, 1]) — text_input in wide col, ↺ button in narrow col.
+   Number inputs use st.columns([1, 7]) — ↺ button in narrow LEFT col, input in wide col.
+   Text inputs use st.columns([7, 1]) — input in wide col, ↺ button in narrow RIGHT col.
    .pqa-rst-btn is an invisible marker div placed inside the narrow column so
    we can target that column's stVerticalBlock via :has().
    Making the stVerticalBlock flex + justify-content:flex-end pushes the button
@@ -1304,7 +1305,12 @@ with st.sidebar:
         show_debug = st.checkbox("Show Event Detection (De-bugging)", value=_ds.get("show_debug", False))
     else:
         show_debug = False
-    _dw_col, _dw_rst = st.columns([7, 1])
+    _dw_rst, _dw_col = st.columns([1, 7])
+    with _dw_rst:
+        st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
+        if st.button("↺", key="reset_detection_window"):
+            st.session_state["detection_window"] = 3.0
+            st.rerun()
     with _dw_col:
         detection_window = st.number_input(
             "Detection Window (s)",
@@ -1312,12 +1318,12 @@ with st.sidebar:
             min_value=1.0, max_value=30.0, step=1.0,
             help="Time window used to group consecutive load step rows into a single event.",
         )
-    with _dw_rst:
+    _sw_rst, _sw_col = st.columns([1, 7])
+    with _sw_rst:
         st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
-        if st.button("↺", key="reset_detection_window"):
-            st.session_state["detection_window"] = 3.0
+        if st.button("↺", key="reset_snapshot_window"):
+            st.session_state["snapshot_window"] = 8.0
             st.rerun()
-    _sw_col, _sw_rst = st.columns([7, 1])
     with _sw_col:
         snapshot_window = st.number_input(
             "Snapshot Window (s)",
@@ -1325,14 +1331,14 @@ with st.sidebar:
             min_value=3.0, max_value=60.0, step=1.0,
             help="Seconds shown either side of each event in snapshots. Also sets the window used to find peak voltage/frequency deviation.",
         )
-    with _sw_rst:
-        st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
-        if st.button("↺", key="reset_snapshot_window"):
-            st.session_state["snapshot_window"] = 8.0
-            st.rerun()
     recovery_verify_s = 6.0
     if dev_mode:
-        _rv_col, _rv_rst = st.columns([7, 1])
+        _rv_rst, _rv_col = st.columns([1, 7])
+        with _rv_rst:
+            st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
+            if st.button("↺", key="reset_recovery_verify"):
+                st.session_state["recovery_verify_s"] = 6.0
+                st.rerun()
         with _rv_col:
             recovery_verify_s = st.number_input(
                 "Recovery Verify Window (s)",
@@ -1340,11 +1346,6 @@ with st.sidebar:
                 min_value=1.0, max_value=30.0, step=1.0,
                 help="After a recovery candidate is found, verify the signal stays in-band for this many seconds. Handles oscillating waveforms.",
             )
-        with _rv_rst:
-            st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
-            if st.button("↺", key="reset_recovery_verify"):
-                st.session_state["recovery_verify_s"] = 6.0
-                st.rerun()
     _ds["apply_iso"] = apply_iso
     _ds["show_limits"] = show_limits
     _ds["show_tolerance_band_snapshots"] = show_tolerance_band_snapshots
