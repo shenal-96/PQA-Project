@@ -77,12 +77,35 @@ def _get_build_version():
     except Exception:
         return "0.0.0"
 
-# --- Output directories ---
+# --- Output directories (session-scoped to avoid multi-user conflicts) ---
 OUTPUT_BASE = os.path.join(_APP_DIR, "output")
-GRAPH_DIR = os.path.join(OUTPUT_BASE, "Graphs")
-SNAPSHOT_DIR = os.path.join(OUTPUT_BASE, "Snapshots")
-IMAGE_DIR = os.path.join(OUTPUT_BASE, "Images")
-TEMPLATE_DIR = os.path.join(OUTPUT_BASE, "Template")
+
+def _get_session_output_dirs():
+    """Get session-scoped output directories. Each user gets their own directory."""
+    if "session_id" not in st.session_state:
+        import uuid
+        st.session_state["session_id"] = str(uuid.uuid4())[:8]
+
+    session_dir = os.path.join(OUTPUT_BASE, st.session_state["session_id"])
+    return {
+        "session_dir": session_dir,
+        "graph_dir": os.path.join(session_dir, "Graphs"),
+        "snapshot_dir": os.path.join(session_dir, "Snapshots"),
+        "image_dir": os.path.join(session_dir, "Images"),
+        "template_dir": os.path.join(session_dir, "Template"),
+    }
+
+def _graph_dir():
+    return _get_session_output_dirs()["graph_dir"]
+
+def _snapshot_dir():
+    return _get_session_output_dirs()["snapshot_dir"]
+
+def _image_dir():
+    return _get_session_output_dirs()["image_dir"]
+
+def _template_dir():
+    return _get_session_output_dirs()["template_dir"]
 
 # --- Persistent upload directories ---
 UPLOADS_CSV_DIR = os.path.join(_APP_DIR, "uploads", "csv")
@@ -166,7 +189,9 @@ def _save_dev_settings(ds: dict) -> None:
 
 
 def init_output_dirs():
-    for d in [GRAPH_DIR, SNAPSHOT_DIR, IMAGE_DIR, TEMPLATE_DIR]:
+    """Initialize session-scoped output directories. Safe for multi-user."""
+    dirs_dict = _get_session_output_dirs()
+    for d in [dirs_dict["graph_dir"], dirs_dict["snapshot_dir"], dirs_dict["image_dir"], dirs_dict["template_dir"]]:
         if os.path.exists(d):
             shutil.rmtree(d, ignore_errors=True)
         os.makedirs(d, exist_ok=True)
@@ -424,7 +449,7 @@ def _render_intersection_footer(overrides):
         st.session_state["df_events"] = df_ev
 
         client = st.session_state.get("client_name", "report")
-        table_file = os.path.join(IMAGE_DIR, f"{client}_table.png")
+        table_file = os.path.join(_image_dir(), f"{client}_table.png")
         try:
             new_table_path = save_compliance_table_as_image(
                 df_ev, table_file,
@@ -441,7 +466,7 @@ def _render_intersection_footer(overrides):
         try:
             new_snap_paths = generate_all_snapshots(
                 st.session_state["df_raw"], df_ev, client,
-                output_dir=SNAPSHOT_DIR,
+                output_dir=_snapshot_dir(),
                 show_limits=False,
                 show_tolerance_band=st.session_state.get("show_tolerance_band_snapshots", True),
                 show_deviation_limits=st.session_state.get("show_deviation_limits_snapshots", True),
@@ -1230,10 +1255,11 @@ with st.sidebar:
             else:
                 _csv_idx = None
             selected_name = st.selectbox("Select CSV to analyse", all_csv_names, index=_csv_idx)
-            _ds["selected_csv_name"] = selected_name
-            selected_csv_path = os.path.join(UPLOADS_CSV_DIR, selected_name)
-            client_name = os.path.splitext(selected_name)[0]
-            auto_start, auto_end = _get_csv_time_range(selected_csv_path)
+            if selected_name:
+                _ds["selected_csv_name"] = selected_name
+                selected_csv_path = os.path.join(UPLOADS_CSV_DIR, selected_name)
+                client_name = os.path.splitext(selected_name)[0]
+                auto_start, auto_end = _get_csv_time_range(selected_csv_path)
 
     else:
         # ── 1. WinScope Files ──────────────────────────────────────
@@ -1864,6 +1890,13 @@ if _active_tab_main == "compliance":
         if run_clicked:
             init_output_dirs()
 
+            # If asymmetric bands not enabled, use symmetric bands based on frequency tolerance
+            if not apply_asymmetric_freq:
+                f_rec_upper_inc = nom_f * (1 + f_tol / 100)
+                f_rec_lower_inc = nom_f * (1 - f_tol / 100)
+                f_rec_upper_dec = nom_f * (1 + f_tol / 100)
+                f_rec_lower_dec = nom_f * (1 - f_tol / 100)
+
             config = AnalysisConfig(
                 nominal_voltage=nom_v,
                 nominal_frequency=nom_f,
@@ -1989,7 +2022,7 @@ if _active_tab_main == "compliance":
 
             # Main time-series graphs are always clean — debug overlays live on snapshots only.
             plot_kwargs = dict(
-                output_dir=GRAPH_DIR, show_limits=show_limits,
+                output_dir=_graph_dir(), show_limits=show_limits,
                 nom_v=nom_v, nom_f=nom_f, tol_v=v_tol, tol_f=f_tol,
                 v_max_dev=v_max_dev, f_max_dev=f_max_dev,
                 show_debug=False,
@@ -2029,7 +2062,7 @@ if _active_tab_main == "compliance":
             if not df_events.empty:
                 try:
                     _show_progress_popup(_prog, 80, "Generating compliance table…", "Running Analysis")
-                    table_file = os.path.join(IMAGE_DIR, f"{client_name}_table.png")
+                    table_file = os.path.join(_image_dir(), f"{client_name}_table.png")
                     table_path = save_compliance_table_as_image(
                         df_events, table_file,
                         client_name,
@@ -2042,7 +2075,7 @@ if _active_tab_main == "compliance":
                 try:
                     _show_progress_popup(_prog, 90, "Generating event snapshots…", "Running Analysis")
                     snapshot_paths, snapshot_errors = generate_all_snapshots(
-                        df_raw, df_events, client_name, output_dir=SNAPSHOT_DIR,
+                        df_raw, df_events, client_name, output_dir=_snapshot_dir(),
                         show_limits=False,
                         show_tolerance_band=show_tolerance_band_snapshots,
                         show_deviation_limits=show_deviation_limits_snapshots,
@@ -2333,7 +2366,7 @@ if _active_tab_main == "compliance":
                                 load_before=row["Avg_kW"] - row["dKw"],
                                 load_after=row["Avg_kW"],
                                 client_name=client_name_display,
-                                output_dir=SNAPSHOT_DIR,
+                                output_dir=_snapshot_dir(),
                                 show_limits=False,
                                 show_tolerance_band=st.session_state.get("show_tolerance_band_snapshots", True),
                                 show_deviation_limits=st.session_state.get("show_deviation_limits_snapshots", True),
@@ -2376,7 +2409,7 @@ if _active_tab_main == "compliance":
         st.divider()
         assets_zip = io.BytesIO()
         with zipfile.ZipFile(assets_zip, "w", zipfile.ZIP_DEFLATED) as zipf:
-            for folder in [GRAPH_DIR, SNAPSHOT_DIR, IMAGE_DIR]:
+            for folder in [_graph_dir(), _snapshot_dir(), _image_dir()]:
                 if os.path.exists(folder):
                     for root, _, files_list in os.walk(folder):
                         for file in files_list:
@@ -2412,7 +2445,7 @@ if _active_tab_main == "compliance":
             }
 
             # If removing not-recovered warnings, regenerate snapshots without flags
-            _snap_dir = SNAPSHOT_DIR
+            _snap_dir = _snapshot_dir()
             if st.session_state.get("remove_nr_warnings") and _has_nr:
                 _cfg = st.session_state.get("config")
                 _snap_dir_clean = os.path.join(OUTPUT_BASE, "Snapshots_clean")
@@ -2443,7 +2476,7 @@ if _active_tab_main == "compliance":
             p_map = get_placeholder_map(
                 client_name_display, config_values,
                 df=st.session_state.get("df_raw"),
-                graph_dir=GRAPH_DIR, snapshot_dir=_snap_dir, image_dir=IMAGE_DIR,
+                graph_dir=_graph_dir(), snapshot_dir=_snap_dir, image_dir=_image_dir(),
             )
             log.info(f"Placeholder map built: {list(p_map.keys())}")
 
@@ -2600,6 +2633,17 @@ elif _active_tab_main == "winscope":
                         log.warning(f"WinScope time filter failed: {_tfe}")
 
                 _show_progress_popup(_ws_prog, 20, "Running event detection…",  "WinScope Analysis")
+                # If asymmetric bands not enabled, use symmetric bands based on frequency tolerance
+                _ws_f_upper_inc = f_rec_upper_inc
+                _ws_f_lower_inc = f_rec_lower_inc
+                _ws_f_upper_dec = f_rec_upper_dec
+                _ws_f_lower_dec = f_rec_lower_dec
+                if not apply_asymmetric_freq:
+                    _ws_f_upper_inc = nom_f * (1 + f_tol / 100)
+                    _ws_f_lower_inc = nom_f * (1 - f_tol / 100)
+                    _ws_f_upper_dec = nom_f * (1 + f_tol / 100)
+                    _ws_f_lower_dec = nom_f * (1 - f_tol / 100)
+
                 _ws_config = AnalysisConfig(
                     nominal_voltage=nom_v,
                     nominal_frequency=nom_f,
@@ -2610,10 +2654,10 @@ elif _active_tab_main == "winscope":
                     frequency_tolerance_pct=f_tol,
                     frequency_recovery_time_s=f_rec,
                     frequency_max_deviation_pct=f_max_dev,
-                    freq_recovery_upper_increase=f_rec_upper_inc,
-                    freq_recovery_lower_increase=f_rec_lower_inc,
-                    freq_recovery_upper_decrease=f_rec_upper_dec,
-                    freq_recovery_lower_decrease=f_rec_lower_dec,
+                    freq_recovery_upper_increase=_ws_f_upper_inc,
+                    freq_recovery_lower_increase=_ws_f_lower_inc,
+                    freq_recovery_upper_decrease=_ws_f_upper_dec,
+                    freq_recovery_lower_decrease=_ws_f_lower_dec,
                     detection_window_s=detection_window,
                     snapshot_window_s=snapshot_window,
                     ln_to_ll_mode="force_ll",
@@ -2889,9 +2933,9 @@ elif _active_tab_main == "winscope":
                 _ws_p_map = get_placeholder_map(
                     _ws_rpt_client, _ws_config_vals,
                     df=st.session_state.get("ws_df_raw"),
-                    graph_dir=st.session_state.get("ws_graph_dir", GRAPH_DIR),
-                    snapshot_dir=st.session_state.get("ws_snap_dir", SNAPSHOT_DIR),
-                    image_dir=st.session_state.get("ws_img_dir", IMAGE_DIR),
+                    graph_dir=st.session_state.get("ws_graph_dir", _graph_dir()),
+                    snapshot_dir=st.session_state.get("ws_snap_dir", _snapshot_dir()),
+                    image_dir=st.session_state.get("ws_img_dir", _image_dir()),
                 )
                 _ws_output_base = os.path.join(OUTPUT_BASE, report_filename)
                 _ws_entry = {"name": report_filename, "files": {}}
