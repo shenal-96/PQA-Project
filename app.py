@@ -2067,7 +2067,7 @@ with _title_col:
 """, unsafe_allow_html=True)
 with _help_col:
     st.markdown('<div style="padding-top:0.35rem;"></div>', unsafe_allow_html=True)
-    if st.button("?", key="help_btn", use_container_width=True, help="Open user guide"):
+    if st.button("Help", key="help_btn", use_container_width=True):
         _help_dialog()
 
 _active_tab_main = st.session_state.get("_active_tab", "compliance")
