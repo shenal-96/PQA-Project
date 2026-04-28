@@ -1865,6 +1865,13 @@ if _active_tab_main == "compliance":
         if run_clicked:
             init_output_dirs()
 
+            # If asymmetric bands not enabled, use symmetric bands based on frequency tolerance
+            if not apply_asymmetric_freq:
+                f_rec_upper_inc = nom_f * (1 + f_tol / 100)
+                f_rec_lower_inc = nom_f * (1 - f_tol / 100)
+                f_rec_upper_dec = nom_f * (1 + f_tol / 100)
+                f_rec_lower_dec = nom_f * (1 - f_tol / 100)
+
             config = AnalysisConfig(
                 nominal_voltage=nom_v,
                 nominal_frequency=nom_f,
@@ -2601,6 +2608,17 @@ elif _active_tab_main == "winscope":
                         log.warning(f"WinScope time filter failed: {_tfe}")
 
                 _show_progress_popup(_ws_prog, 20, "Running event detection…",  "WinScope Analysis")
+                # If asymmetric bands not enabled, use symmetric bands based on frequency tolerance
+                _ws_f_upper_inc = f_rec_upper_inc
+                _ws_f_lower_inc = f_rec_lower_inc
+                _ws_f_upper_dec = f_rec_upper_dec
+                _ws_f_lower_dec = f_rec_lower_dec
+                if not apply_asymmetric_freq:
+                    _ws_f_upper_inc = nom_f * (1 + f_tol / 100)
+                    _ws_f_lower_inc = nom_f * (1 - f_tol / 100)
+                    _ws_f_upper_dec = nom_f * (1 + f_tol / 100)
+                    _ws_f_lower_dec = nom_f * (1 - f_tol / 100)
+
                 _ws_config = AnalysisConfig(
                     nominal_voltage=nom_v,
                     nominal_frequency=nom_f,
@@ -2611,10 +2629,10 @@ elif _active_tab_main == "winscope":
                     frequency_tolerance_pct=f_tol,
                     frequency_recovery_time_s=f_rec,
                     frequency_max_deviation_pct=f_max_dev,
-                    freq_recovery_upper_increase=f_rec_upper_inc,
-                    freq_recovery_lower_increase=f_rec_lower_inc,
-                    freq_recovery_upper_decrease=f_rec_upper_dec,
-                    freq_recovery_lower_decrease=f_rec_lower_dec,
+                    freq_recovery_upper_increase=_ws_f_upper_inc,
+                    freq_recovery_lower_increase=_ws_f_lower_inc,
+                    freq_recovery_upper_decrease=_ws_f_upper_dec,
+                    freq_recovery_lower_decrease=_ws_f_lower_dec,
                     detection_window_s=detection_window,
                     snapshot_window_s=snapshot_window,
                     ln_to_ll_mode="force_ll",
