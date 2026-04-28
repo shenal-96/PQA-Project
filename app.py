@@ -1230,10 +1230,11 @@ with st.sidebar:
             else:
                 _csv_idx = None
             selected_name = st.selectbox("Select CSV to analyse", all_csv_names, index=_csv_idx)
-            _ds["selected_csv_name"] = selected_name
-            selected_csv_path = os.path.join(UPLOADS_CSV_DIR, selected_name)
-            client_name = os.path.splitext(selected_name)[0]
-            auto_start, auto_end = _get_csv_time_range(selected_csv_path)
+            if selected_name:
+                _ds["selected_csv_name"] = selected_name
+                selected_csv_path = os.path.join(UPLOADS_CSV_DIR, selected_name)
+                client_name = os.path.splitext(selected_name)[0]
+                auto_start, auto_end = _get_csv_time_range(selected_csv_path)
 
     else:
         # ── 1. WinScope Files ──────────────────────────────────────
