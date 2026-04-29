@@ -297,6 +297,85 @@ otherwise lower band (voltage dropped). Same logic for frequency.
 | Show Intersection Points | Orange ★ at exit, lime ★ at recovery, plus vertical guide lines |
 | Show Max Deviation | Red ★ at the V/F extreme within the 5 s post-event window — value matches the V_dev / F_dev in the compliance table. Marker is placed using `Avg_Voltage_LL` / `Avg_Frequency` (idxmin on increase, idxmax on decrease) so it lands on the same point analysis used. Adds a `Max Deviation (xx V/Hz)` legend entry. |
 
+## Preset Configurator (in progress — 2026-04-29)
+
+### Goal
+Replace the three hardcoded ISO preset checkboxes with a configurable preset system. Users can edit existing presets, create new ones, and select presets via a dropdown. Preset data is persisted in `uploads/presets.json` so it survives app restarts.
+
+### New file: `uploads/presets.json`
+Stores presets as a JSON array of dicts. If the file is absent, `_load_presets()` seeds it from `_BUILTIN_PRESETS`. The file lives in `uploads/` so it is never cleared by `init_output_dirs()`.
+
+Each preset dict keys:
+```
+name, v_tol, v_rec, v_max_dev_inc, v_max_dev_dec,
+f_tol, f_rec, f_max_dev_inc, f_max_dev_dec,
+f_rec_upper_inc, f_rec_lower_inc, f_rec_upper_dec, f_rec_lower_dec,
+apply_asymmetric_freq, apply_asymmetric_volt,
+apply_asymmetric_volt_dev, apply_asymmetric_freq_dev
+```
+
+Built-in seeds:
+| Name | v_tol | v_rec | v_max_dev_inc/dec | f_tol | f_rec | f_max_dev_inc/dec | freq bands (inc upper/lower / dec upper/lower) |
+|---|---|---|---|---|---|---|---|
+| ISO 8528 G3 | 1.0 | 4.0 | 15/20 | 0.5 | 3.0 | 7/10 | 50.50/49.75 / 50.25/49.50 |
+| ISO 8528 G2 | 5.0 | 6.0 | 20/25 | 0.5 | 5.0 | 10/12 | 51.50/48.75 / 51.25/48.50 |
+| ISO 8528 G1 | 10.0 | 10.0 | 25/30 | 0.5 | 10.0 | 15/18 | 51.50/48.75 / 51.25/48.50 |
+All built-ins: `apply_asymmetric_freq=True`, `apply_asymmetric_volt=False`, `apply_asymmetric_volt_dev=True`, `apply_asymmetric_freq_dev=True`.
+
+### app.py changes
+
+**Constants & helpers** (near `DEV_SETTINGS_FILE`):
+- `_PRESETS_FILE = "uploads/presets.json"`
+- `_BUILTIN_PRESETS: list[dict]` — hardcoded fallback (3 presets)
+- `_load_presets() -> list[dict]` — reads file; seeds from `_BUILTIN_PRESETS` + writes if missing
+- `_save_presets(presets: list[dict]) -> None` — writes to `_PRESETS_FILE`
+
+**`_DEV_DEFAULTS`**:
+- Remove: `"apply_iso"`, `"apply_iso_g2"`, `"apply_iso_g1"`
+- Add: `"active_preset": "None"`
+
+**Session state init** (once, before sidebar renders):
+```python
+if "presets" not in st.session_state:
+    st.session_state["presets"] = _load_presets()
+```
+
+**Sidebar UI** (replaces lines 1328–1341 — the 3 checkboxes + mutual-exclusivity block):
+```python
+if st.button("⚙ Configure Presets", use_container_width=True):
+    _configure_presets_dialog()
+_preset_names = ["None"] + [p["name"] for p in st.session_state["presets"]]
+active_preset = st.selectbox("Active Preset", _preset_names,
+    index=_preset_names.index(_ds.get("active_preset", "None"))
+    if _ds.get("active_preset", "None") in _preset_names else 0,
+    key="active_preset_select")
+```
+
+**Dialog** (new decorated function, defined before `_configure_presets_dialog()` call site):
+```python
+@st.dialog("Configure Presets", width="large")
+def _configure_presets_dialog():
+    # st.data_editor with num_rows="dynamic", full column_config for all 17 keys
+    # "Save Presets" button → _save_presets() + st.session_state["presets"] = ... + st.rerun()
+```
+
+**`_any_preset` variable** (line ~1410):
+- Old: `apply_iso or apply_g2 or apply_g1`
+- New: `active_preset != "None"`
+
+**Preset application block** (replaces lines 1437–1481):
+- Look up preset by name in `st.session_state["presets"]`
+- Apply all 17 fields from the dict; set the 4 asymmetric flags in `_ds`
+
+**`_ds` save block** (lines 1407–1410):
+- Remove the three `_ds["apply_iso*"]` lines
+- Add: `_ds["active_preset"] = active_preset`
+
+### Implementation tasks (sequential)
+1. **Foundation** — Create `presets.json`, add `_PRESETS_FILE` + `_BUILTIN_PRESETS` + `_load_presets()` + `_save_presets()`, update `_DEV_DEFAULTS`, init session state.
+2. **UI** — Add `_configure_presets_dialog()` dialog function, replace 3 checkboxes with button + selectbox, remove mutual-exclusivity logic.
+3. **Logic** — Replace hardcoded preset application block with dynamic lookup, update `_ds` save block, fix `_any_preset` calculation.
+
 ## Known Gotchas
 
 - **Do not restart Streamlit** to pick up code changes when running locally;

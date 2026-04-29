@@ -99,15 +99,165 @@ os.makedirs(UPLOADS_WINSCOPE_DIR, exist_ok=True)
 
 # ── Dev-mode settings persistence ────────────────────────────────────────────
 DEV_SETTINGS_FILE = "uploads/dev_settings.json"
+_PRESETS_FILE = "uploads/presets.json"
+
+_BUILTIN_PRESETS: list = [
+    {"name": "ISO 8528 G3", "v_tol": 1.0, "v_rec": 4.0, "v_max_dev_inc": 15.0, "v_max_dev_dec": 20.0,
+     "f_tol": 0.5, "f_rec": 3.0, "f_max_dev_inc": 7.0, "f_max_dev_dec": 10.0,
+     "f_rec_upper_inc": 50.50, "f_rec_lower_inc": 49.75, "f_rec_upper_dec": 50.25, "f_rec_lower_dec": 49.50,
+     "apply_asymmetric_freq": True, "apply_asymmetric_volt": False, "apply_asymmetric_volt_dev": True, "apply_asymmetric_freq_dev": True},
+    {"name": "ISO 8528 G2", "v_tol": 5.0, "v_rec": 6.0, "v_max_dev_inc": 20.0, "v_max_dev_dec": 25.0,
+     "f_tol": 0.5, "f_rec": 5.0, "f_max_dev_inc": 10.0, "f_max_dev_dec": 12.0,
+     "f_rec_upper_inc": 51.50, "f_rec_lower_inc": 48.75, "f_rec_upper_dec": 51.25, "f_rec_lower_dec": 48.50,
+     "apply_asymmetric_freq": True, "apply_asymmetric_volt": False, "apply_asymmetric_volt_dev": True, "apply_asymmetric_freq_dev": True},
+    {"name": "ISO 8528 G1", "v_tol": 10.0, "v_rec": 10.0, "v_max_dev_inc": 25.0, "v_max_dev_dec": 30.0,
+     "f_tol": 0.5, "f_rec": 10.0, "f_max_dev_inc": 15.0, "f_max_dev_dec": 18.0,
+     "f_rec_upper_inc": 51.50, "f_rec_lower_inc": 48.75, "f_rec_upper_dec": 51.25, "f_rec_lower_dec": 48.50,
+     "apply_asymmetric_freq": True, "apply_asymmetric_volt": False, "apply_asymmetric_volt_dev": True, "apply_asymmetric_freq_dev": True},
+]
+
+
+def _load_presets() -> list:
+    if os.path.exists(_PRESETS_FILE):
+        try:
+            with open(_PRESETS_FILE) as _f:
+                return json.load(_f)
+        except Exception:
+            pass
+    _save_presets(_BUILTIN_PRESETS)
+    return list(_BUILTIN_PRESETS)
+
+
+def _save_presets(presets: list) -> None:
+    os.makedirs(os.path.dirname(_PRESETS_FILE), exist_ok=True)
+    with open(_PRESETS_FILE, "w") as _f:
+        json.dump(presets, _f, indent=2)
+
+
+_ALL_PRESET_KEYS = [
+    "name", "v_tol", "v_rec", "v_max_dev_inc", "v_max_dev_dec",
+    "f_tol", "f_rec", "f_max_dev_inc", "f_max_dev_dec",
+    "f_rec_upper_inc", "f_rec_lower_inc", "f_rec_upper_dec", "f_rec_lower_dec",
+    "apply_asymmetric_freq", "apply_asymmetric_volt",
+    "apply_asymmetric_volt_dev", "apply_asymmetric_freq_dev",
+]
+
+
+@st.dialog("Configure Presets", width="large")
+def _configure_presets_dialog() -> None:
+    st.markdown("""
+<style>
+[data-testid="stDialog"] > div[role="dialog"] {
+    max-width: min(2000px, 98vw) !important;
+    width: min(2000px, 98vw) !important;
+}
+.pcol-hdr {
+    font-size: 0.72rem; font-weight: 600; color: #64748b;
+    white-space: normal; word-break: break-word; line-height: 1.3;
+    padding: 0 2px 6px 2px; min-height: 2.6rem;
+    display: flex; align-items: flex-end;
+    border-bottom: 2px solid #e2e8f0;
+}
+</style>""", unsafe_allow_html=True)
+
+    _WK = "_preset_wk"
+    if _WK not in st.session_state:
+        st.session_state[_WK] = [dict(p) for p in st.session_state.get("presets", [])]
+    wk: list = st.session_state[_WK]
+
+    show_v_tol      = any(not p.get("apply_asymmetric_volt", False) for p in wk) if wk else True
+    show_f_tol      = any(not p.get("apply_asymmetric_freq", True)  for p in wk) if wk else True
+    show_freq_bands = any(p.get("apply_asymmetric_freq", True)       for p in wk) if wk else True
+
+    # Column definitions: (key, header_html, col_ratio, widget_type, widget_kwargs)
+    _COLS = [("name", "Preset Name", 2.2, "text", {})]
+    if show_v_tol:
+        _COLS.append(("v_tol", "Voltage<br>Tolerance (%)", 1.0, "num", {"step": 0.5, "format": "%.1f"}))
+    _COLS += [
+        ("v_rec",        "Voltage<br>Recovery (s)",         1.0, "num", {"step": 0.5, "format": "%.1f"}),
+        ("v_max_dev_inc","Voltage Max Dev<br>Increase (%)", 1.0, "num", {"step": 1.0, "format": "%.1f"}),
+        ("v_max_dev_dec","Voltage Max Dev<br>Decrease (%)", 1.0, "num", {"step": 1.0, "format": "%.1f"}),
+    ]
+    if show_f_tol:
+        _COLS.append(("f_tol", "Freq<br>Tolerance (%)", 1.0, "num", {"step": 0.1, "format": "%.2f"}))
+    _COLS += [
+        ("f_rec",        "Freq<br>Recovery (s)",            1.0, "num", {"step": 0.5, "format": "%.1f"}),
+        ("f_max_dev_inc","Freq Max Dev<br>Increase (%)",    1.0, "num", {"step": 1.0, "format": "%.1f"}),
+        ("f_max_dev_dec","Freq Max Dev<br>Decrease (%)",    1.0, "num", {"step": 1.0, "format": "%.1f"}),
+    ]
+    if show_freq_bands:
+        _COLS += [
+            ("f_rec_upper_inc","Freq Band Inc<br>Upper (Hz)", 1.0, "num", {"step": 0.05, "format": "%.2f"}),
+            ("f_rec_lower_inc","Freq Band Inc<br>Lower (Hz)", 1.0, "num", {"step": 0.05, "format": "%.2f"}),
+            ("f_rec_upper_dec","Freq Band Dec<br>Upper (Hz)", 1.0, "num", {"step": 0.05, "format": "%.2f"}),
+            ("f_rec_lower_dec","Freq Band Dec<br>Lower (Hz)", 1.0, "num", {"step": 0.05, "format": "%.2f"}),
+        ]
+    _COLS += [
+        ("apply_asymmetric_freq",     "Asymmetric<br>Freq Band", 0.85, "bool", {}),
+        ("apply_asymmetric_volt",     "Asymmetric<br>Volt Band", 0.85, "bool", {}),
+        ("apply_asymmetric_volt_dev", "Asymmetric<br>Volt Dev",  0.85, "bool", {}),
+        ("apply_asymmetric_freq_dev", "Asymmetric<br>Freq Dev",  0.85, "bool", {}),
+    ]
+    ratios = [c[2] for c in _COLS] + [0.5]
+
+    # Header row
+    hdr_cols = st.columns(ratios)
+    for i, (_, hdr, _, _, _) in enumerate(_COLS):
+        with hdr_cols[i]:
+            st.markdown(f'<div class="pcol-hdr">{hdr}</div>', unsafe_allow_html=True)
+    with hdr_cols[-1]:
+        st.markdown('<div class="pcol-hdr"></div>', unsafe_allow_html=True)
+
+    # Data rows
+    _del = None
+    for ri, preset in enumerate(wk):
+        row_cs = st.columns(ratios)
+        for ci, (key, _, _, wtype, kwargs) in enumerate(_COLS):
+            wkey = f"_pw_{ri}_{key}"
+            with row_cs[ci]:
+                if wtype == "text":
+                    preset[key] = st.text_input(
+                        "v", value=str(preset.get(key, "")),
+                        key=wkey, label_visibility="collapsed")
+                elif wtype == "num":
+                    preset[key] = st.number_input(
+                        "v", value=float(preset.get(key, 0.0)),
+                        min_value=0.0, label_visibility="collapsed",
+                        key=wkey, **kwargs)
+                elif wtype == "bool":
+                    preset[key] = st.checkbox(
+                        "v", value=bool(preset.get(key, False)),
+                        key=wkey, label_visibility="collapsed")
+        with row_cs[-1]:
+            if st.button("🗑", key=f"_pw_del_{ri}", help="Delete preset"):
+                _del = ri
+
+    if _del is not None:
+        wk.pop(_del)
+        for k in [k for k in st.session_state if k.startswith("_pw_")]:
+            del st.session_state[k]
+        st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    c1, c2 = st.columns([1, 3])
+    with c1:
+        if st.button("＋ Add Preset", use_container_width=True):
+            wk.append(dict(_BUILTIN_PRESETS[0], name=f"Custom Preset {len(wk) + 1}"))
+            st.rerun()
+    with c2:
+        if st.button("Save Presets", type="primary", use_container_width=True):
+            _save_presets(wk)
+            st.session_state["presets"] = [dict(p) for p in wk]
+            del st.session_state[_WK]
+            st.rerun()
+
 
 _DEV_DEFAULTS: dict = {
     "dev_mode": False,
     # CSV selection
     "selected_csv_name": "",
     # Acceptance Criteria
-    "apply_iso": False,
-    "apply_iso_g2": False,
-    "apply_iso_g1": False,
+    "active_preset": "None",
     "apply_asymmetric_freq": False,
     "show_limits": False,
     "show_limits_snapshots": False,
@@ -217,6 +367,28 @@ def _show_progress_popup(placeholder, pct: int, step: str, title: str = "Process
     <div class="pqa-popup-pct">{pct}%</div>
 </div>
 """, unsafe_allow_html=True)
+
+
+def _scan_template_snapshot_count(template_path):
+    """Return the set of {{Snapshot_N}} indices present in a Word template."""
+    import re as _re
+    from docx import Document as _Document
+    indices = set()
+    try:
+        doc = _Document(template_path)
+        def _scan(paragraphs):
+            for para in paragraphs:
+                full_text = "".join(run.text for run in para.runs)
+                for m in _re.findall(r'\{\{Snapshot_(\d+)\}\}', full_text):
+                    indices.add(int(m))
+        _scan(doc.paragraphs)
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    _scan(cell.paragraphs)
+    except Exception:
+        pass
+    return indices
 
 
 def _render_event_intersection_controls(idx, row, overrides):
@@ -1133,6 +1305,8 @@ if "_ds" not in st.session_state:
         st.session_state[_TF_START_TEXT] = _loaded.get("tf_start_text", "")
         st.session_state[_TF_END_TEXT]   = _loaded.get("tf_end_text", "")
 _ds: dict = st.session_state["_ds"]  # shorthand used throughout the sidebar
+if "presets" not in st.session_state:
+    st.session_state["presets"] = _load_presets()
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Active tab mode (drives sidebar content) ──────────────────────────────────
@@ -1303,20 +1477,13 @@ with st.sidebar:
 
     # ── 2. Acceptance Criteria ────────────────────────────────
     st.subheader("Acceptance Criteria")
-    apply_iso = st.checkbox("Apply ISO 8528 Presets", value=_ds.get("apply_iso", False),
-        help="Lock acceptance criteria to ISO 8528 standard values: V ±1% / 4 s / 15–20% dev, F asymmetric bands 50.50/49.75 & 50.25/49.50 Hz / 3 s / 7–10% dev.")
-    apply_g2 = st.checkbox("Apply ISO G2 Presets", value=_ds.get("apply_iso_g2", False),
-        help="Lock acceptance criteria to ISO 8528 G2 standard values: V ±5% / 6 s / 20–25% dev, F asymmetric bands 51.50/48.75 & 51.25/48.50 Hz / 5 s / 10–12% dev.")
-    apply_g1 = st.checkbox("Apply ISO G1 Presets", value=_ds.get("apply_iso_g1", False),
-        help="Lock acceptance criteria to ISO 8528 G1 standard values: V ±10% / 10 s / 25–30% dev, F asymmetric bands 51.50/48.75 & 51.25/48.50 Hz / 10 s / 15–18% dev.")
-
-    # Mutual exclusivity — keep the one that just turned on
-    _presets_on = [apply_iso, apply_g2, apply_g1]
-    if sum(_presets_on) > 1:
-        _was = [_ds.get("apply_iso", False), _ds.get("apply_iso_g2", False), _ds.get("apply_iso_g1", False)]
-        _just_on = [i for i in range(3) if _presets_on[i] and not _was[i]]
-        _keep = _just_on[0] if _just_on else next(i for i in range(3) if _presets_on[i])
-        apply_iso, apply_g2, apply_g1 = (_keep == 0), (_keep == 1), (_keep == 2)
+    if st.button("⚙ Configure Presets", use_container_width=True,
+                 help="Edit existing presets or create new ones."):
+        _configure_presets_dialog()
+    _preset_names = ["None"] + [p["name"] for p in st.session_state.get("presets", [])]
+    _preset_default = _ds.get("active_preset", "None")
+    _preset_idx = _preset_names.index(_preset_default) if _preset_default in _preset_names else 0
+    active_preset = st.selectbox("Active Preset", _preset_names, index=_preset_idx)
     show_limits = st.checkbox("Show Limits on Graphs", value=_ds.get("show_limits", False),
         help="Overlay max deviation limit lines (red dashed) on the full time-series voltage and frequency plots.")
     st.markdown("**Snapshot Display Options**")
@@ -1382,10 +1549,8 @@ with st.sidebar:
             if st.button("↺", key="reset_recovery_verify"):
                 st.session_state["recovery_verify_s"] = 6.0
                 st.rerun()
-    _ds["apply_iso"] = apply_iso
-    _ds["apply_iso_g2"] = apply_g2
-    _ds["apply_iso_g1"] = apply_g1
-    _any_preset = apply_iso or apply_g2 or apply_g1
+    _ds["active_preset"] = active_preset
+    _any_preset = active_preset != "None"
 
     # In dev mode with a preset active: fields are enabled but visually muted.
     # :user-valid fires after the user has edited a field and permanently
@@ -1412,51 +1577,33 @@ with st.sidebar:
 
     load_thresh = float(_ds.get("load_thresh", 50.0))
 
-    if apply_iso:
-        v_tol = 1.0; v_rec = 4.0; v_max_dev = 15.0
-        f_tol = 0.5; f_rec = 3.0; f_max_dev = 7.0
-        f_rec_upper_inc = 50.50; f_rec_lower_inc = 49.75
-        f_rec_upper_dec = 50.25; f_rec_lower_dec = 49.50
-        v_max_dev_inc = 15.0; v_max_dev_dec = 20.0
-        f_max_dev_inc = 7.0;  f_max_dev_dec = 10.0
-        st.session_state["fri_upper"] = 50.50
-        st.session_state["fri_lower"] = 49.75
-        st.session_state["frd_upper"] = 50.25
-        st.session_state["frd_lower"] = 49.50
-        _ds["apply_asymmetric_freq"] = True
-        _ds["apply_asymmetric_volt"] = False
-        _ds["apply_asymmetric_volt_dev"] = True
-        _ds["apply_asymmetric_freq_dev"] = True
-    elif apply_g2:
-        v_tol = 5.0; v_rec = 6.0; v_max_dev = 15.0
-        f_tol = 0.5; f_rec = 5.0; f_max_dev = 7.0
-        f_rec_upper_inc = 51.50; f_rec_lower_inc = 48.75
-        f_rec_upper_dec = 51.25; f_rec_lower_dec = 48.50
-        v_max_dev_inc = 20.0; v_max_dev_dec = 25.0
-        f_max_dev_inc = 10.0; f_max_dev_dec = 12.0
-        st.session_state["fri_upper"] = 51.50
-        st.session_state["fri_lower"] = 48.75
-        st.session_state["frd_upper"] = 51.25
-        st.session_state["frd_lower"] = 48.50
-        _ds["apply_asymmetric_freq"] = True
-        _ds["apply_asymmetric_volt"] = False
-        _ds["apply_asymmetric_volt_dev"] = True
-        _ds["apply_asymmetric_freq_dev"] = True
-    elif apply_g1:
-        v_tol = 10.0; v_rec = 10.0; v_max_dev = 15.0
-        f_tol = 0.5; f_rec = 10.0; f_max_dev = 7.0
-        f_rec_upper_inc = 51.50; f_rec_lower_inc = 48.75
-        f_rec_upper_dec = 51.25; f_rec_lower_dec = 48.50
-        v_max_dev_inc = 25.0; v_max_dev_dec = 30.0
-        f_max_dev_inc = 15.0; f_max_dev_dec = 18.0
-        st.session_state["fri_upper"] = 51.50
-        st.session_state["fri_lower"] = 48.75
-        st.session_state["frd_upper"] = 51.25
-        st.session_state["frd_lower"] = 48.50
-        _ds["apply_asymmetric_freq"] = True
-        _ds["apply_asymmetric_volt"] = False
-        _ds["apply_asymmetric_volt_dev"] = True
-        _ds["apply_asymmetric_freq_dev"] = True
+    _active_preset_data = next(
+        (p for p in st.session_state.get("presets", []) if p["name"] == active_preset),
+        None,
+    )
+    if _active_preset_data:
+        v_tol         = float(_active_preset_data["v_tol"])
+        v_rec         = float(_active_preset_data["v_rec"])
+        v_max_dev     = float(_active_preset_data.get("v_max_dev_inc", 15.0))
+        v_max_dev_inc = float(_active_preset_data["v_max_dev_inc"])
+        v_max_dev_dec = float(_active_preset_data["v_max_dev_dec"])
+        f_tol         = float(_active_preset_data["f_tol"])
+        f_rec         = float(_active_preset_data["f_rec"])
+        f_max_dev     = float(_active_preset_data.get("f_max_dev_inc", 7.0))
+        f_max_dev_inc = float(_active_preset_data["f_max_dev_inc"])
+        f_max_dev_dec = float(_active_preset_data["f_max_dev_dec"])
+        f_rec_upper_inc = float(_active_preset_data["f_rec_upper_inc"])
+        f_rec_lower_inc = float(_active_preset_data["f_rec_lower_inc"])
+        f_rec_upper_dec = float(_active_preset_data["f_rec_upper_dec"])
+        f_rec_lower_dec = float(_active_preset_data["f_rec_lower_dec"])
+        st.session_state["fri_upper"] = f_rec_upper_inc
+        st.session_state["fri_lower"] = f_rec_lower_inc
+        st.session_state["frd_upper"] = f_rec_upper_dec
+        st.session_state["frd_lower"] = f_rec_lower_dec
+        _ds["apply_asymmetric_freq"]     = bool(_active_preset_data.get("apply_asymmetric_freq", True))
+        _ds["apply_asymmetric_volt"]     = bool(_active_preset_data.get("apply_asymmetric_volt", False))
+        _ds["apply_asymmetric_volt_dev"] = bool(_active_preset_data.get("apply_asymmetric_volt_dev", True))
+        _ds["apply_asymmetric_freq_dev"] = bool(_active_preset_data.get("apply_asymmetric_freq_dev", True))
     else:
         v_tol      = float(_ds.get("v_tol", 1.0))
         v_rec      = float(_ds.get("v_rec", 4.0))
@@ -1918,6 +2065,29 @@ with st.sidebar:
             ["PDF", "HTML", "HTML+PDF"],
             key="download_format_html",
         )
+
+    # ── Snapshot placeholder completeness check ───────────────
+    _ev_df_snap_chk = (
+        st.session_state.get("df_events") if _compliance_mode
+        else st.session_state.get("ws_df_events")
+    )
+    _n_events_snap_chk = len(_ev_df_snap_chk) if _ev_df_snap_chk is not None else 0
+    if _n_events_snap_chk > 0:
+        if report_format == "Word Template" and selected_template_path:
+            _found_snap_idxs = _scan_template_snapshot_count(selected_template_path)
+        elif report_format == "HTML Template":
+            import re as _re_snap
+            _found_snap_idxs = {
+                int(m) for m in _re_snap.findall(r'\{\{Snapshot_(\d+)\}\}', html_template_str or "")
+            }
+        else:
+            _found_snap_idxs = set()
+        _missing_snap_idxs = [i for i in range(1, _n_events_snap_chk + 1) if i not in _found_snap_idxs]
+        if _missing_snap_idxs:
+            _missing_snap_str = ", ".join(f"{{{{Snapshot_{i}}}}}" for i in _missing_snap_idxs)
+            st.error(
+                f"Missing {len(_missing_snap_idxs)} snapshot placeholder(s) in template: {_missing_snap_str}"
+            )
 
     # ── Not-recovered warning ──────────────────────────────────
     _df_ev_check = (
