@@ -1361,16 +1361,23 @@ with st.sidebar:
     # ── Mode Selector ──────────────────────────────────────────
     _active_tab = st.session_state.get("_active_tab", "compliance")
     _compliance_mode = (_active_tab == "compliance")
-    _mc1, _mc2 = st.columns(2)
+    _winscope_mode  = (_active_tab == "winscope")
+    _setpoint_mode  = (_active_tab == "setpoint")
+    _mc1, _mc2, _mc3 = st.columns(3)
     if _mc1.button("⚡ Compliance", use_container_width=True,
                    type="primary" if _compliance_mode else "secondary",
                    key="sidebar_mode_compliance"):
         st.session_state["_active_tab"] = "compliance"
         st.rerun()
     if _mc2.button("📊 WinScope", use_container_width=True,
-                   type="primary" if not _compliance_mode else "secondary",
+                   type="primary" if _winscope_mode else "secondary",
                    key="sidebar_mode_winscope"):
         st.session_state["_active_tab"] = "winscope"
+        st.rerun()
+    if _mc3.button("🔧 Set Point", use_container_width=True,
+                   type="primary" if _setpoint_mode else "secondary",
+                   key="sidebar_mode_setpoint"):
+        st.session_state["_active_tab"] = "setpoint"
         st.rerun()
 
     st.divider()
@@ -2321,17 +2328,6 @@ with _help_col:
         _help_dialog()
 
 _active_tab_main = st.session_state.get("_active_tab", "compliance")
-_TAB_LABELS = ["⚡ Compliance Analysis", "📊 WinScope Viewer", "🔧 Set Point Comparison"]
-_TAB_KEYS   = ["compliance", "winscope", "setpoint"]
-_chosen_tab = st.radio(
-    "", _TAB_LABELS,
-    index=_TAB_KEYS.index(_active_tab_main) if _active_tab_main in _TAB_KEYS else 0,
-    horizontal=True, label_visibility="collapsed", key="main_tab_selector",
-)
-_active_tab_main = _TAB_KEYS[_TAB_LABELS.index(_chosen_tab)]
-if _active_tab_main != st.session_state.get("_active_tab", "compliance"):
-    st.session_state["_active_tab"] = _active_tab_main
-    st.rerun()
 
 if _active_tab_main == "compliance":
     if selected_csv_path is not None:
