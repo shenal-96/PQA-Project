@@ -2212,7 +2212,7 @@ with st.sidebar:
 
 @st.dialog("PQA — User Guide", width="large")
 def _help_dialog():
-    st.markdown("""
+    st.markdown(r"""
 ### Overview
 PQA processes data-logger CSV files to detect load events and verify that generator
 voltage and frequency comply with ISO 8528 (or custom) acceptance criteria.
@@ -2223,51 +2223,319 @@ and an exportable Word/PDF report.
 
 ### Workflow
 
-**1 · Upload your CSV**
-Upload a logger CSV from the sidebar. The file must contain a **Timestamp** column
-plus voltage (U1/U2/U3 L-N, or U12/U23/U31 L-L), frequency, and active power (kW)
-columns. Uploaded files are retained between sessions.
+**1 · Upload your CSV** — sidebar uploader. The file must contain a Timestamp column
+plus voltage (U1/U2/U3 L-N, or U12/U23/U31 L-L, or U_avg_AVG), frequency
+(Freq_AVG), and active power (P_sum_AVG, watts).
 
-**2 · Configure acceptance criteria**
-Set your pass/fail thresholds in the sidebar, or click **Apply ISO 8528 Presets**
-to lock all values to the standard. Key settings:
+**2 · Configure acceptance criteria** — choose a Preset (ISO 8528 G1/G2/G3) or
+edit the individual values. Enable asymmetric mode for direction-specific limits.
 
-| Setting | What it controls |
+**3 · Set nominal values** — Nominal Voltage (415 / 690 / 11 000 V or Custom) and
+Nominal Frequency (Hz) in *Display Options*. All deviation % values are relative to these.
+
+**4 · Run Analysis** — detects events, computes recovery times on 100 ms data,
+and evaluates each event against the criteria.
+
+**5 · Review** — Compliance table, time-series plots, per-event snapshots.
+Red rows / red-tinted snapshots indicate failures. *Not Recovered* warnings appear
+when the next load step arrived before the previous excursion had recovered.
+
+**6 · Override recovery points** — turn on *Show Intersection Points*, then use the
+override controls inside each snapshot expander.
+
+**7 · Export** — *Report Details* then *Generate Report* (Word or HTML).
+
+---
+
+### How events are detected
+
+Implemented in `perform_analysis()` (analysis.py).
+
+1. Per-row power change is computed:
+
+   ```
+   dKw[i] = Avg_kW[i] − Avg_kW[i−1]
+   ```
+
+2. Any row with `|dKw| > Load Threshold (kW)` is a *raw* event.
+3. Consecutive raw events whose timestamps fall within **Detection Window (s)** are
+   merged into one grouped event, and their `dKw` values are summed:
+
+   ```
+   Total_dKw = Σ dKw   for rows inside the merge window
+   ```
+
+4. The grouped event keeps the **first** raw row's timestamp (the *event timestamp*).
+
+Tune the Detection Window upward if a ramp is being split across multiple events,
+downward if separate steps are being merged into one.
+
+---
+
+### Voltage handling — L-N vs L-L
+
+Compliance is always evaluated against L-L voltage. The `CSV Voltage Columns`
+control selects how raw columns are interpreted:
+
+| Mode | Behaviour |
 |---|---|
-| Load Threshold (kW) | Minimum step size to count as an event |
-| Voltage / Frequency Tolerance | Recovery band width around nominal |
-| Recovery Time (s) | Max allowed time to return in-band |
-| Max Deviation (%) | Max allowed transient excursion from nominal |
+| Auto-detect | `U1/U2/U3_rms_AVG` → L-N (×√3); `U12/U23/U31_rms_AVG` → L-L; `U_avg_AVG` → L-L |
+| Line-to-Line | Use whatever columns exist as-is, no scaling |
+| Line-to-Neutral | Always multiply by √3 |
 
-Enable **asymmetric** mode for direction-specific bands or limits — e.g. ISO 8528
-frequency bands differ for load increase vs. load decrease events.
+```
+V_LL = V_LN × √3   ≈   V_LN × 1.732
+```
 
-**3 · Set nominal values**
-In the **Display Options** section choose the nominal voltage (415 V, 690 V, 11 kV,
-or custom) and frequency. All compliance checks are relative to these values.
+The averaged L-L value used in plots and for compliance is `Avg_Voltage_LL`
+= mean of the relevant phase columns (post-scaling).
 
-**4 · Run Analysis**
-Click **Run Analysis**. The tool detects load events, calculates recovery times on
-100 ms interpolated data, and checks each event against your criteria.
+---
 
-**5 · Review results**
+### The 100 ms interpolated frame
 
-- **Compliance table** — one row per event with Pass/Fail, peak deviation, and recovery time
-- **Time-series plots** — full-run voltage, current, frequency, and power graphs
-- **Event snapshots** — ±window zoom around each load change with band and deviation overlays
+Raw CSV is typically ~1 sample/s. After processing, all numeric columns are
+resampled onto a 100 ms grid:
 
-Red rows and red-tinted snapshots indicate failures. A **Not Recovered** warning
-appears when the signal was still out of band when the next load step occurred.
+```python
+df_interp = df_proc.resample("100ms").mean().interpolate("linear")
+```
 
-**6 · Override recovery points**
-If a recovery crossing was misidentified, enable **Show Intersection Points** in the
-sidebar, then use the per-event override controls inside the snapshot expander to
-set an exact recovery time manually.
+`df_interp` is used **only** for exit/recovery time calculations. Plots,
+snapshots, and the displayed `V_dev`/`F_dev` values come from the original
+processed data (`df_proc`) — never from `df_interp`. WinScope mode skips
+this resample because the source already runs at ~200 ms.
 
-**7 · Export a report**
-Fill in the **Report Details** section, choose *Word Template* or *HTML Template*
-format, and click **Generate Report**. The report includes the compliance table,
-all plots, snapshots, and a test summary.
+---
+
+### Deviation values (V_dev, F_dev)
+
+For each event, scan a post-event window of length **Snapshot Window (s)** on
+`df_proc` (raw, not interpolated). Pick the extreme based on load direction:
+
+```
+if dKw > 0  (load increase, signal drops):    V_dev = min(values)
+if dKw ≤ 0  (load decrease, signal rises):    V_dev = max(values)
+```
+
+Same logic for `F_dev`. These are the **actual measured values** (volts or hertz),
+not signed differences. The percentage shown in the table is:
+
+```
+V_dev% = |V_dev − nom_V| / nom_V × 100
+F_dev% = |F_dev − nom_F| / nom_F × 100
+```
+
+Display format in the table: `406.2 V (-2.12%)`.
+
+---
+
+### Recovery and exit times
+
+**Exit time (`V_exit_ts`, `F_exit_ts`)** — `calculate_exit_time()`
+
+1. Scan `df_interp` *backwards* from the event timestamp (lookback 30 s).
+2. Find the last in-band point. The next 100 ms point forward is the first
+   out-of-band point — linearly interpolate the exact crossing time:
+
+   ```
+   frac     = (boundary − v_in) / (v_out − v_in)
+   exit_ts  = t_in + frac × (t_out − t_in)
+   ```
+
+3. If the signal stayed in-band the whole 30 s window AND `V_dev`/`F_dev` is
+   actually outside the band (slow governor response), the engine scans
+   *forward* instead (`calculate_forward_exit_time`).
+4. If the signal never left the band, `exit_ts = None` and recovery is not
+   evaluated for that event.
+
+**Recovery time (`V_rec_s`, `F_rec_s`)** — `calculate_recovery_time()`
+
+1. Scan `df_interp` *forward* from `exit_ts`.
+2. Find the start of a **sustained in-band window** of `sustain_s = 0.3 s`
+   (3 consecutive 100 ms samples in band).
+3. Record that as a *candidate*. Linearly interpolate the exact re-entry
+   crossing between the last out-of-band and first in-band sample.
+4. Continue verifying for **Recovery Verify Window (s)** (default 6 s, dev-mode
+   tunable). If the signal exits the band again during verification, discard
+   the candidate and resume the search — handles oscillating waveforms.
+
+```
+recovery_time = recovery_crossing_ts − exit_ts        (seconds)
+```
+
+Recovery is only checked when an exit was detected (no exit ⇒ no recovery
+requirement, no fail).
+
+---
+
+### Compliance pass/fail logic
+
+Implemented in `check_compliance()`. For each event, both checks must pass.
+
+**Voltage**
+
+```
+v_dev_pct = |V_dev − nom_V| / nom_V × 100
+
+if dKw > 0  (load increase, V drops):
+    limit = Max Voltage Dev — decrease %      # the "lower-side" cap
+else:
+    limit = Max Voltage Dev — increase %      # the "upper-side" cap
+
+FAIL if  v_dev_pct > limit
+
+if V_exit_ts is set:
+    FAIL if  V_rec_s is None
+    FAIL if  V_rec_s > Voltage Recovery (s)
+```
+
+**Frequency** — same logic with `nom_F`, `F_dev`, `F_exit_ts`, `F_rec_s`.
+
+The event is *Pass* only if neither voltage nor frequency triggered any FAIL.
+
+---
+
+### Asymmetric bands
+
+Defaults are symmetric — one number governs both directions, e.g. ±1 % around 415 V
+gives `[410.85, 419.15] V`. The four "Apply asymmetric…" toggles unlock separate
+upper/lower (or increase/decrease) inputs:
+
+| Toggle | Unlocks |
+|---|---|
+| Apply asymmetric Voltage tolerance band | Per-direction recovery band (V) |
+| Apply asymmetric Voltage deviation limit | Per-direction max-dev (%) |
+| Apply asymmetric Frequency tolerance band | Per-direction recovery band (Hz) |
+| Apply asymmetric Frequency deviation limit | Per-direction max-dev (%) |
+
+ISO 8528 frequency defaults are intentionally asymmetric:
+
+```
+Load increase   →  freq drops  →  recovery band [49.75, 50.50] Hz
+Load decrease   →  freq rises  →  recovery band [49.50, 50.25] Hz
+```
+
+Rationale: governor response is asymmetric.
+
+---
+
+### Time-series plots — `generate_plots()`
+
+Six panels: **Power (kW)**, **Voltage (L-L)**, **Current (A)**, **Frequency (Hz)**,
+**Power Factor**, **THD**. X-axis spans the full filtered run, formatted `HH:MM:SS`.
+Currents are plotted per-phase if `I1/I2/I3_rms_AVG` are present.
+
+**Show Limits on Graphs** overlays red dashed max-deviation lines on V and F:
+
+```
+V upper limit = nom_V × (1 + max_dev_%_decrease / 100)
+V lower limit = nom_V × (1 − max_dev_%_increase / 100)
+F upper limit = nom_F × (1 + max_dev_%_decrease / 100)
+F lower limit = nom_F × (1 − max_dev_%_increase / 100)
+```
+
+**Debug overlay** (Dev Mode → *Show Event Detection*) adds amber `±thresh_kw`
+threshold lines on the kW panel, vertical event markers, orange ★ at exact
+band-exit, lime ★ at exact recovery, and per-event asymmetric band lines on F.
+
+---
+
+### Event snapshots — `plot_load_change_snapshot()`
+
+Four-panel zoom for each event: Voltage, Current, Frequency, Power.
+
+- **Window:** centred on the event timestamp, spanning ±(Snapshot Window / 2) seconds.
+  Auto-extends if exit/recovery markers fall outside.
+- **Title:** pre-event kW → post-event kW with the dKw delta. If *Rated Load* is set,
+  also shows `dKw / rated × 100 %`.
+
+Snapshot toggles:
+
+| Toggle | What it draws |
+|---|---|
+| Show Tolerance Band | Amber dashed at this event's recovery band (asymmetric if enabled) |
+| Show Deviation Limits | Red dashed — only the *direction-relevant* max-dev limit (load inc → lower; load dec → upper) |
+| Show Intersection Points | Orange ★ at `exit_ts`, lime ★ at `exit_ts + recovery_time` |
+| Show Max Deviation | Red ★ at the time of the V/F extreme (`idxmin` on increase, `idxmax` on decrease) — value matches `V_dev`/`F_dev` |
+
+**"Not Recovered" tinting** — if the previous event's signal had not returned in-band
+by the time the next event fires, the affected V or F panel is tinted light red
+with a watermark.
+
+---
+
+### Sidebar reference
+
+**Presets**
+
+| Setting | Effect |
+|---|---|
+| Configure Presets | Opens dialog to edit/add/remove presets stored in `uploads/presets.json` |
+| Active Preset | `None` lets you edit values directly. Choosing a preset locks all 17 fields to the preset's values |
+
+**Snapshot / Plot display**
+
+| Setting | Default | What it does |
+|---|---|---|
+| Show Limits on Graphs | off | Red dashed max-dev lines on full V & F time-series |
+| Show Tolerance Band on Snapshots | on | Amber dashed recovery band on each snapshot |
+| Show Deviation Limits on Snapshots | on | Red dashed direction-relevant max-dev line on each snapshot |
+| Show Intersection Points | off | Orange ★ at exit, lime ★ at recovery on snapshots |
+| Show Max Deviation | off | Red ★ at the V/F peak point on snapshots |
+| Show Event Detection (debug) | off | Dev-mode only — full debug overlay on time-series plots |
+
+**Detection / windowing**
+
+| Setting | Default | Range | Effect |
+|---|---|---|---|
+| Detection Window (s) | 3 | 1–30 | Merges consecutive raw events within this window into one grouped event |
+| Snapshot Window (s) | 8 | 3–60 | Total time span of each snapshot. Also the lookahead used to find `V_dev`/`F_dev` |
+| Recovery Verify Window (s) | 6 | 1–30 | (dev) After a recovery candidate, must stay in-band this long before being accepted |
+
+**Acceptance criteria — symmetric**
+
+| Setting | Default | Formula / use |
+|---|---|---|
+| Load Threshold (kW) | 50 | Minimum `|dKw|` to count as an event |
+| Voltage Tolerance (%) | 1.0 | Symmetric recovery band: `nom_V × (1 ± tol/100)` |
+| Voltage Recovery (s) | 4.0 | Pass requires `V_rec_s ≤ this` |
+| Max Voltage Dev (%) | 15.0 | Pass requires `V_dev% ≤ this` |
+| Frequency Tolerance (%) | 0.5 | Symmetric recovery band: `nom_F × (1 ± tol/100)` |
+| Frequency Recovery (s) | 3.0 | Pass requires `F_rec_s ≤ this` |
+| Max Frequency Dev (%) | 7.0 | Pass requires `F_dev% ≤ this` |
+
+**Acceptance criteria — asymmetric (when toggle enabled)**
+
+| Setting | Effect |
+|---|---|
+| Voltage Recovery Band (V) — Load Increase upper / lower | Recovery band used when `dKw > 0` |
+| Voltage Recovery Band (V) — Load Decrease upper / lower | Recovery band used when `dKw ≤ 0` |
+| Voltage Max Dev — Increase (%) | Cap on V drop for `dKw > 0` (lower-side limit) |
+| Voltage Max Dev — Decrease (%) | Cap on V rise for `dKw ≤ 0` (upper-side limit) |
+| Frequency Recovery Band (Hz) — Load Increase upper / lower | ISO default `50.50 / 49.75` |
+| Frequency Recovery Band (Hz) — Load Decrease upper / lower | ISO default `50.25 / 49.50` |
+| Frequency Max Dev — Increase (%) | Cap on F drop for `dKw > 0` |
+| Frequency Max Dev — Decrease (%) | Cap on F rise for `dKw ≤ 0` |
+
+**Other inputs**
+
+| Setting | Effect |
+|---|---|
+| Rated Load (kW) | Optional. Adds `dKw / rated × 100 %` to the snapshot title |
+| No. Expected Load Steps | Optional. Warns if detected event count differs |
+| Nominal Voltage | Reference L-L voltage. All `V_dev%` and recovery bands are relative to this |
+| Nominal Frequency (Hz) | Reference frequency. All `F_dev%` and recovery bands are relative to this |
+| CSV Voltage Columns | Auto-detect / Force L-L / Force L-N (×√3) — see *Voltage handling* above |
+| Time Filter — Start / End | `HH:MM:SS` clip applied to the CSV before analysis |
+
+**Report**
+
+| Setting | Effect |
+|---|---|
+| Report Title | `{{Report_Title}}` placeholder in the template |
+| PQA Serial No. / Generator S/N / Site Address / Custom Field | Header metadata, available as placeholders |
+| Report Format | `Word Template` (.docx + LibreOffice → PDF) or `HTML Template` (HTML + WeasyPrint → PDF) |
 
 ---
 
@@ -2283,14 +2551,14 @@ all plots, snapshots, and a test summary.
 
 ### Tips
 
-- **Time Filter** — use the start/end time fields to analyse only a specific window
-  within your CSV (useful when the file spans multiple test runs).
-- **Snapshot Window** — increase to see more context around each event, and to widen
-  the window used to find the peak deviation value.
-- **Detection Window** — increase if consecutive ramp steps are being split into
-  separate events instead of grouped into one.
-- **Dev Mode** — enable in the sidebar expander to persist all settings between
-  restarts and to access debug overlays on plots.
+- **Time Filter** — analyse only a window within a multi-test CSV.
+- **Snapshot Window** — increase if the V/F nadir falls outside the default
+  window (slow governor response), since this also widens the `V_dev`/`F_dev`
+  search range.
+- **Detection Window** — increase if a ramp is split into multiple events;
+  decrease if separate steps merge into one.
+- **Dev Mode** — persists all sidebar settings to `uploads/dev_settings.json`
+  between restarts; unlocks the debug overlay and the Recovery Verify Window slider.
 """)
 
 
