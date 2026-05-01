@@ -360,7 +360,8 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                               v_max_dev=15.0, f_max_dev=7.0,
                               show_debug=False, show_intersections=False, event_row=None,
                               show_max_deviation=False,
-                              rated_load_kw=None, window_s=10):
+                              rated_load_kw=None, window_s=10,
+                              next_event_ts=None, prev_event_ts=None):
     """
     Generate a +-5 second snapshot around a load event showing V, I, F, kW.
 
@@ -374,10 +375,11 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    # Determine time bounds: default ±window_s, but extend if intersection markers
-    # (exit / recovery) fall outside the default window.
-    left_s = window_s
-    right_s = window_s
+    # Determine time bounds: window_s is the TOTAL span (e.g. 8 -> -4s..+4s),
+    # but extend if intersection markers (exit / recovery) fall outside.
+    half_window = window_s / 2.0
+    left_s = half_window
+    right_s = half_window
     if show_intersections and event_row is not None:
         for exit_key, rec_key in [("V_exit_ts", "V_rec_s"), ("F_exit_ts", "F_rec_s")]:
             ex = event_row.get(exit_key)
@@ -393,6 +395,18 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                 needed_right = (marker_ts - event_ts).total_seconds() + 2
                 if needed_right > right_s:
                     right_s = needed_right
+
+    # Hard ceiling: never extend past neighbouring events. Otherwise a far-out
+    # recovery marker drags the next event's data into this snapshot, inflating
+    # load_before / load_after and producing a misleading wide x-axis.
+    if next_event_ts is not None and pd.notnull(next_event_ts):
+        max_right = (pd.Timestamp(next_event_ts) - event_ts).total_seconds()
+        if max_right > 0:
+            right_s = min(right_s, max_right)
+    if prev_event_ts is not None and pd.notnull(prev_event_ts):
+        max_left = (event_ts - pd.Timestamp(prev_event_ts)).total_seconds()
+        if max_left > 0:
+            left_s = min(left_s, max_left)
 
     df_win = df_raw[
         (df_raw["Timestamp"] >= event_ts - pd.Timedelta(seconds=left_s)) &
@@ -592,30 +606,53 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         v_dev_t = None
         f_dev_t = None
         if show_max_deviation:
-            _post_end = event_ts + pd.Timedelta(seconds=5)
-            _post = df_win[
-                (df_win["Timestamp"] >= event_ts) &
+            _dkw = event_row.get("dKw", 0) if event_row is not None else 0
+            _v_nr = bool(event_row.get("V_not_recovered", False)) if event_row is not None else False
+            _f_nr = bool(event_row.get("F_not_recovered", False)) if event_row is not None else False
+            # For not-recovered events the deep dip is BEFORE event_ts (carry-over
+            # from the prior step), so widen the marker-placement search to match
+            # the widened V_dev/F_dev computation in analysis.py.
+            _v_start = event_ts - pd.Timedelta(seconds=left_s) if _v_nr else event_ts
+            _f_start = event_ts - pd.Timedelta(seconds=left_s) if _f_nr else event_ts
+            _post_end = event_ts + pd.Timedelta(seconds=right_s)
+            _v_post = df_win[
+                (df_win["Timestamp"] >= _v_start) &
                 (df_win["Timestamp"] <= _post_end)
             ]
-            _dkw = event_row.get("dKw", 0) if event_row is not None else 0
-            if not _post.empty and pd.notnull(v_dev) and "Avg_Voltage_LL" in _post.columns:
-                _vs = pd.to_numeric(_post["Avg_Voltage_LL"], errors="coerce")
+            _f_post = df_win[
+                (df_win["Timestamp"] >= _f_start) &
+                (df_win["Timestamp"] <= _post_end)
+            ]
+            # Resolve a voltage column actually present in df_raw — Avg_Voltage_LL
+            # only exists in df_proc, so we fall back to the columns the plot uses.
+            _v_src_col = None
+            for _c in ("U_avg_AVG", "U12_rms_AVG", "U23_rms_AVG", "U31_rms_AVG",
+                       "U1_rms_AVG", "U2_rms_AVG", "U3_rms_AVG"):
+                if _c in _v_post.columns:
+                    _v_src_col = _c
+                    break
+            # Place the value label BELOW dips (load increase, dKw>0) and
+            # ABOVE peaks (load decrease, dKw<=0) so it never sits on the line.
+            _v_off = (4, -14) if _dkw > 0 else (4, 10)
+            _f_off = (4, -14) if _dkw > 0 else (4, 10)
+            if not _v_post.empty and pd.notnull(v_dev) and _v_src_col is not None:
+                _vs = pd.to_numeric(_v_post[_v_src_col], errors="coerce")
                 _vidx = _vs.idxmin() if _dkw > 0 else _vs.idxmax()
                 if pd.notnull(_vidx):
-                    v_dev_t = _post.loc[_vidx, "Timestamp"]
+                    v_dev_t = _v_post.loc[_vidx, "Timestamp"]
                     axes[0].scatter([v_dev_t], [v_dev], color=_RED, marker="*",
                                     s=160, zorder=8, edgecolor="white", linewidth=1.0)
-                    axes[0].annotate(f"{v_dev:.1f} V", xy=(v_dev_t, v_dev), xytext=(4, -14),
+                    axes[0].annotate(f"{v_dev:.1f} V", xy=(v_dev_t, v_dev), xytext=_v_off,
                                      textcoords="offset points",
                                      fontsize=7, color=_RED, fontweight="700")
-            if not _post.empty and pd.notnull(f_dev) and "Avg_Frequency" in _post.columns:
-                _fs = pd.to_numeric(_post["Avg_Frequency"], errors="coerce")
+            if not _f_post.empty and pd.notnull(f_dev) and "Freq_AVG" in _f_post.columns:
+                _fs = pd.to_numeric(_f_post["Freq_AVG"], errors="coerce")
                 _fidx = _fs.idxmin() if _dkw > 0 else _fs.idxmax()
                 if pd.notnull(_fidx):
-                    f_dev_t = _post.loc[_fidx, "Timestamp"]
+                    f_dev_t = _f_post.loc[_fidx, "Timestamp"]
                     axes[2].scatter([f_dev_t], [f_dev], color=_RED, marker="*",
                                     s=160, zorder=8, edgecolor="white", linewidth=1.0)
-                    axes[2].annotate(f"{f_dev:.3f} Hz", xy=(f_dev_t, f_dev), xytext=(4, -14),
+                    axes[2].annotate(f"{f_dev:.3f} Hz", xy=(f_dev_t, f_dev), xytext=_f_off,
                                      textcoords="offset points",
                                      fontsize=7, color=_RED, fontweight="700")
 
@@ -643,19 +680,42 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                     Line2D([0], [0], color=_RED, ls="--", lw=1.5, label=f"Max Dev -{_leg_v_lo}% ({v_lower_dev:.1f} V)")
                 )
         if show_intersections:
+            _v_exit_lbl = "exit"
+            _v_rec_lbl = "recovery"
+            if pd.notnull(v_exit):
+                _vx = pd.Timestamp(v_exit)
+                _v_exit_lbl = f"exit ({_vx.strftime('%H:%M:%S.%f')[:-4]})"
+                if pd.notnull(v_rec_s):
+                    _vr = _vx + pd.Timedelta(seconds=float(v_rec_s))
+                    _v_rec_lbl = f"recovery (+{float(v_rec_s):.2f}s @ {_vr.strftime('%H:%M:%S.%f')[:-4]})"
             v_legend.extend([
-                Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=10, label="exit"),
-                Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=10, label="recovery"),
+                Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=10, label=_v_exit_lbl),
+                Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=10, label=_v_rec_lbl),
             ])
         if show_max_deviation and pd.notnull(v_dev):
+            _v_pct = (v_dev - nom_v) / nom_v * 100 if nom_v else 0
             v_legend.append(
                 Line2D([0], [0], color=_RED, marker="*", ls="none", markersize=11,
                        markeredgecolor="white", markeredgewidth=1.0,
-                       label=f"Max Deviation ({v_dev:.1f} V)")
+                       label=f"Max Deviation ({v_dev:.1f} V, {_v_pct:+.2f}%)")
             )
+        def _pick_legend_loc(exit_ts, rec_s):
+            """Flip to upper-left if any marker sits in the right 30% of the window."""
+            if pd.isnull(exit_ts):
+                return "upper right"
+            threshold = event_ts + pd.Timedelta(seconds=right_s * 0.4)
+            ex = pd.Timestamp(exit_ts)
+            if ex >= threshold:
+                return "upper left"
+            if pd.notnull(rec_s):
+                if ex + pd.Timedelta(seconds=float(rec_s)) >= threshold:
+                    return "upper left"
+            return "upper right"
+
         if v_legend:
             axes[0].legend(handles=v_legend, fontsize=8, framealpha=0.9,
-                           loc="upper right", edgecolor=_GRID, facecolor=_BG)
+                           loc=_pick_legend_loc(v_exit, v_rec_s),
+                           edgecolor=_GRID, facecolor=_BG)
 
         # ── Frequency panel ──────────────────────────────────────────────
         if show_tolerance_band:
@@ -705,20 +765,35 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                     Line2D([0], [0], color=_RED, ls="--", lw=1.5, label=f"Max Dev -{_leg_f_lo}% ({f_lower_dev:.3f} Hz)")
                 )
         if show_intersections:
+            _f_exit_lbl = "exit"
+            _f_rec_lbl = "recovery"
+            if pd.notnull(f_exit):
+                _fx = pd.Timestamp(f_exit)
+                _f_exit_lbl = f"exit ({_fx.strftime('%H:%M:%S.%f')[:-4]})"
+                if pd.notnull(f_rec_s):
+                    _fr = _fx + pd.Timedelta(seconds=float(f_rec_s))
+                    _f_rec_lbl = f"recovery (+{float(f_rec_s):.2f}s @ {_fr.strftime('%H:%M:%S.%f')[:-4]})"
             f_legend.extend([
-                Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=10, label="exit"),
-                Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=10, label="recovery"),
+                Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=10, label=_f_exit_lbl),
+                Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=10, label=_f_rec_lbl),
             ])
         if show_max_deviation and pd.notnull(f_dev):
+            _f_pct = (f_dev - nom_f) / nom_f * 100 if nom_f else 0
             f_legend.append(
                 Line2D([0], [0], color=_RED, marker="*", ls="none", markersize=11,
                        markeredgecolor="white", markeredgewidth=1.0,
-                       label=f"Max Deviation ({f_dev:.3f} Hz)")
+                       label=f"Max Deviation ({f_dev:.3f} Hz, {_f_pct:+.2f}%)")
             )
         if f_legend:
             axes[2].legend(handles=f_legend, fontsize=8, framealpha=0.9,
-                           loc="upper right", edgecolor=_GRID, facecolor=_BG)
+                           loc=_pick_legend_loc(f_exit, f_rec_s),
+                           edgecolor=_GRID, facecolor=_BG)
 
+    x_left = event_ts - pd.Timedelta(seconds=left_s)
+    x_right = event_ts + pd.Timedelta(seconds=right_s)
+    for ax in axes:
+        ax.set_xlim(x_left, x_right)
+        ax.xaxis.set_major_locator(mdates.SecondLocator(interval=1))
     axes[3].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
     fig.autofmt_xdate(rotation=0, ha="center")
     axes[3].tick_params(axis="x", labelsize=11, colors=_TEXT_SUB)
@@ -777,8 +852,11 @@ def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Sn
 
     paths = []
     snapshot_errors = []
-    for idx, (_, row) in enumerate(df_events.iterrows()):
+    _events_seq = list(df_events.iterrows())
+    for idx, (_, row) in enumerate(_events_seq):
         try:
+            _prev_ts = _events_seq[idx - 1][1]["Timestamp"] if idx > 0 else None
+            _next_ts = _events_seq[idx + 1][1]["Timestamp"] if idx + 1 < len(_events_seq) else None
             path = plot_load_change_snapshot(
                 df_raw,
                 event_ts=row["Timestamp"],
@@ -798,6 +876,8 @@ def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Sn
                 show_max_deviation=show_max_deviation,
                 rated_load_kw=rated_load_kw,
                 window_s=window_s,
+                prev_event_ts=_prev_ts,
+                next_event_ts=_next_ts,
             )
             paths.append(path)
         except Exception as e:

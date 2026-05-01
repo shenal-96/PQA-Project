@@ -266,10 +266,10 @@ _DEV_DEFAULTS: dict = {
     "show_intersections": False,
     "show_max_deviation": False,
     "show_debug": False,
-    "detection_window": 3.0,
+    "detection_window": 8.0,
     "recovery_verify_s": 6.0,
     "snapshot_window": 8.0,
-    "load_thresh": 50.0,
+    "load_thresh": 30.0,
     "v_tol": 1.0,
     "v_rec": 4.0,
     "v_max_dev": 15.0,
@@ -1519,7 +1519,7 @@ with st.sidebar:
     with _dw_rst:
         st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
         if st.button("↺", key="reset_detection_window"):
-            st.session_state["detection_window"] = 3.0
+            st.session_state["detection_window"] = 8.0
             st.rerun()
     _sw_col, _sw_rst = st.columns([7, 1])
     with _sw_col:
@@ -1527,7 +1527,7 @@ with st.sidebar:
             "Snapshot Window (s)",
             key="snapshot_window",
             min_value=3.0, max_value=60.0, step=1.0,
-            help="Seconds shown either side of each event in snapshots. Also sets the window used to find peak voltage/frequency deviation.",
+            help="Total seconds shown around each event (centered: ±window/2). Also sets the window used to find peak voltage/frequency deviation.",
         )
     with _sw_rst:
         st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
@@ -3114,6 +3114,8 @@ if _active_tab_main == "compliance":
                                 event_row=row,
                                 rated_load_kw=st.session_state.get("rated_load_kw"),
                                 window_s=_new_win,
+                                prev_event_ts=df_events.iloc[idx - 1]["Timestamp"] if idx > 0 else None,
+                                next_event_ts=df_events.iloc[idx + 1]["Timestamp"] if idx + 1 < len(df_events) else None,
                             )
                             _paths = list(st.session_state.get("snapshot_paths", []))
                             if snap_i < len(_paths):
@@ -3454,6 +3456,7 @@ elif _active_tab_main == "winscope":
                             show_debug=show_debug,
                             show_intersections=show_intersections,
                             show_max_deviation=show_max_deviation,
+                            rated_load_kw=st.session_state.get("rated_load_kw"),
                             window_s=snapshot_window,
                         )
                         if _ws_snap_errors:

@@ -687,7 +687,7 @@ def perform_analysis(df, config: AnalysisConfig):
             # Compute V_dev first so we can gate the forward scan on it.
             events["V_dev"] = events.apply(
                 lambda row: _measured_extreme(df_proc, row["Timestamp"], "Avg_Voltage_LL",
-                                              row["dKw"], window_s=config.snapshot_window_s),
+                                              row["dKw"], window_s=config.snapshot_window_s / 2.0),
                 axis=1,
             )
             v_exit_vals = []
@@ -741,7 +741,7 @@ def perform_analysis(df, config: AnalysisConfig):
             # Compute F_dev first so we can gate the forward scan on it.
             events["F_dev"] = events.apply(
                 lambda row: _measured_extreme(df_proc, row["Timestamp"], "Avg_Frequency",
-                                              row["dKw"], window_s=config.snapshot_window_s),
+                                              row["dKw"], window_s=config.snapshot_window_s / 2.0),
                 axis=1,
             )
             f_exit_vals = []
@@ -826,6 +826,42 @@ def perform_analysis(df, config: AnalysisConfig):
             )
         else:
             events["F_not_recovered"] = False
+
+        # Widen V_dev / F_dev for not-recovered events so the deep dip from the
+        # prior step (which is bleeding into this event's window) is captured.
+        # Lower bound: prior event's Timestamp, or event_ts - snapshot_window_s/2
+        # if there is no prior event. Upper bound: event_ts + snapshot_window_s/2.
+        _half_win = config.snapshot_window_s / 2.0
+        events = events.reset_index(drop=True)
+        for _i in range(len(events)):
+            _row = events.iloc[_i]
+            _ts = _row["Timestamp"]
+            _dkw = _row.get("dKw", 0)
+            _prev_ts = events.iloc[_i - 1]["Timestamp"] if _i > 0 else _ts - pd.Timedelta(seconds=_half_win)
+            _start = max(_prev_ts, _ts - pd.Timedelta(seconds=_half_win))
+            _end = _ts + pd.Timedelta(seconds=_half_win)
+            if _row.get("V_not_recovered", False) and "Avg_Voltage_LL" in df_proc.columns:
+                _vw = df_proc[(df_proc["Timestamp"] >= _start) & (df_proc["Timestamp"] <= _end)]
+                _vv = pd.to_numeric(_vw["Avg_Voltage_LL"], errors="coerce").dropna()
+                if not _vv.empty:
+                    events.at[_i, "V_dev"] = _vv.min() if _dkw > 0 else _vv.max()
+                # Inherit prior event's exit/recovery so the snapshot can render
+                # the intersection points for the carry-over dip.
+                if _i > 0 and pd.isnull(_row.get("V_exit_ts")):
+                    _prev = events.iloc[_i - 1]
+                    if pd.notnull(_prev.get("V_exit_ts")):
+                        events.at[_i, "V_exit_ts"] = _prev["V_exit_ts"]
+                        events.at[_i, "V_rec_s"] = _prev.get("V_rec_s")
+            if _row.get("F_not_recovered", False) and "Avg_Frequency" in df_proc.columns:
+                _fw = df_proc[(df_proc["Timestamp"] >= _start) & (df_proc["Timestamp"] <= _end)]
+                _ff = pd.to_numeric(_fw["Avg_Frequency"], errors="coerce").dropna()
+                if not _ff.empty:
+                    events.at[_i, "F_dev"] = _ff.min() if _dkw > 0 else _ff.max()
+                if _i > 0 and pd.isnull(_row.get("F_exit_ts")):
+                    _prev = events.iloc[_i - 1]
+                    if pd.notnull(_prev.get("F_exit_ts")):
+                        events.at[_i, "F_exit_ts"] = _prev["F_exit_ts"]
+                        events.at[_i, "F_rec_s"] = _prev.get("F_rec_s")
 
         # Apply compliance check to each event
         compliance = events.apply(lambda row: check_compliance(row, config), axis=1)
