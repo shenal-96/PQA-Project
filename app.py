@@ -1571,47 +1571,41 @@ with st.sidebar:
         show_debug = st.checkbox("Show Event Detection (De-bugging)", value=_ds.get("show_debug", False))
     else:
         show_debug = False
-    _dw_col, _dw_rst = st.columns([7, 1])
-    with _dw_col:
+    # Detection / Snapshot / (dev) Recovery-Verify windows live inside an
+    # st.form so editing them does not trigger a full-page rerun (no grey
+    # overlay flash). Values commit when "Apply Windows" is clicked or
+    # when Run Analysis fires its own rerun.
+    with st.form("detection_windows_form", border=False, clear_on_submit=False):
         detection_window = st.number_input(
             "Detection Window (s)",
             key="detection_window",
             min_value=1.0, max_value=30.0, step=1.0,
             help="Time window used to group consecutive load step rows into a single event.",
         )
-    with _dw_rst:
-        st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
-        if st.button("↺", key="reset_detection_window"):
-            st.session_state["detection_window"] = 8.0
-            st.rerun()
-    _sw_col, _sw_rst = st.columns([7, 1])
-    with _sw_col:
         snapshot_window = st.number_input(
             "Snapshot Window (s)",
             key="snapshot_window",
             min_value=3.0, max_value=60.0, step=1.0,
             help="Total seconds shown around each event (centered: ±window/2). Also sets the window used to find peak voltage/frequency deviation.",
         )
-    with _sw_rst:
-        st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
-        if st.button("↺", key="reset_snapshot_window"):
-            st.session_state["snapshot_window"] = 8.0
-            st.rerun()
-    recovery_verify_s = 6.0
-    if dev_mode:
-        _rv_col, _rv_rst = st.columns([7, 1])
-        with _rv_col:
+        recovery_verify_s = 6.0
+        if dev_mode:
             recovery_verify_s = st.number_input(
                 "Recovery Verify Window (s)",
                 key="recovery_verify_s",
                 min_value=1.0, max_value=30.0, step=1.0,
                 help="After a recovery candidate is found, verify the signal stays in-band for this many seconds. Handles oscillating waveforms.",
             )
-        with _rv_rst:
-            st.markdown('<div class="pqa-rst-btn"></div>', unsafe_allow_html=True)
-            if st.button("↺", key="reset_recovery_verify"):
-                st.session_state["recovery_verify_s"] = 6.0
-                st.rerun()
+        _wf_apply, _wf_reset = st.columns([3, 2])
+        with _wf_apply:
+            st.form_submit_button("Apply Windows", use_container_width=True)
+        with _wf_reset:
+            _reset_windows = st.form_submit_button("↺ Defaults", use_container_width=True)
+    if _reset_windows:
+        st.session_state["detection_window"] = 8.0
+        st.session_state["snapshot_window"] = 8.0
+        st.session_state["recovery_verify_s"] = 6.0
+        st.rerun()
     _ds["active_preset"] = active_preset
     _any_preset = active_preset != "None"
 
