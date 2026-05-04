@@ -2775,41 +2775,6 @@ if _active_tab_main == "compliance":
                 "show_deviation_limits_snapshots": show_deviation_limits_snapshots,
             })
 
-            _n_pass = int((df_events["Compliance_Status"] == "Pass").sum()) if not df_events.empty and "Compliance_Status" in df_events.columns else 0
-            _n_fail = int((df_events["Compliance_Status"] == "Fail").sum()) if not df_events.empty and "Compliance_Status" in df_events.columns else 0
-            _n_events = len(df_events)
-            _overall_cls = "overall-pass" if _n_fail == 0 and _n_events > 0 else ("overall-fail" if _n_fail > 0 else "")
-            _overall_label = "ALL PASS" if _n_fail == 0 and _n_events > 0 else (f"{_n_fail} FAIL{'S' if _n_fail > 1 else ''}" if _n_fail > 0 else "—")
-            _overall_badge_cls = "pass" if _n_fail == 0 and _n_events > 0 else "fail"
-            st.markdown(f"""
-            <div class="pqa-metrics">
-              <div class="pqa-metric-card">
-                <div class="pqa-metric-label">Data Points</div>
-                <div class="pqa-metric-value">{len(df_proc):,}</div>
-                <div class="pqa-metric-sub">rows processed</div>
-              </div>
-              <div class="pqa-metric-card">
-                <div class="pqa-metric-label">Events Detected</div>
-                <div class="pqa-metric-value">{_n_events}</div>
-                <div class="pqa-metric-sub">load steps found</div>
-              </div>
-              <div class="pqa-metric-card pass">
-                <div class="pqa-metric-label">Passed</div>
-                <div class="pqa-metric-value">{_n_pass}</div>
-                <div class="pqa-metric-sub">of {_n_events} events</div>
-              </div>
-              <div class="pqa-metric-card {'fail' if _n_fail > 0 else ''}">
-                <div class="pqa-metric-label">Failed</div>
-                <div class="pqa-metric-value">{_n_fail}</div>
-                <div class="pqa-metric-sub">compliance issues</div>
-              </div>
-              <div class="pqa-metric-card {_overall_cls}" style="flex:0.7;">
-                <div class="pqa-metric-label">Result</div>
-                <div class="pqa-overall-badge {_overall_badge_cls}" style="margin-top:0.6rem;font-size:0.85rem;">{_overall_label}</div>
-              </div>
-            </div>
-            """, unsafe_allow_html=True)
-
             # Main time-series graphs are always clean — debug overlays live on snapshots only.
             plot_kwargs = dict(
                 output_dir=GRAPH_DIR, show_limits=show_limits,
@@ -2937,6 +2902,43 @@ if _active_tab_main == "compliance":
         table_path = st.session_state.get("table_path")
         client_name_display = st.session_state["client_name"]
         config = st.session_state["config"]
+        df_proc_state = st.session_state.get("df_proc")
+
+        _n_pass = int((df_events["Compliance_Status"] == "Pass").sum()) if not df_events.empty and "Compliance_Status" in df_events.columns else 0
+        _n_fail = int((df_events["Compliance_Status"] == "Fail").sum()) if not df_events.empty and "Compliance_Status" in df_events.columns else 0
+        _n_events = len(df_events)
+        _n_rows = len(df_proc_state) if df_proc_state is not None else 0
+        _overall_cls = "overall-pass" if _n_fail == 0 and _n_events > 0 else ("overall-fail" if _n_fail > 0 else "")
+        _overall_label = "ALL PASS" if _n_fail == 0 and _n_events > 0 else (f"{_n_fail} FAIL{'S' if _n_fail > 1 else ''}" if _n_fail > 0 else "—")
+        _overall_badge_cls = "pass" if _n_fail == 0 and _n_events > 0 else "fail"
+        st.markdown(f"""
+        <div class="pqa-metrics">
+          <div class="pqa-metric-card">
+            <div class="pqa-metric-label">Data Points</div>
+            <div class="pqa-metric-value">{_n_rows:,}</div>
+            <div class="pqa-metric-sub">rows processed</div>
+          </div>
+          <div class="pqa-metric-card">
+            <div class="pqa-metric-label">Events Detected</div>
+            <div class="pqa-metric-value">{_n_events}</div>
+            <div class="pqa-metric-sub">load steps found</div>
+          </div>
+          <div class="pqa-metric-card pass">
+            <div class="pqa-metric-label">Passed</div>
+            <div class="pqa-metric-value">{_n_pass}</div>
+            <div class="pqa-metric-sub">of {_n_events} events</div>
+          </div>
+          <div class="pqa-metric-card {'fail' if _n_fail > 0 else ''}">
+            <div class="pqa-metric-label">Failed</div>
+            <div class="pqa-metric-value">{_n_fail}</div>
+            <div class="pqa-metric-sub">compliance issues</div>
+          </div>
+          <div class="pqa-metric-card {_overall_cls}" style="flex:0.7;">
+            <div class="pqa-metric-label">Result</div>
+            <div class="pqa-overall-badge {_overall_badge_cls}" style="margin-top:0.6rem;font-size:0.85rem;">{_overall_label}</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
 
         # Time-Series Plots
         st.markdown("""
@@ -2948,20 +2950,28 @@ if _active_tab_main == "compliance":
             tabs = st.tabs([n.replace("Avg_", "").replace("_", " ") for n in graph_paths.keys()])
             for tab, (name, path) in zip(tabs, graph_paths.items()):
                 with tab:
-                    if path.endswith(".svg"):
-                        import re as _re
-                        with open(path, "r", encoding="utf-8") as _f:
-                            _svg = _f.read()
-                        # Strip fixed pixel dimensions so the SVG fills container width
-                        # and the browser calculates height from the viewBox aspect ratio.
-                        _svg = _re.sub(r'(<svg\b[^>]*?)\s+width="[^"]*"', r'\1 width="100%"', _svg, count=1)
-                        _svg = _re.sub(r'(<svg\b[^>]*?)\s+height="[^"]*"', r'\1', _svg, count=1)
-                        st.components.v1.html(
-                            f'<div style="width:100%">{_svg}</div>',
-                            height=540,
+                    try:
+                        if path.endswith(".svg"):
+                            import re as _re
+                            with open(path, "r", encoding="utf-8") as _f:
+                                _svg = _f.read()
+                            # Strip fixed pixel dimensions so the SVG fills container width
+                            # and the browser calculates height from the viewBox aspect ratio.
+                            _svg = _re.sub(r'(<svg\b[^>]*?)\s+width="[^"]*"', r'\1 width="100%"', _svg, count=1)
+                            _svg = _re.sub(r'(<svg\b[^>]*?)\s+height="[^"]*"', r'\1', _svg, count=1)
+                            st.components.v1.html(
+                                f'<div style="width:100%">{_svg}</div>',
+                                height=540,
+                            )
+                        else:
+                            st.image(path, use_container_width=True)
+                    except (FileNotFoundError, OSError) as _e:
+                        st.warning(
+                            "Plot file is no longer available — please click **Run Analysis** "
+                            "again to regenerate it. (Cached plot paths can become stale after "
+                            "the app restarts or the output directory is cleared.)"
                         )
-                    else:
-                        st.image(path, use_container_width=True)
+                        st.caption(f"Details: {type(_e).__name__}: {_e}")
         else:
             st.info("No plots generated.")
 
