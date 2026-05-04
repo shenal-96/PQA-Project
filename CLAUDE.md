@@ -376,6 +376,41 @@ def _configure_presets_dialog():
 2. **UI** — Add `_configure_presets_dialog()` dialog function, replace 3 checkboxes with button + selectbox, remove mutual-exclusivity logic.
 3. **Logic** — Replace hardcoded preset application block with dynamic lookup, update `_ds` save block, fix `_any_preset` calculation.
 
+### Deferred snapshot streaming (perceived-perf optimisation)
+Run Analysis no longer renders snapshots inline. Snapshots are the dominant
+cost (4-panel matplotlib figure at dpi=150 per event), so they're deferred:
+
+1. Run Analysis runs CSV load → `perform_analysis` → time-series plots →
+   compliance table, then seeds `snapshot_paths = [None] * len(df_events)`,
+   stashes kwargs in `st.session_state["pending_snapshot_args"]`, and sets
+   `snapshots_pending = True`. **It does NOT call `generate_all_snapshots`.**
+2. The results section renders normally — table, time-series, then snapshot
+   expanders. While `snapshots_pending` is True, expanders with `None` paths
+   show "Snapshot rendering…" instead of "No snapshot image for this event."
+3. A streaming block sits below the snapshot expanders. While
+   `snapshots_pending` is True it shows an `st.progress` bar and loops
+   `plot_load_change_snapshot` once per event, mutating
+   `session_state["snapshot_paths"][i]` after each render. When the loop
+   finishes it clears the pending flag and calls `st.rerun()` so the
+   expanders refresh with the completed images.
+4. Per-snapshot exceptions are collected into
+   `session_state["snapshot_stream_errors"]` and surfaced as warnings on the
+   next rerun (popped after display).
+
+WinScope mirrors the same pattern with `ws_*` keys
+(`ws_snapshots_pending`, `ws_pending_snapshot_args`,
+`ws_snapshot_stream_errors`). The WinScope expander loop now iterates over
+`_ws_ev` (events) rather than `_ws_sp` (paths) so pending events still get
+an expander with the placeholder.
+
+The wall-clock cost is unchanged (still single-threaded matplotlib — keeps
+us off the threading-safety landmines), but the table + time-series land
+immediately and the user sees snapshots stream in below with live progress.
+The legacy `generate_all_snapshots` helper is still used by the
+"Recalculate Compliance" path and the report-generation "regenerate clean
+snapshots" branch — both are post-analysis flows where deferral isn't
+needed.
+
 ## Known Gotchas
 
 - **Do not restart Streamlit** to pick up code changes when running locally;

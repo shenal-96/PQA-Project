@@ -1211,6 +1211,68 @@ def _get_ws_time_range(path):
 
 # nom_v and nom_f are set by the sidebar Display Options section below.
 
+def _build_clipboard_tsv(df_events, dev_col, rec_col, dev_decimals):
+    if df_events is None or df_events.empty:
+        return ""
+    lines = []
+    for _, row in df_events.iterrows():
+        dev = pd.to_numeric(pd.Series([row.get(dev_col)]), errors="coerce").iloc[0]
+        rec = pd.to_numeric(pd.Series([row.get(rec_col)]), errors="coerce").iloc[0]
+        if pd.isna(dev) and pd.isna(rec):
+            continue
+        dev_s = f"{dev:.{dev_decimals}f}" if pd.notna(dev) else ""
+        rec_s = f"{rec:.2f}" if pd.notna(rec) else ""
+        lines.append(f"{dev_s}\t{rec_s}")
+    return "\n".join(lines)
+
+
+def _render_clipboard_buttons(df_events, key_prefix):
+    import json as _json
+    v_tsv = _build_clipboard_tsv(df_events, "V_dev", "V_rec_s", 1)
+    f_tsv = _build_clipboard_tsv(df_events, "F_dev", "F_rec_s", 3)
+    v_json = _json.dumps(v_tsv)
+    f_json = _json.dumps(f_tsv)
+    html = f"""
+    <div style="display:flex;gap:12px;margin:8px 0 4px 0;font-family:Inter,system-ui,sans-serif;">
+      <button id="{key_prefix}_v_btn" style="
+        padding:8px 14px;border-radius:8px;border:1px solid #2563eb;
+        background:#2563eb;color:#fff;font-weight:600;cursor:pointer;font-size:13px;">
+        Copy Voltage Compliance to Clipboard
+      </button>
+      <button id="{key_prefix}_f_btn" style="
+        padding:8px 14px;border-radius:8px;border:1px solid #0891b2;
+        background:#0891b2;color:#fff;font-weight:600;cursor:pointer;font-size:13px;">
+        Copy Frequency Compliance to Clipboard
+      </button>
+      <span id="{key_prefix}_status" style="align-self:center;color:#16a34a;font-size:12px;"></span>
+    </div>
+    <script>
+      (function() {{
+        const vData = {v_json};
+        const fData = {f_json};
+        const status = document.getElementById("{key_prefix}_status");
+        function copy(text, label) {{
+          if (!text) {{
+            status.style.color = "#dc2626";
+            status.textContent = "Nothing to copy for " + label + ".";
+            return;
+          }}
+          navigator.clipboard.writeText(text).then(() => {{
+            status.style.color = "#16a34a";
+            status.textContent = label + " copied (" + text.split("\\n").length + " rows).";
+          }}).catch((e) => {{
+            status.style.color = "#dc2626";
+            status.textContent = "Copy failed: " + e;
+          }});
+        }}
+        document.getElementById("{key_prefix}_v_btn").onclick = () => copy(vData, "Voltage");
+        document.getElementById("{key_prefix}_f_btn").onclick = () => copy(fData, "Frequency");
+      }})();
+    </script>
+    """
+    st.components.v1.html(html, height=60)
+
+
 def _render_compliance_html(df):
     cols = list(df.columns)
     header = "".join(f"<th>{c}</th>" for c in cols)
@@ -2814,29 +2876,26 @@ if _active_tab_main == "compliance":
                     log.info(f"Compliance table saved: {table_path}")
                 except Exception:
                     log.exception("Compliance table generation failed")
-                try:
-                    _show_progress_popup(_prog, 90, "Generating event snapshots…", "Running Analysis")
-                    snapshot_paths, snapshot_errors = generate_all_snapshots(
-                        df_raw, df_events, client_name, output_dir=SNAPSHOT_DIR,
-                        show_limits=False,
-                        show_tolerance_band=show_tolerance_band_snapshots,
-                        show_deviation_limits=show_deviation_limits_snapshots,
-                        nom_v=nom_v, nom_f=nom_f, tol_v=v_tol, tol_f=f_tol,
-                        v_max_dev=v_max_dev, f_max_dev=f_max_dev,
-                        show_debug=show_debug,
-                        show_intersections=show_intersections,
-                        show_max_deviation=show_max_deviation,
-                        rated_load_kw=rated_load_kw,
-                        window_s=snapshot_window,
-                    )
-                    log.info(f"{len([p for p in snapshot_paths if p is not None])} snapshots generated")
-                    if snapshot_errors:
-                        log.warning(f"Snapshot generation errors: {snapshot_errors}")
-                        all_errors.extend(snapshot_errors)
-                except Exception:
-                    log.exception("Snapshot generation failed")
-                    all_errors.append("❌ Unexpected error during snapshot generation")
+                # Defer snapshot rendering — placeholders now, streamed below the results.
+                snapshot_paths = [None] * len(df_events)
+                st.session_state["pending_snapshot_args"] = {
+                    "output_dir": SNAPSHOT_DIR,
+                    "show_limits": False,
+                    "show_tolerance_band": show_tolerance_band_snapshots,
+                    "show_deviation_limits": show_deviation_limits_snapshots,
+                    "nom_v": nom_v, "nom_f": nom_f,
+                    "tol_v": v_tol, "tol_f": f_tol,
+                    "v_max_dev": v_max_dev, "f_max_dev": f_max_dev,
+                    "show_debug": show_debug,
+                    "show_intersections": show_intersections,
+                    "show_max_deviation": show_max_deviation,
+                    "rated_load_kw": rated_load_kw,
+                    "window_s": snapshot_window,
+                }
+                st.session_state["snapshots_pending"] = True
             else:
+                st.session_state["pending_snapshot_args"] = None
+                st.session_state["snapshots_pending"] = False
                 st.warning("No load events detected above the threshold.")
 
             _show_progress_popup(_prog, 100, "Done!", "Running Analysis")
@@ -2845,8 +2904,9 @@ if _active_tab_main == "compliance":
             st.session_state["table_path"] = table_path
 
             # Display success with any errors/warnings
-            successful_snapshots = len([p for p in snapshot_paths if p is not None])
-            st.success(f"Analysis complete — **{len(df_events)} events** detected · **{len(graph_paths)} plots** · **{successful_snapshots}/{len(snapshot_paths)} snapshots**")
+            _pending_n = len(snapshot_paths) if st.session_state.get("snapshots_pending") else 0
+            _snap_msg = f" · **{_pending_n} snapshots rendering below…**" if _pending_n else ""
+            st.success(f"Analysis complete — **{len(df_events)} events** detected · **{len(graph_paths)} plots**{_snap_msg}")
 
             if all_errors:
                 st.error("### ⚠️ Generation Issues\n\nThe following plots or snapshots failed to generate:")
@@ -3030,6 +3090,7 @@ if _active_tab_main == "compliance":
                 _row_heights.append(66 + _extra_lines * 22)
             table_height = 54 + sum(_row_heights)
             st.components.v1.html(_render_compliance_html(disp), height=table_height, scrolling=False)
+            _render_clipboard_buttons(df_events, "pqa_clip")
             if table_path and os.path.exists(table_path):
                 with st.expander("View Compliance Table Image"):
                     with open(table_path, "r", encoding="utf-8") as _svg_f:
@@ -3141,6 +3202,8 @@ if _active_tab_main == "compliance":
                     _snap_path = snapshot_paths[snap_i] if snap_i < len(snapshot_paths) else None
                     if _snap_path and os.path.exists(_snap_path):
                         st.image(_snap_path, use_container_width=True)
+                    elif st.session_state.get("snapshots_pending"):
+                        st.info("Snapshot rendering…")
                     else:
                         st.info("No snapshot image for this event.")
 
@@ -3151,6 +3214,88 @@ if _active_tab_main == "compliance":
             _render_intersection_footer(overrides)
         else:
             st.info("No event snapshots generated.")
+
+        # ── Streaming snapshot generation (deferred from Run Analysis) ────────
+        if (
+            st.session_state.get("snapshots_pending")
+            and st.session_state.get("pending_snapshot_args")
+            and not df_events.empty
+        ):
+            _args = st.session_state["pending_snapshot_args"]
+            _df_raw_stream = st.session_state.get("df_raw")
+            _events_seq = list(df_events.iterrows())
+            _total = len(_events_seq)
+
+            st.divider()
+            st.markdown(
+                '<div style="display:flex;align-items:center;gap:0.6rem;margin:0.4rem 0 0.6rem;">'
+                '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" '
+                'stroke="#9333ea" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">'
+                '<circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>'
+                '<span style="font-weight:600;color:#0f172a;font-size:0.95rem;">'
+                'Generating event snapshots…</span></div>',
+                unsafe_allow_html=True,
+            )
+            _stream_prog = st.progress(0.0, text=f"0 / {_total} snapshots")
+            _stream_paths = list(st.session_state.get("snapshot_paths") or [None] * _total)
+            if len(_stream_paths) < _total:
+                _stream_paths.extend([None] * (_total - len(_stream_paths)))
+            _stream_errors = []
+
+            for _i, (_, _row) in enumerate(_events_seq):
+                if _stream_paths[_i] and os.path.exists(_stream_paths[_i]):
+                    _stream_prog.progress((_i + 1) / _total, text=f"{_i + 1} / {_total} snapshots")
+                    continue
+                try:
+                    _prev_ts = _events_seq[_i - 1][1]["Timestamp"] if _i > 0 else None
+                    _next_ts = _events_seq[_i + 1][1]["Timestamp"] if _i + 1 < _total else None
+                    _stream_paths[_i] = plot_load_change_snapshot(
+                        _df_raw_stream,
+                        event_ts=_row["Timestamp"],
+                        load_change=_row["dKw"],
+                        load_before=_row["Avg_kW"] - _row["dKw"],
+                        load_after=_row["Avg_kW"],
+                        client_name=client_name_display,
+                        output_dir=_args["output_dir"],
+                        show_limits=_args["show_limits"],
+                        show_tolerance_band=_args["show_tolerance_band"],
+                        show_deviation_limits=_args["show_deviation_limits"],
+                        nom_v=_args["nom_v"], nom_f=_args["nom_f"],
+                        tol_v=_args["tol_v"], tol_f=_args["tol_f"],
+                        v_max_dev=_args["v_max_dev"], f_max_dev=_args["f_max_dev"],
+                        show_debug=_args["show_debug"],
+                        show_intersections=_args["show_intersections"],
+                        show_max_deviation=_args["show_max_deviation"],
+                        event_row=_row,
+                        rated_load_kw=_args.get("rated_load_kw"),
+                        window_s=_args["window_s"],
+                        prev_event_ts=_prev_ts,
+                        next_event_ts=_next_ts,
+                    )
+                except Exception as _e:
+                    log.exception("Snapshot generation failed for event at %s", _row["Timestamp"])
+                    _stream_errors.append(
+                        f"❌ Event #{_i + 1} ({_row['Timestamp'].strftime('%H:%M:%S')}): {_e}"
+                    )
+
+                _done = _i + 1
+                _stream_prog.progress(_done / _total, text=f"{_done} / {_total} snapshots")
+                st.session_state["snapshot_paths"] = _stream_paths
+
+            _stream_prog.empty()
+            st.session_state["snapshot_paths"] = _stream_paths
+            st.session_state["snapshots_pending"] = False
+            st.session_state["pending_snapshot_args"] = None
+            if _stream_errors:
+                st.session_state["snapshot_stream_errors"] = _stream_errors
+            log.info(f"{len([p for p in _stream_paths if p])} of {_total} snapshots generated (streamed)")
+            st.rerun()
+
+        # Surface any per-snapshot errors from the previous streaming pass
+        _prev_errs = st.session_state.pop("snapshot_stream_errors", None)
+        if _prev_errs:
+            for _msg in _prev_errs:
+                st.warning(_msg)
 
         # Download all analysis assets as ZIP
         st.divider()
@@ -3466,31 +3611,28 @@ elif _active_tab_main == "winscope":
                         log.exception("WinScope compliance table generation failed")
                         _ws_table_path = None
 
-                    _show_progress_popup(_ws_prog, 88, "Generating event snapshots…", "WinScope Analysis")
-                    try:
-                        _ws_snapshot_paths, _ws_snap_errors = generate_all_snapshots(
-                            _ws_df_raw, _ws_df_events, _ws_client_name,
-                            output_dir=_ws_snap_dir,
-                            show_limits=False,
-                            show_tolerance_band=show_tolerance_band_snapshots,
-                            show_deviation_limits=show_deviation_limits_snapshots,
-                            nom_v=nom_v, nom_f=nom_f, tol_v=v_tol, tol_f=f_tol,
-                            v_max_dev=v_max_dev, f_max_dev=f_max_dev,
-                            show_debug=show_debug,
-                            show_intersections=show_intersections,
-                            show_max_deviation=show_max_deviation,
-                            rated_load_kw=st.session_state.get("rated_load_kw"),
-                            window_s=snapshot_window,
-                        )
-                        if _ws_snap_errors:
-                            log.warning(f"WinScope snapshot errors: {_ws_snap_errors}")
-                            _ws_plot_errors.extend(_ws_snap_errors)
-                    except Exception:
-                        log.exception("WinScope snapshot generation failed")
-                        _ws_snapshot_paths = []
+                    # Defer snapshot rendering — placeholders now, streamed below results.
+                    _ws_snapshot_paths = [None] * len(_ws_df_events)
+                    st.session_state["ws_pending_snapshot_args"] = {
+                        "output_dir": _ws_snap_dir,
+                        "show_limits": False,
+                        "show_tolerance_band": show_tolerance_band_snapshots,
+                        "show_deviation_limits": show_deviation_limits_snapshots,
+                        "nom_v": nom_v, "nom_f": nom_f,
+                        "tol_v": v_tol, "tol_f": f_tol,
+                        "v_max_dev": v_max_dev, "f_max_dev": f_max_dev,
+                        "show_debug": show_debug,
+                        "show_intersections": show_intersections,
+                        "show_max_deviation": show_max_deviation,
+                        "rated_load_kw": st.session_state.get("rated_load_kw"),
+                        "window_s": snapshot_window,
+                    }
+                    st.session_state["ws_snapshots_pending"] = True
                 else:
                     _ws_table_path = None
                     _ws_snapshot_paths = []
+                    st.session_state["ws_pending_snapshot_args"] = None
+                    st.session_state["ws_snapshots_pending"] = False
                     st.warning("No load events detected above the threshold.")
 
                 st.session_state["ws_analysis_done"]   = True
@@ -3626,6 +3768,7 @@ elif _active_tab_main == "winscope":
 
             _ws_tbl_h = 54 + len(_ws_disp) * 66
             st.components.v1.html(_render_compliance_html(_ws_disp), height=_ws_tbl_h, scrolling=False)
+            _render_clipboard_buttons(_ws_ev, "ws_clip")
 
         # Temperature & Pressure plots
         _ws_tpp = st.session_state.get("ws_tp_paths", {})
@@ -3650,32 +3793,114 @@ elif _active_tab_main == "winscope":
                         st.image(_tpp, use_container_width=True)
 
         # Event snapshots
-        if _ws_sp:
+        if (_ws_sp or not _ws_ev.empty):
             st.markdown("""
             <div class="pqa-section-header">
               <div class="pqa-section-bar" style="background:#9333ea;"></div>
               <span class="pqa-section-title">Event Snapshots</span>
             </div>""", unsafe_allow_html=True)
             import re as _re_ws2
-            for _wsi, _wsp in enumerate(_ws_sp):
-                if not os.path.exists(_wsp):
-                    continue
-                _ws_ev_row  = _ws_ev.iloc[_wsi] if _wsi < len(_ws_ev) else None
-                _ws_ev_ts   = _ws_ev_row["Timestamp"].strftime("%H:%M:%S") if _ws_ev_row is not None else f"Event {_wsi+1}"
-                _ws_ev_dkw  = float(_ws_ev_row["dKw"]) if (_ws_ev_row is not None and "dKw" in _ws_ev_row) else 0.0
+            for _wsi in range(len(_ws_ev)):
+                _wsp = _ws_sp[_wsi] if _wsi < len(_ws_sp) else None
+                _ws_ev_row  = _ws_ev.iloc[_wsi]
+                _ws_ev_ts   = _ws_ev_row["Timestamp"].strftime("%H:%M:%S")
+                _ws_ev_dkw  = float(_ws_ev_row["dKw"]) if "dKw" in _ws_ev_row else 0.0
                 _ws_ev_lbl  = f"{'▲' if _ws_ev_dkw > 0 else '▼'} {abs(_ws_ev_dkw):.0f} kW"
-                _ws_compl   = _ws_ev_row.get("Compliance_Status", "—") if _ws_ev_row is not None else "—"
+                _ws_compl   = _ws_ev_row.get("Compliance_Status", "—")
                 _ws_cc      = "#16a34a" if _ws_compl == "Pass" else "#dc2626" if _ws_compl == "Fail" else "#64748b"
                 with st.expander(f"Event {_wsi+1} · {_ws_ev_ts} · {_ws_ev_lbl}", expanded=(_wsi == 0)):
                     st.markdown(f'<span style="color:{_ws_cc};font-weight:700;font-size:13px;">{_ws_compl}</span>', unsafe_allow_html=True)
-                    if _wsp.endswith(".svg") and os.path.exists(_wsp):
+                    if _wsp and _wsp.endswith(".svg") and os.path.exists(_wsp):
                         with open(_wsp, "r", encoding="utf-8") as _wsf2:
                             _wsnap = _wsf2.read()
                         _wsnap = _re_ws2.sub(r'(<svg\b[^>]*?)\s+width="[^"]*"',  r'\1 width="100%"', _wsnap, count=1)
                         _wsnap = _re_ws2.sub(r'(<svg\b[^>]*?)\s+height="[^"]*"', r'\1',              _wsnap, count=1)
                         st.components.v1.html(f'<div style="width:100%">{_wsnap}</div>', height=600, scrolling=False)
-                    elif os.path.exists(_wsp):
+                    elif _wsp and os.path.exists(_wsp):
                         st.image(_wsp, use_container_width=True)
+                    else:
+                        st.info("Snapshot rendering…")
+
+        # ── Streaming snapshot generation (deferred from WinScope Run Analysis) ─
+        if (
+            st.session_state.get("ws_snapshots_pending")
+            and st.session_state.get("ws_pending_snapshot_args")
+            and not _ws_ev.empty
+        ):
+            _ws_args = st.session_state["ws_pending_snapshot_args"]
+            _ws_df_raw_stream = st.session_state.get("ws_df_raw")
+            _ws_events_seq = list(_ws_ev.iterrows())
+            _ws_total = len(_ws_events_seq)
+
+            st.divider()
+            st.markdown(
+                '<div style="display:flex;align-items:center;gap:0.6rem;margin:0.4rem 0 0.6rem;">'
+                '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" '
+                'stroke="#9333ea" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">'
+                '<circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>'
+                '<span style="font-weight:600;color:#0f172a;font-size:0.95rem;">'
+                'Generating event snapshots…</span></div>',
+                unsafe_allow_html=True,
+            )
+            _ws_stream_prog = st.progress(0.0, text=f"0 / {_ws_total} snapshots")
+            _ws_stream_paths = list(st.session_state.get("ws_snapshot_paths") or [None] * _ws_total)
+            if len(_ws_stream_paths) < _ws_total:
+                _ws_stream_paths.extend([None] * (_ws_total - len(_ws_stream_paths)))
+            _ws_stream_errors = []
+
+            for _i, (_, _row) in enumerate(_ws_events_seq):
+                if _ws_stream_paths[_i] and os.path.exists(_ws_stream_paths[_i]):
+                    _ws_stream_prog.progress((_i + 1) / _ws_total, text=f"{_i + 1} / {_ws_total} snapshots")
+                    continue
+                try:
+                    _prev_ts = _ws_events_seq[_i - 1][1]["Timestamp"] if _i > 0 else None
+                    _next_ts = _ws_events_seq[_i + 1][1]["Timestamp"] if _i + 1 < _ws_total else None
+                    _ws_stream_paths[_i] = plot_load_change_snapshot(
+                        _ws_df_raw_stream,
+                        event_ts=_row["Timestamp"],
+                        load_change=_row["dKw"],
+                        load_before=_row["Avg_kW"] - _row["dKw"],
+                        load_after=_row["Avg_kW"],
+                        client_name=_ws_cn,
+                        output_dir=_ws_args["output_dir"],
+                        show_limits=_ws_args["show_limits"],
+                        show_tolerance_band=_ws_args["show_tolerance_band"],
+                        show_deviation_limits=_ws_args["show_deviation_limits"],
+                        nom_v=_ws_args["nom_v"], nom_f=_ws_args["nom_f"],
+                        tol_v=_ws_args["tol_v"], tol_f=_ws_args["tol_f"],
+                        v_max_dev=_ws_args["v_max_dev"], f_max_dev=_ws_args["f_max_dev"],
+                        show_debug=_ws_args["show_debug"],
+                        show_intersections=_ws_args["show_intersections"],
+                        show_max_deviation=_ws_args["show_max_deviation"],
+                        event_row=_row,
+                        rated_load_kw=_ws_args.get("rated_load_kw"),
+                        window_s=_ws_args["window_s"],
+                        prev_event_ts=_prev_ts,
+                        next_event_ts=_next_ts,
+                    )
+                except Exception as _e:
+                    log.exception("WinScope snapshot generation failed for event at %s", _row["Timestamp"])
+                    _ws_stream_errors.append(
+                        f"❌ Event #{_i + 1} ({_row['Timestamp'].strftime('%H:%M:%S')}): {_e}"
+                    )
+
+                _done = _i + 1
+                _ws_stream_prog.progress(_done / _ws_total, text=f"{_done} / {_ws_total} snapshots")
+                st.session_state["ws_snapshot_paths"] = _ws_stream_paths
+
+            _ws_stream_prog.empty()
+            st.session_state["ws_snapshot_paths"] = _ws_stream_paths
+            st.session_state["ws_snapshots_pending"] = False
+            st.session_state["ws_pending_snapshot_args"] = None
+            if _ws_stream_errors:
+                st.session_state["ws_snapshot_stream_errors"] = _ws_stream_errors
+            log.info(f"{len([p for p in _ws_stream_paths if p])} of {_ws_total} WinScope snapshots generated (streamed)")
+            st.rerun()
+
+        _ws_prev_errs = st.session_state.pop("ws_snapshot_stream_errors", None)
+        if _ws_prev_errs:
+            for _msg in _ws_prev_errs:
+                st.warning(_msg)
 
     # ── WinScope Report Generation ────────────────────────────
     if ws_generate_clicked and st.session_state.get("ws_analysis_done"):
