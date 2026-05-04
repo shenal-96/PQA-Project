@@ -23,6 +23,7 @@ from visualizations import (
     generate_plots,
     generate_all_snapshots,
     generate_temp_pressure_plots,
+    plot_itic_curve,
     plot_load_change_snapshot,
     save_compliance_table_as_image,
 )
@@ -236,14 +237,14 @@ def _configure_presets_dialog() -> None:
         wk.pop(_del)
         for k in [k for k in st.session_state if k.startswith("_pw_")]:
             del st.session_state[k]
-        st.rerun()
+        st.rerun(scope="fragment")
 
     st.markdown("<br>", unsafe_allow_html=True)
     c1, c2 = st.columns([1, 3])
     with c1:
         if st.button("＋ Add Preset", use_container_width=True):
             wk.append(dict(_BUILTIN_PRESETS[0], name=f"Custom Preset {len(wk) + 1}"))
-            st.rerun()
+            st.rerun(scope="fragment")
     with c2:
         if st.button("Save Presets", type="primary", use_container_width=True):
             _save_presets(wk)
@@ -2777,6 +2778,17 @@ if _active_tab_main == "compliance":
                 )
                 graph_paths.update(other_paths)
                 plot_errors.extend(other_errors)
+
+                try:
+                    itic_path = plot_itic_curve(
+                        df_events, client_name, nom_v=nom_v, output_dir=GRAPH_DIR,
+                    )
+                    if itic_path:
+                        graph_paths["ITIC_Curve"] = itic_path
+                except Exception:
+                    log.exception("ITIC curve generation failed")
+                    plot_errors.append("⚠️ ITIC curve generation failed")
+
                 st.session_state["graph_paths"] = graph_paths
                 log.info(f"All plots generated: {list(graph_paths.keys())}")
                 if plot_errors:
@@ -3421,6 +3433,17 @@ elif _active_tab_main == "winscope":
                                            **_ws_plot_kw)
                 _ws_graph_paths.update(_ws_other)
                 _ws_plot_errors.extend(_ws_other_errors)
+
+                try:
+                    _ws_itic_path = plot_itic_curve(
+                        _ws_df_events, _ws_client_name, nom_v=nom_v,
+                        output_dir=_ws_graph_dir,
+                    )
+                    if _ws_itic_path:
+                        _ws_graph_paths["ITIC_Curve"] = _ws_itic_path
+                except Exception:
+                    log.exception("WinScope ITIC curve generation failed")
+                    _ws_plot_errors.append("⚠️ ITIC curve generation failed")
 
                 _show_progress_popup(_ws_prog, 65, "Generating temp/pressure plots…", "WinScope Analysis")
                 try:

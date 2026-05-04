@@ -305,6 +305,164 @@ _TP_GROUPS = {
 }
 
 
+# ── ITIC / CBEMA curve ───────────────────────────────────────────────────────
+# Standard ITIC envelope (% of nominal voltage vs event duration in seconds).
+# Each tuple = (start_s, end_s, percent). Vertical step transitions are implicit
+# at segment boundaries.
+_ITIC_UPPER = [
+    (1e-4, 1e-3, 500),
+    (1e-3, 3e-3, 200),
+    (3e-3, 0.5,  140),
+    (0.5,  10,   120),
+    (10,   1e3,  110),
+]
+_ITIC_LOWER = [
+    (1e-4, 0.02, 0),
+    (0.02, 0.5,  70),
+    (0.5,  10,   80),
+    (10,   1e3,  90),
+]
+
+
+def _itic_envelope_at(x_s, segments):
+    """Return the envelope % at duration x_s using the stepped segment list."""
+    for a, b, y in segments:
+        if a <= x_s <= b:
+            return y
+    if x_s < segments[0][0]:
+        return segments[0][2]
+    return segments[-1][2]
+
+
+def _itic_polyline(segments):
+    """Convert stepped segment list into (xs, ys) for plotting."""
+    xs, ys = [], []
+    for i, (a, b, y) in enumerate(segments):
+        xs.extend([a, b])
+        ys.extend([y, y])
+        if i + 1 < len(segments):
+            # Vertical riser at segment boundary (b == next_a).
+            xs.append(b)
+            ys.append(segments[i + 1][2])
+    return xs, ys
+
+
+def plot_itic_curve(df_events, client_name, nom_v=415.0,
+                    output_dir="output/Graphs"):
+    """
+    Plot the ITIC (CBEMA) compatibility curve with detected events overlaid.
+
+    X-axis: event duration (s, log scale) — taken from V_rec_s.
+    Y-axis: voltage during event as % of nominal — taken from V_dev / nom_v * 100.
+
+    Only events with both V_exit_ts and V_rec_s are plotted (events that actually
+    left the tolerance band and recovered within the recorded data).
+
+    Returns:
+        str | None: path to saved SVG, or None if df_events is empty / no plottable events.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    if df_events is None or df_events.empty:
+        plottable = pd.DataFrame()
+    else:
+        cols_needed = {"V_dev", "V_rec_s", "V_exit_ts"}
+        if not cols_needed.issubset(df_events.columns):
+            return None
+        mask = df_events["V_exit_ts"].notna() & df_events["V_rec_s"].notna() & df_events["V_dev"].notna()
+        plottable = df_events.loc[mask].copy()
+
+    fig, ax = plt.subplots(figsize=(14, 5.5), facecolor=_BG)
+    _style_ax(ax, "Voltage (% of nominal)", _TEXT_MAIN)
+    ax.set_xscale("log")
+    ax.set_xlim(1e-3, 1e3)
+    ax.set_ylim(0, 250)
+    ax.set_xlabel("Event duration (s)", fontsize=13, color=_TEXT_MAIN,
+                  fontweight="600", labelpad=10)
+
+    upper_x, upper_y = _itic_polyline(_ITIC_UPPER)
+    lower_x, lower_y = _itic_polyline(_ITIC_LOWER)
+
+    # Region shading. Three polygons across the full x-range.
+    x_min, x_max = 1e-3, 1e3
+    y_top = 250
+    # Prohibited (above upper envelope).
+    ax.fill_between(upper_x, upper_y, y_top, color=_RED, alpha=0.10,
+                    step=None, linewidth=0, zorder=0)
+    # No-Damage (below lower envelope).
+    ax.fill_between(lower_x, 0, lower_y, color=_BLUE, alpha=0.08,
+                    step=None, linewidth=0, zorder=0)
+    # No-Interruption (between envelopes) — built by stitching the two polylines.
+    poly_x = list(upper_x) + list(reversed(lower_x))
+    poly_y = list(upper_y) + list(reversed(lower_y))
+    ax.fill(poly_x, poly_y, color=_GREEN, alpha=0.08, linewidth=0, zorder=0)
+
+    # Envelope lines.
+    ax.plot(upper_x, upper_y, color=_RED, linewidth=2.0, zorder=2,
+            label="ITIC upper limit (overvoltage)")
+    ax.plot(lower_x, lower_y, color=_BLUE, linewidth=2.0, zorder=2,
+            label="ITIC lower limit (undervoltage)")
+
+    # Nominal reference at 100%.
+    ax.axhline(100, color=_TEXT_SUB, linewidth=1.0, linestyle=":", alpha=0.6, zorder=1)
+
+    # Region labels.
+    ax.text(0.5, 230, "Prohibited region", color=_RED, fontsize=11,
+            fontweight="600", ha="center", va="center", alpha=0.85)
+    ax.text(0.5, 100, "No-interruption region", color=_GREEN, fontsize=11,
+            fontweight="600", ha="center", va="center", alpha=0.85)
+    ax.text(0.5, 35, "No-damage region", color=_BLUE, fontsize=11,
+            fontweight="600", ha="center", va="center", alpha=0.85)
+
+    # Event scatter.
+    inside_x, inside_y, outside_x, outside_y = [], [], [], []
+    for _, row in plottable.iterrows():
+        dur = float(row["V_rec_s"])
+        pct = float(row["V_dev"]) / nom_v * 100.0
+        if dur <= 0 or not np.isfinite(dur) or not np.isfinite(pct):
+            continue
+        upper_pct = _itic_envelope_at(dur, _ITIC_UPPER)
+        lower_pct = _itic_envelope_at(dur, _ITIC_LOWER)
+        if lower_pct <= pct <= upper_pct:
+            inside_x.append(dur)
+            inside_y.append(pct)
+        else:
+            outside_x.append(dur)
+            outside_y.append(pct)
+
+    if inside_x:
+        ax.scatter(inside_x, inside_y, s=70, color=_GREEN, edgecolor=_NAVY,
+                   linewidth=1.0, zorder=4,
+                   label=f"Compliant events ({len(inside_x)})")
+    if outside_x:
+        ax.scatter(outside_x, outside_y, s=90, color=_RED, edgecolor=_NAVY,
+                   linewidth=1.0, marker="X", zorder=5,
+                   label=f"ITIC violations ({len(outside_x)})")
+
+    ax.legend(loc="upper right", fontsize=10, frameon=True, facecolor="white",
+              edgecolor=_GRID)
+
+    title = f"ITIC (CBEMA) Curve — {client_name}"
+    ax.set_title(title, fontsize=15, color=_TEXT_MAIN, fontweight="700",
+                 pad=14, loc="left")
+
+    # Sampling-resolution caveat.
+    ax.text(0.01, -0.18,
+            "Note: 1 Hz logger sampling cannot resolve sub-second events. "
+            "Only events with detected band exit and recovery are plotted.",
+            transform=ax.transAxes, fontsize=9, color=_TEXT_SUB,
+            ha="left", va="top", style="italic")
+
+    fig.tight_layout(pad=1.2)
+    fname = os.path.join(output_dir, f"{client_name}_ITIC_Curve.svg")
+    fig.savefig(fname, format="svg", bbox_inches="tight", facecolor=_BG)
+    jpeg_fname = os.path.join(output_dir, f"{client_name}_ITIC_Curve.jpeg")
+    fig.savefig(jpeg_fname, format="jpeg", dpi=200, bbox_inches="tight",
+                facecolor=_BG)
+    plt.close(fig)
+    return fname
+
+
 def generate_temp_pressure_plots(df, client_name, output_dir="output/Graphs"):
     """
     Generate temperature and pressure time-series plots from WinScope data.
