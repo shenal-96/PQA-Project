@@ -2941,20 +2941,28 @@ if _active_tab_main == "compliance":
             tabs = st.tabs([n.replace("Avg_", "").replace("_", " ") for n in graph_paths.keys()])
             for tab, (name, path) in zip(tabs, graph_paths.items()):
                 with tab:
-                    if path.endswith(".svg"):
-                        import re as _re
-                        with open(path, "r", encoding="utf-8") as _f:
-                            _svg = _f.read()
-                        # Strip fixed pixel dimensions so the SVG fills container width
-                        # and the browser calculates height from the viewBox aspect ratio.
-                        _svg = _re.sub(r'(<svg\b[^>]*?)\s+width="[^"]*"', r'\1 width="100%"', _svg, count=1)
-                        _svg = _re.sub(r'(<svg\b[^>]*?)\s+height="[^"]*"', r'\1', _svg, count=1)
-                        st.components.v1.html(
-                            f'<div style="width:100%">{_svg}</div>',
-                            height=540,
+                    try:
+                        if path.endswith(".svg"):
+                            import re as _re
+                            with open(path, "r", encoding="utf-8") as _f:
+                                _svg = _f.read()
+                            # Strip fixed pixel dimensions so the SVG fills container width
+                            # and the browser calculates height from the viewBox aspect ratio.
+                            _svg = _re.sub(r'(<svg\b[^>]*?)\s+width="[^"]*"', r'\1 width="100%"', _svg, count=1)
+                            _svg = _re.sub(r'(<svg\b[^>]*?)\s+height="[^"]*"', r'\1', _svg, count=1)
+                            st.components.v1.html(
+                                f'<div style="width:100%">{_svg}</div>',
+                                height=540,
+                            )
+                        else:
+                            st.image(path, use_container_width=True)
+                    except (FileNotFoundError, OSError) as _e:
+                        st.warning(
+                            "Plot file is no longer available — please click **Run Analysis** "
+                            "again to regenerate it. (Cached plot paths can become stale after "
+                            "the app restarts or the output directory is cleared.)"
                         )
-                    else:
-                        st.image(path, use_container_width=True)
+                        st.caption(f"Details: {type(_e).__name__}: {_e}")
         else:
             st.info("No plots generated.")
 
