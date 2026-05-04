@@ -3043,6 +3043,18 @@ if _active_tab_main == "compliance":
                     return line1
                 disp["Load Change"] = dkw.map(_fmt_dkw)
 
+            # Load Level — actual kW at the event (post-step load)
+            if "Avg_kW" in src.columns:
+                kw = pd.to_numeric(src["Avg_kW"], errors="coerce")
+                def _fmt_kw(x):
+                    if pd.isnull(x):
+                        return "—"
+                    line1 = f"{x:,.1f} kW"
+                    if rated_load_kw and rated_load_kw > 0:
+                        return f"{line1}<br><small>({x / rated_load_kw * 100:.1f}% rated)</small>"
+                    return line1
+                disp["Load Level"] = kw.map(_fmt_kw)
+
             # Voltage Deviation — actual measured min/max voltage (V)
             if "V_dev" in src.columns:
                 v_dev = pd.to_numeric(src["V_dev"], errors="coerce")
@@ -3750,6 +3762,16 @@ elif _active_tab_main == "winscope":
                 _ws_disp["Event Time"] = _ws_src.apply(_ws_fmt_ts, axis=1)
             if "dKw" in _ws_src.columns:
                 _ws_disp["Load Change (kW)"] = _ws_src["dKw"].apply(lambda x: f"+{x:.1f}" if x > 0 else f"{x:.1f}")
+            if "Avg_kW" in _ws_src.columns:
+                _ws_rated = st.session_state.get("rated_load_kw")
+                def _ws_fmt_kw(x):
+                    if pd.isnull(x):
+                        return "—"
+                    line1 = f"{x:,.1f} kW"
+                    if _ws_rated and _ws_rated > 0:
+                        return f"{line1}<br><small>({x / _ws_rated * 100:.1f}% rated)</small>"
+                    return line1
+                _ws_disp["Load Level"] = pd.to_numeric(_ws_src["Avg_kW"], errors="coerce").map(_ws_fmt_kw)
             if "V_dev" in _ws_src.columns:
                 _wnom = _ws_cfg.nominal_voltage
                 _ws_disp["Voltage Deviation"] = _ws_src["V_dev"].apply(
