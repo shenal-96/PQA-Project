@@ -808,7 +808,7 @@ div[data-testid="stSidebar"] button[data-testid="baseButton-secondary"]:hover {
 div[data-testid="stSidebar"]
 div[data-testid="stHorizontalBlock"]
 > div[data-testid="stVerticalBlock"]:has(.pqa-rst-btn) {
-    padding-top: 2.4rem !important;
+    padding-top: 2.95rem !important;
     padding-bottom: 0 !important;
 }
 
@@ -1504,7 +1504,10 @@ with st.sidebar:
             if selected_name:
                 selected_csv_path = os.path.join(UPLOADS_CSV_DIR, selected_name)
                 client_name = os.path.splitext(selected_name)[0]
-                auto_start, auto_end = _get_csv_time_range(selected_csv_path)
+                _csv_tr_key = f"_csv_tr_{selected_csv_path}"
+                if _csv_tr_key not in st.session_state:
+                    st.session_state[_csv_tr_key] = _get_csv_time_range(selected_csv_path)
+                auto_start, auto_end = st.session_state[_csv_tr_key]
 
     else:
         # ── 1. WinScope Files ──────────────────────────────────────
@@ -2657,8 +2660,12 @@ if _active_tab_main != st.session_state.get("_active_tab", "compliance"):
 if _active_tab_main == "compliance":
     if selected_csv_path is not None:
         with st.expander("Preview uploaded data", expanded=False):
-            preview_df = pd.read_csv(selected_csv_path, sep=None, engine="python", nrows=10)
-            st.dataframe(preview_df, width="stretch")
+            _prev_key = f"_csv_preview_{selected_csv_path}"
+            if _prev_key not in st.session_state:
+                st.session_state[_prev_key] = pd.read_csv(
+                    selected_csv_path, sep=None, engine="python", nrows=10
+                )
+            st.dataframe(st.session_state[_prev_key], width="stretch")
 
         if auto_start and auto_end:
             st.caption(f"Detected time range: **{auto_start}** to **{auto_end}**")
