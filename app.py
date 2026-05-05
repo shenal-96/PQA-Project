@@ -4178,6 +4178,41 @@ elif _active_tab_main == "winscope":
               <span class="pqa-section-badge {_ws_bc}">{_ws_bt}</span>
             </div>""", unsafe_allow_html=True)
 
+            # Expected load steps check
+            _ws_expected = st.session_state.get("expected_steps")
+            _ws_detected = len(_ws_ev)
+            if _ws_expected is not None and _ws_detected != _ws_expected:
+                st.error(
+                    f"Expected {_ws_expected} load step{'s' if _ws_expected != 1 else ''} "
+                    f"but detected {_ws_detected}. "
+                    "Adjust the Detection Window or review the WinScope data."
+                )
+
+            # Missing recovery time warnings — flag events where the signal left
+            # the band but no recovery was recorded.
+            _ws_v_no_rec = []
+            _ws_f_no_rec = []
+            for _wei, (_weidx, _werow) in enumerate(_ws_ev.iterrows()):
+                _wev_label = f"Event {_wei + 1} ({_werow['Timestamp'].strftime('%H:%M:%S')})"
+                if pd.notnull(_werow.get("V_exit_ts")) and pd.isna(_werow.get("V_rec_s")):
+                    _ws_v_no_rec.append(_wev_label)
+                if pd.notnull(_werow.get("F_exit_ts")) and pd.isna(_werow.get("F_rec_s")):
+                    _ws_f_no_rec.append(_wev_label)
+            if _ws_v_no_rec:
+                st.error(
+                    "**Voltage recovery not detected** for: "
+                    + ", ".join(_ws_v_no_rec)
+                    + ". The voltage left the tolerance band but did not recover within "
+                    "the recorded data. Check the WinScope length or review the snapshot."
+                )
+            if _ws_f_no_rec:
+                st.error(
+                    "**Frequency recovery not detected** for: "
+                    + ", ".join(_ws_f_no_rec)
+                    + ". The frequency left the tolerance band but did not recover within "
+                    "the recorded data. Check the WinScope length or review the snapshot."
+                )
+
             _ws_src  = _ws_ev
             _ws_disp = pd.DataFrame()
             if "Timestamp" in _ws_src.columns:
