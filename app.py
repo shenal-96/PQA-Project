@@ -88,15 +88,11 @@ def _get_build_version():
     except Exception:
         return "0.0.0"
 
-# --- Output directories ---
-OUTPUT_BASE = os.path.join(_APP_DIR, "output")
-GRAPH_DIR = os.path.join(OUTPUT_BASE, "Graphs")
-SNAPSHOT_DIR = os.path.join(OUTPUT_BASE, "Snapshots")
-IMAGE_DIR = os.path.join(OUTPUT_BASE, "Images")
-TEMPLATE_DIR = os.path.join(OUTPUT_BASE, "Template")
-
-# --- Session-scoped upload directories (one subdirectory per browser session) ---
-# Each Streamlit session gets a unique ID so users never see each other's files.
+# --- Session-scoped uploads + output directories ---
+# Each Streamlit session (browser tab) gets its own subtree under uploads/ and
+# output/ so concurrent tabs never wipe or expose each other's files. Without
+# this, init_output_dirs() (which rmtrees output/Graphs etc.) would delete the
+# other tab's plots and snapshots mid-render.
 if "_session_id" not in st.session_state:
     st.session_state["_session_id"] = uuid.uuid4().hex
 _SESSION_ID = st.session_state["_session_id"]
@@ -106,6 +102,12 @@ UPLOADS_WINSCOPE_DIR = os.path.join(_APP_DIR, "uploads", "winscope", _SESSION_ID
 os.makedirs(UPLOADS_CSV_DIR, exist_ok=True)
 os.makedirs(UPLOADS_TEMPLATE_DIR, exist_ok=True)
 os.makedirs(UPLOADS_WINSCOPE_DIR, exist_ok=True)
+
+OUTPUT_BASE = os.path.join(_APP_DIR, "output", _SESSION_ID)
+GRAPH_DIR = os.path.join(OUTPUT_BASE, "Graphs")
+SNAPSHOT_DIR = os.path.join(OUTPUT_BASE, "Snapshots")
+IMAGE_DIR = os.path.join(OUTPUT_BASE, "Images")
+TEMPLATE_DIR = os.path.join(OUTPUT_BASE, "Template")
 
 # ── Dev-mode settings persistence ────────────────────────────────────────────
 DEV_SETTINGS_FILE = "uploads/dev_settings.json"

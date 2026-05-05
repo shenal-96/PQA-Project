@@ -33,7 +33,7 @@ Logs to `/tmp/pqa_debug.log` (also printed to terminal).
 | `tracking.py` | Telemetry — usage events, error logs, crash reports → Google Sheets webhook (silent-fail, daemon thread) |
 | `uploads/` | Persisted CSV and Word template uploads (survive reruns) |
 | `uploads/dev_settings.json` | Dev mode persisted sidebar settings (survive restarts) |
-| `output/` | Ephemeral per-run artefacts (Graphs/, Snapshots/, Images/, Template/) |
+| `output/<session_id>/` | Ephemeral per-run artefacts (Graphs/, Snapshots/, Images/, Template/) — session-scoped per browser tab so concurrent tabs do not wipe each other's plots/snapshots when `init_output_dirs()` runs |
 
 ## Top-Level Tabs
 
