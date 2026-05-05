@@ -1547,7 +1547,7 @@ with st.sidebar:
                     _fmt = detect_logger_format(list(_peek.columns))
                     _label = {
                         "miro": "Miro",
-                        "hioki": "Hioki / generic",
+                        "hioki": "Hioki",
                         "unknown": "Unrecognised format",
                     }.get(_fmt, _fmt)
                     # Coloured pill so the operator can't miss which logger
@@ -2540,11 +2540,11 @@ right loader:
 
 | Logger | How it is identified | Voltage handling |
 |---|---|---|
-| Hioki / generic | Default — `U1/U2/U3_rms_AVG` (L-N) or `U12/U23/U31_rms_AVG` (L-L) columns | L-N columns are scaled ×√3, L-L used as-is |
+| Hioki | Default — `U1/U2/U3_rms_AVG` (L-N) or `U12/U23/U31_rms_AVG` (L-L) columns | L-N columns are scaled ×√3, L-L used as-is |
 | Miro | Header contains `RMS-VA-AVG [V]`, `FREQ-VA-AVG [Hz]`, `kW-PTOTAL-AVG [kW]` | Loaded as L-N and scaled ×√3 |
 
 The detected logger is shown in the sidebar caption next to the CSV
-selector ("Detected logger: Miro" / "Hioki / generic").
+selector ("Detected logger: Miro" / "Hioki").
 
 **Miro CSVs only have whole-second timestamp resolution.** When the logger
 records faster than 1 Hz, the same `Timestamp` value is repeated several times
@@ -2555,7 +2555,7 @@ values (e.g. a load step ramping up over half a second) is not scrambled.
 
 ### How timing is made more precise
 
-Hioki / generic CSVs typically record one sample per second — too coarse to
+Hioki CSVs typically record one sample per second — too coarse to
 measure a recovery time of, say, 2.7 seconds accurately. PQA fills in the gaps
 by creating a denser version of the data with one point every 100 milliseconds
 (using straight-line interpolation between your original samples).
