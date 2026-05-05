@@ -276,9 +276,9 @@ _DEV_DEFAULTS: dict = {
     "show_intersections": False,
     "show_max_deviation": False,
     "show_debug": False,
-    "detection_window": 8.0,
-    "recovery_verify_s": 6.0,
-    "fault_recovery_threshold_s": 10.0,
+    "detection_window": 5.0,
+    "recovery_verify_s": 4.0,
+    "fault_recovery_threshold_s": 9.0,
     "snapshot_window": 8.0,
     "load_thresh": 30.0,
     "v_tol": 1.0,
@@ -1722,10 +1722,10 @@ with st.sidebar:
         with _wf_reset:
             _reset_windows = st.form_submit_button("↺ Defaults", use_container_width=True)
     if _reset_windows:
-        st.session_state["detection_window"] = 8.0
+        st.session_state["detection_window"] = 5.0
         st.session_state["snapshot_window"] = 8.0
-        st.session_state["recovery_verify_s"] = 6.0
-        st.session_state["fault_recovery_threshold_s"] = 10.0
+        st.session_state["recovery_verify_s"] = 4.0
+        st.session_state["fault_recovery_threshold_s"] = 9.0
         st.rerun()
     _ds["active_preset"] = active_preset
     _any_preset = active_preset != "None"
