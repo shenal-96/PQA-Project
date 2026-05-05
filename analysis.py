@@ -640,9 +640,13 @@ def perform_analysis(df, config: AnalysisConfig):
                 curr["End_Timestamp"] = row["Timestamp"]
                 curr["Total_dKw"] = row["dKw"]
             else:
-                if (row["Timestamp"] - curr["Timestamp"]).total_seconds() <= config.detection_window_s:
+                # Anchor the merge window at Start_Timestamp (fixed window) and only
+                # merge raw samples that share the group's load-change direction —
+                # otherwise an increase + later decrease would algebraically cancel.
+                within_window = (row["Timestamp"] - curr["Start_Timestamp"]).total_seconds() <= config.detection_window_s
+                same_direction = np.sign(row["dKw"]) == np.sign(curr["Total_dKw"])
+                if within_window and same_direction:
                     curr["Total_dKw"] += row["dKw"]
-                    curr["Timestamp"] = row["Timestamp"]
                     curr["End_Timestamp"] = row["Timestamp"]
                 else:
                     grouped_events.append(curr)
