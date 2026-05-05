@@ -60,6 +60,11 @@ class AnalysisConfig:
     # When True, skip 100ms resampling and use raw data directly as df_interp.
     # Use for high-frequency sources (e.g. WinScope ~200ms) that don't need upsampling.
     skip_interpolation: bool = False
+    # Recovery time above which the event is flagged as a *potential fault*
+    # (separate from compliance fail). Long V/F recovery on a real generator
+    # usually indicates broken set-points or hardware issues — worth surfacing
+    # distinctly from "exceeded the ISO recovery limit".
+    fault_recovery_threshold_s: float = 10.0
 
     @classmethod
     def iso_8528_defaults(cls):
@@ -92,12 +97,47 @@ def robust_to_datetime(series):
 
 
 def detect_logger_format(columns):
-    """Return 'miro' or 'hioki' based on column-name fingerprints."""
+    """Return 'miro', 'hioki', or 'unknown' based on column-name fingerprints.
+
+    A CSV is recognised as Hioki / generic only when it carries a timestamp
+    column AND at least one of the expected voltage / frequency columns \u2014
+    otherwise we'd silently route any random CSV through the Hioki branch
+    and surface confusing downstream errors. Returning 'unknown' lets the
+    caller flag the file as unsupported before analysis runs.
+    """
     cols = {str(c).replace("\ufeff", "").replace("\x00", "").strip() for c in columns}
     miro_markers = {"RMS-VA-AVG [V]", "FREQ-VA-AVG [Hz]", "kW-PTOTAL-AVG [kW]"}
     if any(m in cols for m in miro_markers):
         return "miro"
-    return "hioki"
+    has_time = bool({"Timestamp", "PC Time"} & cols) or ({"Date", "Time"} <= cols)
+    has_freq = "Freq_AVG" in cols
+    has_voltage = bool({
+        "U1_rms_AVG", "U2_rms_AVG", "U3_rms_AVG",
+        "U12_rms_AVG", "U23_rms_AVG", "U31_rms_AVG", "U_avg_AVG",
+    } & cols)
+    # All three required for a green "Hioki / generic" classification —
+    # missing any one means the CSV cannot drive a complete compliance run,
+    # so flag it as unknown and let the sidebar banner tell the user which
+    # column to re-export.
+    if has_time and has_freq and has_voltage:
+        return "hioki"
+    return "unknown"
+
+
+# Required-column expectations surfaced in error messages so the user knows
+# exactly what is missing from their CSV export. Kept here (not in app.py)
+# so analysis.py remains the single source of truth for column requirements.
+EXPECTED_HIOKI_COLUMNS = {
+    "timestamp": ["Timestamp", "PC Time", "Date + Time"],
+    "voltage": [
+        "U12_rms_AVG, U23_rms_AVG, U31_rms_AVG (L-L)",
+        "U1_rms_AVG, U2_rms_AVG, U3_rms_AVG (L-N)",
+        "U_avg_AVG (single-phase L-L average)",
+    ],
+    "frequency": ["Freq_AVG"],
+    "power_optional": ["P_sum_AVG"],
+    "current_optional": ["I1_rms_AVG, I2_rms_AVG, I3_rms_AVG"],
+}
 
 
 def load_miro_csv(file_path_or_buffer):
@@ -128,7 +168,30 @@ def load_miro_csv(file_path_or_buffer):
         df["P_sum_AVG"] = pd.to_numeric(df["kW-PTOTAL-AVG [kW]"], errors="coerce") * 1000
 
     df["Timestamp"] = robust_to_datetime(df["Timestamp"])
-    df = df.dropna(subset=["Timestamp"]).sort_values("Timestamp").reset_index(drop=True)
+    # Stable sort so that rows sharing the same whole-second timestamp keep
+    # their original CSV order — they were written in chronological sample
+    # order, and a non-stable sort would scramble them, producing fake
+    # load-step oscillations after sub-second redistribution below.
+    df = (
+        df.dropna(subset=["Timestamp"])
+        .sort_values("Timestamp", kind="mergesort")
+        .reset_index(drop=True)
+    )
+
+    # Miro CSVs only have whole-second timestamp resolution. When the logger
+    # records faster than 1 Hz, multiple rows share the same Timestamp value,
+    # which breaks anything that assumes monotonically increasing timestamps
+    # (sample-interval detection, resampling, sustain/verify counts, plotting).
+    # Distribute same-second rows evenly across the second so the data carries
+    # an honest sub-second grid: rows i of N at the same second t become
+    # t + (i / N) seconds.
+    if not df.empty:
+        ts = df["Timestamp"]
+        grp = df.groupby(ts, sort=False)
+        pos = grp.cumcount()
+        size = grp["Timestamp"].transform("size")
+        offset_s = (pos / size).where(size > 1, 0.0)
+        df["Timestamp"] = ts + pd.to_timedelta(offset_s, unit="s")
     return df
 
 
@@ -336,8 +399,16 @@ def calculate_recovery_time(df_interp, start_timestamp, metric_column,
     timestamps = subset["Timestamp"].values
     within = (values >= lower) & (values <= upper)
 
-    sustain_pts = max(1, int(sustain_s / 0.1))  # 0.1s = 100ms interval
-    verify_pts = max(1, int(verify_s / 0.1))
+    # Derive the actual sample interval from the data instead of assuming a
+    # 100ms grid. This matters when skip_interpolation=True is used with a
+    # source that is NOT 100ms (e.g. a Miro CSV at 1 s, or WinScope at 200 ms).
+    if len(timestamps) >= 2:
+        diffs_ns = np.diff(timestamps).astype("timedelta64[ns]").astype(np.int64)
+        sample_interval_s = max(float(np.median(diffs_ns)) / 1e9, 1e-6)
+    else:
+        sample_interval_s = 0.1
+    sustain_pts = max(1, int(round(sustain_s / sample_interval_s)))
+    verify_pts = max(1, int(round(verify_s / sample_interval_s)))
 
     candidate_time = None
     candidate_idx = None  # grid index where the candidate was set
@@ -603,7 +674,35 @@ def check_compliance(row, config: AnalysisConfig):
             status = "Fail"
             reasons.append(f"F Recovery {row['F_rec_s']:.1f}s > {config.frequency_recovery_time_s}s")
 
-    return pd.Series([status, "; ".join(reasons)], index=["Compliance_Status", "Failure_Reasons"])
+    # ── Potential-fault flag ─────────────────────────────────────────────
+    # Recovery times that grossly exceed the ISO limit are usually a sign of
+    # broken set-points or hardware issues, not just marginal performance.
+    # Surface them separately from compliance fail so the operator can
+    # investigate the equipment rather than just retuning the spec.
+    fault = False
+    fault_reasons = []
+    fault_thr = float(getattr(config, "fault_recovery_threshold_s", 10.0))
+    v_rec = row.get("V_rec_s")
+    if pd.notnull(row.get("V_exit_ts")):
+        if pd.isna(v_rec):
+            fault = True
+            fault_reasons.append("Voltage did not recover")
+        elif float(v_rec) > fault_thr:
+            fault = True
+            fault_reasons.append(f"V Recovery {float(v_rec):.1f}s > {fault_thr:.0f}s")
+    f_rec = row.get("F_rec_s")
+    if pd.notnull(row.get("F_exit_ts")):
+        if pd.isna(f_rec):
+            fault = True
+            fault_reasons.append("Frequency did not recover")
+        elif float(f_rec) > fault_thr:
+            fault = True
+            fault_reasons.append(f"F Recovery {float(f_rec):.1f}s > {fault_thr:.0f}s")
+
+    return pd.Series(
+        [status, "; ".join(reasons), bool(fault), "; ".join(fault_reasons)],
+        index=["Compliance_Status", "Failure_Reasons", "Potential_Fault", "Fault_Reasons"],
+    )
 
 
 def perform_analysis(df, config: AnalysisConfig):
@@ -703,12 +802,16 @@ def perform_analysis(df, config: AnalysisConfig):
                 curr["End_Timestamp"] = row["Timestamp"]
                 curr["Total_dKw"] = row["dKw"]
             else:
-                # Anchor the merge window at Start_Timestamp (fixed window) and only
-                # merge raw samples that share the group's load-change direction —
-                # otherwise an increase + later decrease would algebraically cancel.
+                # Anchor the merge window at Start_Timestamp and absorb every
+                # raw sample that lands inside it, regardless of sign. Large
+                # block-load ramps (e.g. 0 → 2000 kW over 4 s) are not
+                # monotonic at high sample rates — the kW reading oscillates
+                # as the generator catches up, producing alternating ±dKw raw
+                # rows. Merging only same-direction rows would split the ramp
+                # into many sub-events; the algebraic sum is what represents
+                # the true net step.
                 within_window = (row["Timestamp"] - curr["Start_Timestamp"]).total_seconds() <= config.detection_window_s
-                same_direction = np.sign(row["dKw"]) == np.sign(curr["Total_dKw"])
-                if within_window and same_direction:
+                if within_window:
                     curr["Total_dKw"] += row["dKw"]
                     curr["End_Timestamp"] = row["Timestamp"]
                 else:
@@ -721,6 +824,12 @@ def perform_analysis(df, config: AnalysisConfig):
             grouped_events.append(curr)
 
     events = pd.DataFrame(grouped_events)
+
+    if not events.empty:
+        # Drop groups whose merged net change ended up below threshold —
+        # these are oscillations around a stable load that produced
+        # individual above-threshold raw rows but no real net step.
+        events = events[events["Total_dKw"].abs() > float(thresh_kw)].reset_index(drop=True)
 
     if not events.empty:
         events["dKw_abs"] = events["Total_dKw"].abs()

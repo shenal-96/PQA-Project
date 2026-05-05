@@ -277,6 +277,78 @@ def generate_plots(df_proc, client_name, output_dir="output/Graphs",
     return paths, plot_errors
 
 
+def plot_detected_events(df_proc, df_events, client_name, output_dir="output/Graphs",
+                         thresh_kw=50.0):
+    """
+    Render a Power (kW) time-series plot with each detected load-step event
+    overlaid as a vertical marker plus its dKw label. Mirrors the styling of
+    `generate_plots` for Avg_kW so the visual matches the rest of the
+    time-series tabs, but the event overlay is always drawn (not only in
+    debug mode).
+
+    Returns the saved SVG path, or None if df_proc has no Avg_kW data.
+    """
+    if "Avg_kW" not in df_proc.columns or df_proc["Avg_kW"].dropna().empty:
+        return None
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=(14, 4))
+    fig.patch.set_facecolor(_BG)
+
+    y = df_proc["Avg_kW"]
+    x = df_proc["Timestamp"]
+    ax.fill_between(x, y, y.min(), color=_GREEN, alpha=0.08)
+    ax.plot(x, y, color=_GREEN, linewidth=2.0, solid_capstyle="round")
+
+    _style_ax(ax, "Power (kW)", _GREEN)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+    fig.autofmt_xdate(rotation=0, ha="center")
+    ax.tick_params(axis="x", labelsize=11, colors=_TEXT_SUB)
+
+    # ── Detected-event overlay ──────────────────────────────────────────────
+    n_events = 0
+    if df_events is not None and not df_events.empty:
+        for _, ev in df_events.iterrows():
+            ax.axvline(ev["Timestamp"], color=_AMBER, linewidth=1.2,
+                       linestyle=":", alpha=0.9, zorder=5)
+        ylim = ax.get_ylim()
+        for _, ev in df_events.iterrows():
+            dkw = ev.get("dKw", 0)
+            ax.text(
+                ev["Timestamp"], ylim[1] * 0.96,
+                f"  {dkw:+.0f} kW",
+                fontsize=8, color=_AMBER, va="top", rotation=90,
+                fontweight="600",
+            )
+        ax.set_ylim(ylim)
+        n_events = len(df_events)
+
+    from matplotlib.lines import Line2D
+    legend_items = [
+        Line2D([0], [0], color=_GREEN, lw=2.0, label="Power (kW)"),
+        Line2D([0], [0], color=_AMBER, ls=":", lw=1.2,
+               label=f"Detected event ({n_events})"),
+    ]
+    ax.legend(handles=legend_items, fontsize=10, framealpha=0.9,
+              loc="upper right", edgecolor=_GRID)
+
+    ax.set_title("Detected Events", fontsize=16, fontweight="700",
+                 color=_TEXT_MAIN, pad=24, loc="left")
+    fig.text(0.01, 1.01, client_name, transform=ax.transAxes,
+             fontsize=11, color=_TEXT_SUB, va="bottom")
+
+    fig.tight_layout(pad=1.2)
+    fname = os.path.join(output_dir, f"{client_name}_Detected_Events.svg")
+    fig.savefig(fname, format="svg", bbox_inches="tight", facecolor=_BG)
+    fig.set_size_inches(16, 6)
+    fig.tight_layout(pad=1.2)
+    jpeg_fname = os.path.join(output_dir, f"{client_name}_Detected_Events.jpeg")
+    fig.savefig(jpeg_fname, format="jpeg", dpi=200, bbox_inches="tight", facecolor=_BG)
+    plt.close(fig)
+    return fname
+
+
 # ── Temperature / Pressure column groups ─────────────────────────────────────
 _TP_GROUPS = {
     "Pressures": {

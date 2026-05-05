@@ -64,10 +64,17 @@ Imports `ecu_parser`, `ecu_csv_parser`, `ecu_multi_comparator`, `ecu_csv_compara
 ## Key Decisions
 
 ### df_interp — compliance uses 100 ms interpolated data
-Raw CSV is ~1 s/sample. Recovery times are measured on `df_interp`
-(100 ms linear interpolation). **df_interp is never used for plots,
-snapshot displays, or deviation values** — only for recovery/exit time
-calculations.
+Raw Hioki/generic CSV is ~1 s/sample. Recovery times are measured on
+`df_interp` (100 ms linear interpolation). **df_interp is never used for
+plots, snapshot displays, or deviation values** — only for recovery/exit
+time calculations.
+
+For Miro CSVs the interpolation is **always skipped** (`config.skip_interpolation = True`)
+and `df_interp = df_proc.copy()` — see *Miro logger support* below for why.
+The compliance Run Analysis path detects this from `df_raw.attrs["logger_format"]`
+and sets the flag before calling `perform_analysis`. The "Recalculate Compliance"
+override path threads the same flag through `_recompute_df_interp(df_proc, skip_interpolation=...)`
+so a re-run matches the original.
 
 ### V_dev / F_dev — actual measured extreme, not signed deviation
 `V_dev` holds the actual measured voltage (V), `F_dev` the actual measured
@@ -79,9 +86,22 @@ Compliance check: `abs(V_dev - nom_v) / nom_v * 100`
 Display format: `"406.2 V (-2.12%)"` — the actual value plus its % deviation.
 This is implemented in `_measured_extreme()` in `analysis.py`.
 
-### detection_window_s (default 5 s)
-Load-step events within this window are merged into one grouped event.
-Prevents double-counting ramp-style load changes.
+### detection_window_s (default 8 s) — algebraic-sum merging
+All raw above-threshold rows within `detection_window_s` of the group's
+`Start_Timestamp` are merged into one event by **algebraic sum**, regardless
+of sign. Internal ramp oscillations (e.g. `+1255, -152, +390, -45, +602`)
+collapse into a single net step instead of fragmenting into multiple events
+with opposing directions. Groups whose merged net |dKw| ends up below
+`load_threshold_kw` are dropped post-merge — that pattern is pure oscillation
+around a stable load.
+
+**Important regression caveat:** the pre-2026-05-05 logic also required
+`same_direction` for merging. That check was removed because it was splitting
+real block-load ramps on high-resolution data into 5–7 sub-events. If the user
+has a deliberate test pattern that fires an UP step and a DOWN step within
+`detection_window_s` of each other, those will now merge into one net event.
+The remedy is to lower `detection_window_s` for that test, not to reinstate
+the same-direction check (which breaks ramps). See `analysis.py` ~lines 728–755.
 
 ### snapshot_window_s (default 10 s, user-configurable 3–60 s)
 The **total** time span shown in snapshot plots. The event sits at t=0,
@@ -91,13 +111,22 @@ snapshot shows. The x-axis is in relative seconds ("Time relative to event").
 
 ### Recovery requires sustained in-band with oscillation handling
 `calculate_recovery_time` uses a candidate-invalidation approach: when a
-sustained in-band window (sustain_s=0.3, 3 consecutive 100 ms points) is
-found, it is recorded as a *candidate* and verification continues for
-verify_s=10.0 seconds. If the signal exits the band again during that
-verification window (oscillation), the candidate is discarded and the
-search resumes. This correctly handles waveforms that oscillate in and
-out of the recovery band before final settlement, without being
-affected by subsequent unrelated load events.
+sustained in-band window (`sustain_s=0.3`) is found, it is recorded as a
+*candidate* and verification continues for `verify_s` seconds (default 10).
+If the signal exits the band again during that verification window
+(oscillation), the candidate is discarded and the search resumes. This
+correctly handles waveforms that oscillate in and out of the recovery band
+before final settlement, without being affected by subsequent unrelated
+load events.
+
+**Sample-rate-aware sustain/verify counts.** `sustain_pts` and `verify_pts`
+are derived from `np.median(np.diff(timestamps))` rather than a hardcoded
+0.1 s grid. Hioki interpolated data → 3 / 100 points (0.3 s / 10 s on a
+100 ms grid). Miro at 1 s → 1 / 10 points. Miro at 200 ms → 2 / 50 points.
+Hardcoding `int(sustain_s / 0.1)` (the pre-2026-05-05 form) was producing
+100 s verify windows on 1 s Miro data, which is what made every event report
+recovery times of 480–660 s and fail. See `analysis.py:calculate_recovery_time`
+~lines 335–352.
 
 ### Asymmetric frequency recovery bands
 Load increase (dKw > 0): freq drops → band `[49.75, 50.50]` Hz
@@ -151,6 +180,84 @@ interpolates exact re-entry crossing.
 
 **Recovery time = exit crossing → re-entry crossing** (not load-change → re-entry).
 Recovery is only calculated and checked when `V_exit_ts` / `F_exit_ts` is non-null.
+
+### Miro logger support (2026-05-05)
+Two CSV formats are now auto-detected from the header in `analysis.py:detect_logger_format`:
+- **Hioki / generic** — default branch
+- **Miro** — fingerprinted by `RMS-VA-AVG [V]`, `FREQ-VA-AVG [Hz]`, `kW-PTOTAL-AVG [kW]` columns
+
+`load_and_prepare_csv` dispatches to `load_miro_csv` for Miro, which:
+1. Renames Miro columns to pipeline-standard (`U1/U2/U3_rms_AVG`, `I1/I2/I3_rms_AVG`,
+   `Freq_AVG`, `PF_sum_AVG`).
+2. Converts `kW-PTOTAL-AVG [kW]` → `P_sum_AVG` in W (× 1000) to match the pipeline's
+   `/1000` divisor.
+3. **Stable-sorts by Timestamp (`kind="mergesort"`)** so rows sharing a whole-second
+   timestamp keep their original CSV row order. Default quicksort scrambled them,
+   producing fake `+/-/+` load-step oscillations downstream.
+4. **Redistributes same-second rows across the second.** Miro `Timestamp` is
+   1 s resolution even when the logger samples at 5–10 Hz, so 5 rows can share
+   one timestamp value. Each group of N rows gets `t + (i / N)` second offsets
+   so the data carries an honest sub-second grid.
+5. Stashes the format on `df.attrs["logger_format"]` for the UI to surface and
+   for the Run Analysis path to consult.
+
+Voltages stay in L-N form on read; `ln_to_ll_mode="auto"` detects U1/U2/U3 as
+L-N and applies ×√3 downstream. The sidebar shows a coloured pill banner
+("Detected logger: Miro" / "Hioki / generic") under the CSV selector — indigo
+pill for Miro, green for Hioki — every time a CSV is selected.
+
+**Miro skips the 100ms interpolation.** The compliance Run Analysis path sets
+`config.skip_interpolation = True` whenever `df_raw.attrs["logger_format"] == "miro"`,
+regardless of the actual sample rate. Rationale: the source rate is whatever the
+user configured the logger to record, and inventing 100 ms samples between Miro
+readings would obscure the real measurement grid. The recovery algorithm derives
+its sustain/verify counts from the actual timestamps so it works correctly at
+any rate (see *Recovery requires sustained in-band* above).
+
+### Potential Fault flag (2026-05-05) — separate from compliance fail
+Long V or F recovery times on a real generator usually indicate broken set-points
+or hardware issues, not just marginal performance. `check_compliance` now emits
+two extra fields:
+- `Potential_Fault: bool` — True when V_rec_s or F_rec_s exceeds `config.fault_recovery_threshold_s`
+- `Fault_Reasons: str` — semi-colon-joined per-fault explanations, e.g.
+  `"V Recovery 15.4s > 10s"`
+
+`fault_recovery_threshold_s` (default 10 s) is configurable via a sidebar
+input and persisted in `_DEV_DEFAULTS`. The compliance table renderer
+(`_render_compliance_html`) shows a new **Potential Fault** column with an
+amber `⚠ Investigate` badge (`#fffbeb` / `#b45309`), and the **Failure Reasons**
+column appends `⚠ Possible fault: <reasons>` from `Fault_Reasons` so both
+contexts surface together. A Pass event can still be flagged Fault if its
+recovery is just inside the ISO limit but unusually slow.
+
+### Per-snapshot window + time-shift overrides (2026-05-05)
+Each event expander has its own snapshot tuning controls (no longer dev-mode-only):
+- **Window size (s)** — per-snapshot override of the global `snapshot_window_s`
+- **Time shift (s)** — slide the visible window forwards/backwards along the
+  time axis. The event marker stays on its real timestamp; only the visible
+  span moves.
+- **↺ Apply** — regenerates that one snapshot
+- **⟲ Reset** — reverts to the global setting
+
+Persisted in two session-state dicts that are cleared on each Run Analysis:
+- `event_window_overrides[event_idx] = float`
+- `event_offset_overrides[event_idx] = float`
+
+`plot_load_change_snapshot` accepts a `time_offset_s` parameter that asymmetrically
+adjusts `left_s` / `right_s`. When the offset is non-zero the neighbour-event
+clamping is skipped — explicit user intent takes priority over the safety guard.
+Compliance values are unaffected; only the snapshot image changes.
+
+### Detected Events plot (2026-05-05) — first time-series tab
+`visualizations.plot_detected_events(df_proc, df_events, ...)` renders a kW
+time-series with every detected event overlaid as an amber vertical dotted line
+plus a `+NNN kW` annotation. Saved under graph_paths key `"Detected_Events"`,
+which the tab-label code converts to "Detected Events" via the standard
+`n.replace("Avg_", "").replace("_", " ")` formatter. Inserted into `graph_paths`
+before the regular `Avg_kW` plot so it lands as the first tab in both
+Compliance and WinScope sections. The legend includes the event count, which
+is the fastest sanity-check for whether detection caught the right number of
+load steps.
 
 ### PDF conversion — two parallel pipelines
 
@@ -478,6 +585,18 @@ Changing the salt re-buckets users — pick once, keep forever.
 - The `intersection_overrides` session-state dict is keyed by event integer
   index from `df_events`. If events are re-detected (new config), clear or
   reinitialise overrides to avoid stale keys mapping to wrong events.
+  Same applies to `event_window_overrides` and `event_offset_overrides`
+  (per-snapshot size + time-shift) — both are wiped on Run Analysis.
+- **Miro CSV stable sort is load-bearing.** `load_miro_csv` uses
+  `sort_values("Timestamp", kind="mergesort")` because pandas' default
+  quicksort is unstable; with multiple rows sharing the same whole-second
+  timestamp it scrambled their order, and the subsequent sub-second
+  redistribution produced fake `+/-/+` load-step oscillations. Do not
+  switch this to the default sort.
+- **Logging noise:** `matplotlib`, `PIL`, `fontTools`, `asyncio`, and
+  `urllib3` are silenced at WARNING in the global logging setup
+  (`app.py` ~line 50). Without this they emit hundreds of lines per
+  generated plot at DEBUG level and drown `pqa_debug.log`.
 - LibreOffice conversion spawns a subprocess with a 90 s timeout. On Streamlit
   Cloud cold starts this can feel slow — expected behaviour.
 - `packages.txt` pango/cairo entries are required for WeasyPrint to render

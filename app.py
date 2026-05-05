@@ -6,6 +6,7 @@ Run with: streamlit run app.py
 
 import streamlit as st
 import pandas as pd
+import numpy as np
 import os
 import shutil
 import zipfile
@@ -25,6 +26,7 @@ from visualizations import (
     generate_temp_pressure_plots,
     plot_itic_curve,
     plot_load_change_snapshot,
+    plot_detected_events,
     save_compliance_table_as_image,
 )
 from report import get_placeholder_map, inject_images_to_word, generate_docx, convert_to_pdf
@@ -37,12 +39,16 @@ tracking.install_global_handlers()
 LOG_FILE = "/tmp/pqa_debug.log"
 logging.basicConfig(
     level=logging.DEBUG,
-    format="%(asctime)s [%(levelname)s] %(message)s",
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.FileHandler(LOG_FILE, mode="a"),
         logging.StreamHandler(),          # also prints to terminal
     ],
 )
+# Silence noisy third-party DEBUG output that otherwise drowns out our own
+# diagnostics — matplotlib/PIL emit hundreds of lines per plot at DEBUG level.
+for _noisy in ("matplotlib", "PIL", "fontTools", "asyncio", "urllib3"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 log = logging.getLogger("PQA")
 
 # --- Page Config ---
@@ -272,6 +278,7 @@ _DEV_DEFAULTS: dict = {
     "show_debug": False,
     "detection_window": 8.0,
     "recovery_verify_s": 6.0,
+    "fault_recovery_threshold_s": 10.0,
     "snapshot_window": 8.0,
     "load_thresh": 30.0,
     "v_tol": 1.0,
@@ -345,8 +352,14 @@ def init_output_dirs():
         os.makedirs(d, exist_ok=True)
 
 
-def _recompute_df_interp(df_proc):
-    """Rebuild the 100 ms interpolated frame from df_proc (same logic as perform_analysis)."""
+def _recompute_df_interp(df_proc, skip_interpolation: bool = False):
+    """Rebuild the 100 ms interpolated frame from df_proc (same logic as perform_analysis).
+
+    If skip_interpolation is True (e.g. Miro source already at high resolution),
+    return df_proc unchanged so the recalculate path matches the original run.
+    """
+    if skip_interpolation:
+        return df_proc.copy()
     import numpy as np
     num_cols = df_proc.select_dtypes(include=[np.number]).columns
     return (
@@ -559,7 +572,10 @@ def _render_intersection_footer(overrides):
         cfg   = st.session_state["config"]
 
         with st.spinner("Recalculating compliance…"):
-            df_interp = _recompute_df_interp(st.session_state["df_proc"])
+            df_interp = _recompute_df_interp(
+                st.session_state["df_proc"],
+                skip_interpolation=getattr(cfg, "skip_interpolation", False),
+            )
 
         v_upper = cfg.nominal_voltage * (1 + cfg.voltage_tolerance_pct / 100)
         v_lower = cfg.nominal_voltage * (1 - cfg.voltage_tolerance_pct / 100)
@@ -1303,6 +1319,17 @@ def _render_compliance_html(df):
                         'letter-spacing:0.03em;">&#10007; Fail</span>'
                     )
                 cells.append(f'<td style="background:{row_bg};white-space:nowrap;">{badge}</td>')
+            elif c == "Potential Fault":
+                if v.startswith("⚠"):
+                    badge = (
+                        '<span style="display:inline-flex;align-items:center;gap:4px;'
+                        'background:#fffbeb;color:#b45309;border:1px solid #fde68a;'
+                        'border-radius:20px;padding:2px 10px;font-size:12px;font-weight:700;'
+                        f'letter-spacing:0.03em;">{v}</span>'
+                    )
+                    cells.append(f'<td style="background:{row_bg};white-space:nowrap;">{badge}</td>')
+                else:
+                    cells.append(f'<td style="background:{row_bg};"></td>')
             elif c == "Event Time":
                 cells.append(f'<td style="background:{row_bg};font-family:\'JetBrains Mono\',monospace;font-size:12px;">{v}</td>')
             else:
@@ -1362,7 +1389,8 @@ if "_ds" not in st.session_state:
                 "vri_upper", "vri_lower", "vrd_upper", "vrd_lower",
                 "nom_v_preset", "nom_v_custom", "rated_load_input",
                 "expected_steps_input", "report_format", "detection_window",
-                "snapshot_window", "recovery_verify_s"):
+                "snapshot_window", "recovery_verify_s",
+                "fault_recovery_threshold_s"):
         if _k not in st.session_state:
             st.session_state[_k] = _loaded.get(_k, _DEV_DEFAULTS[_k])
     # Time filter: restore only if the saved CSV path still matches
@@ -1517,8 +1545,78 @@ with st.sidebar:
                     except UnicodeDecodeError:
                         _peek = pd.read_csv(selected_csv_path, nrows=0, sep=None, engine="python", encoding="latin-1")
                     _fmt = detect_logger_format(list(_peek.columns))
-                    _label = {"miro": "Miro", "hioki": "Hioki / generic"}.get(_fmt, _fmt)
-                    st.caption(f"Detected logger: **{_label}**")
+                    _label = {
+                        "miro": "Miro",
+                        "hioki": "Hioki / generic",
+                        "unknown": "Unrecognised format",
+                    }.get(_fmt, _fmt)
+                    # Coloured pill so the operator can't miss which logger
+                    # format was auto-detected — handling differs (Miro skips
+                    # interpolation, redistributes sub-second timestamps), so
+                    # this needs to register every time a CSV is selected.
+                    # Unknown format gets a red banner with a list of missing
+                    # columns so the user knows what to re-export.
+                    if _fmt == "miro":
+                        _pill_bg, _pill_fg, _pill_border = "#eef2ff", "#3730a3", "#c7d2fe"
+                        _icon_path = '<circle cx="12" cy="12" r="9"></circle><path d="m9 12 2 2 4-4"></path>'
+                    elif _fmt == "hioki":
+                        _pill_bg, _pill_fg, _pill_border = "#f0fdf4", "#15803d", "#bbf7d0"
+                        _icon_path = '<circle cx="12" cy="12" r="9"></circle><path d="m9 12 2 2 4-4"></path>'
+                    else:  # unknown
+                        _pill_bg, _pill_fg, _pill_border = "#fef2f2", "#b91c1c", "#fecaca"
+                        _icon_path = '<circle cx="12" cy="12" r="9"></circle><line x1="12" y1="8" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>'
+
+                    # Diagnose what's missing for an unknown format so the
+                    # banner is actionable, not just alarming.
+                    _missing_lines = ""
+                    if _fmt == "unknown":
+                        _peek_cols = {str(c).replace("﻿", "").replace("\x00", "").strip() for c in _peek.columns}
+                        _missing = []
+                        if not (bool({"Timestamp", "PC Time"} & _peek_cols) or ({"Date", "Time"} <= _peek_cols)):
+                            _missing.append("a timestamp column (<code>Timestamp</code>, <code>PC Time</code>, or <code>Date</code> + <code>Time</code>)")
+                        if "Freq_AVG" not in _peek_cols:
+                            _missing.append("frequency (<code>Freq_AVG</code>)")
+                        if not bool({
+                            "U1_rms_AVG", "U2_rms_AVG", "U3_rms_AVG",
+                            "U12_rms_AVG", "U23_rms_AVG", "U31_rms_AVG", "U_avg_AVG",
+                        } & _peek_cols):
+                            _missing.append("at least one voltage column (<code>U12/U23/U31_rms_AVG</code>, <code>U1/U2/U3_rms_AVG</code>, or <code>U_avg_AVG</code>)")
+                        if _missing:
+                            _missing_lines = (
+                                '<div style="margin-top:0.4rem;font-size:0.78rem;line-height:1.45;">'
+                                'Missing or not recognised: '
+                                + "; ".join(_missing)
+                                + '.<br>Re-export the CSV from PQone with the required columns selected (see the user guide).'
+                                + "</div>"
+                            )
+
+                    st.markdown(
+                        f"""
+                        <div style="
+                            display:flex;flex-direction:column;
+                            margin:0.55rem 0 0.25rem;padding:0.6rem 0.75rem;
+                            background:{_pill_bg};
+                            border:1px solid {_pill_border};
+                            border-left:4px solid {_pill_fg};
+                            border-radius:8px;
+                            font-family:'Inter',-apple-system,sans-serif;
+                            font-size:0.86rem;color:#0f172a;">
+                          <div style="display:flex;align-items:center;gap:0.55rem;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"
+                                 viewBox="0 0 24 24" fill="none" stroke="{_pill_fg}"
+                                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                              {_icon_path}
+                            </svg>
+                            <span>Detected logger:
+                              <strong style="color:{_pill_fg};font-weight:700;
+                                            letter-spacing:0.02em;">{_label}</strong>
+                            </span>
+                          </div>
+                          {_missing_lines}
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
                 except Exception:
                     pass
 
@@ -1612,6 +1710,12 @@ with st.sidebar:
                 min_value=1.0, max_value=30.0, step=1.0,
                 help="After a recovery candidate is found, verify the signal stays in-band for this many seconds. Handles oscillating waveforms.",
             )
+        fault_recovery_threshold_s = st.number_input(
+            "Fault Recovery Threshold (s)",
+            key="fault_recovery_threshold_s",
+            min_value=1.0, max_value=120.0, step=1.0,
+            help="Recovery times longer than this are flagged as a Potential Fault — separate from compliance fail. Indicates broken set-points or hardware issues.",
+        )
         _wf_apply, _wf_reset = st.columns([3, 2])
         with _wf_apply:
             st.form_submit_button("Apply Windows", use_container_width=True)
@@ -1621,6 +1725,7 @@ with st.sidebar:
         st.session_state["detection_window"] = 8.0
         st.session_state["snapshot_window"] = 8.0
         st.session_state["recovery_verify_s"] = 6.0
+        st.session_state["fault_recovery_threshold_s"] = 10.0
         st.rerun()
     _ds["active_preset"] = active_preset
     _any_preset = active_preset != "None"
@@ -1648,6 +1753,7 @@ with st.sidebar:
     _ds["detection_window"] = detection_window
     _ds["snapshot_window"] = snapshot_window
     _ds["recovery_verify_s"] = recovery_verify_s
+    _ds["fault_recovery_threshold_s"] = fault_recovery_threshold_s
 
     load_thresh = float(_ds.get("load_thresh", 50.0))
 
@@ -1818,7 +1924,7 @@ with st.sidebar:
     with _rl_col:
         rated_load_str = st.text_input(
             "Rated Load (kW)",
-            help="Optional. When set, load change % is calculated against this value.",
+            help="When set, load change % is calculated against this value. Required for accurate compliance reporting.",
             key="rated_load_input",
         )
     with _rl_rst:
@@ -1833,6 +1939,30 @@ with st.sidebar:
         st.warning("Rated Load must be a number.")
         rated_load_kw = None
     st.session_state["rated_load_kw"] = rated_load_kw
+
+    # Highlight the Rated Load field in red while it is empty so the user
+    # is prompted to fill it in. Scoped via aria-label so we don't paint
+    # other text inputs. Cleared the moment a value is entered.
+    if rated_load_kw is None:
+        st.markdown(
+            """
+            <style>
+              .stTextInput:has(input[aria-label="Rated Load (kW)"]) input {
+                border: 1px solid #dc2626 !important;
+                box-shadow: 0 0 0 1px #dc2626 !important;
+                background-color: #fef2f2 !important;
+              }
+              .stTextInput:has(input[aria-label="Rated Load (kW)"]) input:focus {
+                border-color: #dc2626 !important;
+                box-shadow: 0 0 0 2px rgba(220,38,38,0.25) !important;
+              }
+              .stTextInput:has(input[aria-label="Rated Load (kW)"]) label {
+                color: #dc2626 !important;
+              }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
 
     _es_col, _es_rst = st.columns([7, 1])
     with _es_col:
@@ -2361,13 +2491,25 @@ If the absolute value of that change is larger than the **Load Threshold**, that
 moment is flagged as a potential event.
 
 Load changes that happen within the **Detection Window** of each other are
-treated as one event and their changes are added together. This handles
-stepped ramp loads that appear as several smaller changes in quick succession.
+treated as one event and their changes are **algebraically summed** into a
+single net step. This is important for large block loads — at high sample
+rates a 0 → 2000 kW step does not appear as one clean transition, the kW
+reading oscillates as the generator catches up and produces a sequence of
+alternating ± changes (e.g. +1255, −152, +390, −45, +602, −109, +112).
+Adding all of them together gives the true net step (≈ +2050 kW) as one
+event instead of seven fragmented sub-events.
 
-The event's timestamp is taken from the **first** row in the group.
+If the algebraic sum across the window ends up below the Load Threshold, the
+group is discarded — that pattern is pure oscillation around a stable load,
+not a real step change.
 
-*Tip: increase the Detection Window if a single ramp is being split into
-separate events; decrease it if two distinct steps are being merged into one.*
+The event's timestamp is taken from the **first** row in the group, so the
+recovery clock starts at the beginning of the load change.
+
+*Tip: increase the Detection Window if a single ramp is still being split
+into separate events. Decrease it only if you have a deliberate test pattern
+that fires an UP step and a DOWN step within a few seconds of each other —
+the merge logic will combine those into a single net event otherwise.*
 
 ---
 
@@ -2391,17 +2533,43 @@ compliance checks and graphs.
 
 ---
 
+### Supported data loggers
+
+PQA auto-detects the source format from the CSV header and dispatches to the
+right loader:
+
+| Logger | How it is identified | Voltage handling |
+|---|---|---|
+| Hioki / generic | Default — `U1/U2/U3_rms_AVG` (L-N) or `U12/U23/U31_rms_AVG` (L-L) columns | L-N columns are scaled ×√3, L-L used as-is |
+| Miro | Header contains `RMS-VA-AVG [V]`, `FREQ-VA-AVG [Hz]`, `kW-PTOTAL-AVG [kW]` | Loaded as L-N and scaled ×√3 |
+
+The detected logger is shown in the sidebar caption next to the CSV
+selector ("Detected logger: Miro" / "Hioki / generic").
+
+**Miro CSVs only have whole-second timestamp resolution.** When the logger
+records faster than 1 Hz, the same `Timestamp` value is repeated several times
+in a row. PQA spreads those rows evenly across the second (`t + 0/N, t + 1/N,
+…`) so the data carries an honest sub-second grid. Within-second order is
+preserved using a stable sort, so the chronological sequence of fast-changing
+values (e.g. a load step ramping up over half a second) is not scrambled.
+
 ### How timing is made more precise
 
-Logger CSV files typically record one sample per second — too coarse to measure
-a recovery time of, say, 2.7 seconds accurately. Internally, the tool fills in
-the gaps by creating a denser version of the data with one point every
-100 milliseconds (using straight-line interpolation between your original samples).
+Hioki / generic CSVs typically record one sample per second — too coarse to
+measure a recovery time of, say, 2.7 seconds accurately. PQA fills in the gaps
+by creating a denser version of the data with one point every 100 milliseconds
+(using straight-line interpolation between your original samples).
 
-**This denser data is used only for timing calculations** (when did the signal
-leave the band? when did it return?). All voltage and frequency values shown in
-tables, graphs, and snapshots always come from your original logged data — not
-the interpolated version.
+**Miro CSVs skip this step entirely.** They are loaded at the source rate the
+logger recorded (whatever it happens to be — 1 s, 200 ms, or faster) and the
+recovery algorithm adapts the number of "stay-in-band" samples it requires to
+the actual sample interval, so timing accuracy matches the source data
+without inventing readings between samples.
+
+**The denser data (or raw Miro samples) is used only for timing
+calculations** (when did the signal leave the band? when did it return?).
+All voltage and frequency values shown in tables, graphs, and snapshots
+always come from your original logged data.
 
 ---
 
@@ -2452,10 +2620,12 @@ recovery check is skipped — there is nothing to fail.
 
 Starting from the exit time, the tool scans forward looking for the signal to
 re-enter the tolerance band and **stay there for at least 0.3 seconds
-continuously** (3 consecutive 100 ms samples).
+continuously**. The number of samples that 0.3 s represents is calculated
+from the actual sample interval of the data — 3 samples on a 100 ms grid,
+2 samples on 200 ms, 1 sample on 1 s data, and so on.
 
 When that sustained re-entry is found, the exact crossing time back into the
-band is again calculated by straight-line interpolation.
+band is calculated by straight-line interpolation.
 
 The tool then keeps watching for a further **Recovery Verify Window** (default
 6 seconds) to make sure the signal does not bounce back out. If it does, that
@@ -2483,6 +2653,35 @@ Each event must pass **both** voltage and frequency checks.
 - **FAIL** if recovery time exceeded the **Voltage Recovery** or **Frequency Recovery** limit
 
 The event is **Pass** only if no failure was triggered for either voltage or frequency.
+
+---
+
+### Potential Fault flag — separate from compliance fail
+
+A long recovery time on a real generator is usually a sign that something is
+wrong with the equipment — broken set-points, a sluggish governor, or an
+exciter problem — rather than a marginal performance miss. PQA flags these
+events separately so they stand out from ordinary compliance fails.
+
+Typical recovery times to expect on a healthy unit:
+
+| Scenario | Typical recovery | What it means |
+|---|---|---|
+| Load decrease (any size) | < 4 s | Generator unloading is normally quick |
+| Load acceptance (large block load) | 4–8 s | Engine + governor catch-up — slower but still healthy |
+| Anything > 10–15 s | Suspect | Investigate set-points or hardware |
+| 30 s+ | Almost certainly a fault | |
+
+The **Fault Recovery Threshold** (default 10 s, configurable in the sidebar)
+is the cut-off. Any event whose voltage or frequency recovery exceeds this
+threshold gets a `⚠ Investigate` badge in a new **Potential Fault** column
+in the compliance table, and an extra `⚠ Possible fault: V Recovery 15.4s
+> 10s` line is added to the Failure Reasons cell.
+
+A Potential Fault flag is independent of the Pass/Fail status — an event
+can be Fail (compliance) and Fault (suspect equipment), Fail (compliance)
+without Fault, or even Pass with Fault if the recovery is just inside the
+ISO limit but unusually slow for a real generator.
 
 ---
 
@@ -2514,10 +2713,18 @@ speeds up (load decrease):
 
 ### Time-series graphs
 
-Six graphs are produced: **Power (kW)**, **Voltage (L-L)**, **Current (A)**,
-**Frequency (Hz)**, **Power Factor**, and **THD**. The horizontal axis spans
-the full run (or filtered window). Current is shown per-phase if your logger
-records individual phase currents.
+Several graphs are produced and shown as tabs above the compliance table:
+**Detected Events**, **Power (kW)**, **Voltage (L-L)**, **Current (A)**,
+**Frequency (Hz)**, **Power Factor**, **THD**, and **ITIC Curve**. The
+horizontal axis spans the full run (or filtered window). Current is shown
+per-phase if your logger records individual phase currents.
+
+**Detected Events** is the first tab and shows the kW trace with every
+detected event overlaid as an amber dotted vertical line plus a `+NNN kW`
+label next to it. It is the fastest way to sanity-check that the detection
+algorithm caught the load steps you expected — if you see fewer or more
+events than you ran, this graph tells you immediately. The legend includes
+the total event count.
 
 **Show Limits on Graphs** — draws red dashed lines on the voltage and frequency
 graphs showing the maximum allowed deviation:
@@ -2556,6 +2763,20 @@ and (if *Rated Load* is set) that change as a percentage of rated load.
 when the next event arrived, the voltage or frequency panel is highlighted red
 with a watermark.
 
+**Per-snapshot window adjustments** — the global *Snapshot Window* in the
+sidebar sets the default for every snapshot, but each event expander has its
+own controls so you can tune individual snapshots without affecting the rest:
+
+| Control | What it does |
+|---|---|
+| Window size (s) | Total seconds shown around just this event |
+| Time shift (s) | Move the visible window backwards (negative) or forwards (positive) along the time axis. The event marker stays on its real timestamp — only the visible span moves |
+| ↺ Apply | Regenerate this snapshot with the new size and shift |
+| ⟲ Reset | Revert this snapshot to the global Snapshot Window setting |
+
+Compliance values are unaffected by these adjustments — they only change
+what you see in the snapshot image, not Pass/Fail or the recovery times.
+
 ---
 
 ### Sidebar settings reference
@@ -2582,9 +2803,10 @@ with a watermark.
 
 | Setting | Default | Range | What it does |
 |---|---|---|---|
-| Detection Window (s) | 3 | 1–30 | Load changes within this window are merged into one event |
+| Detection Window (s) | 8 | 1–30 | Load changes within this window are merged into one net event (algebraic sum, regardless of sign) |
 | Snapshot Window (s) | 8 | 3–60 | Width of each snapshot in seconds. Also the window used to find the peak deviation value |
 | Recovery Verify Window (s) | 6 | 1–30 | Dev mode only — how long the signal must stay in-band before recovery is confirmed |
+| Fault Recovery Threshold (s) | 10 | 1–120 | Recovery times longer than this trigger a *Potential Fault* badge — separate from compliance fail |
 
 **Acceptance criteria — symmetric (single limit for both directions)**
 
@@ -2644,13 +2866,28 @@ with a watermark.
 
 ### Tips
 
+- **Detected Events tab** — always check this first after running an analysis.
+  The amber markers show every event the detector picked up; if the count is
+  off, adjust the Load Threshold or Detection Window before chasing
+  individual snapshots.
+- **Per-snapshot Time Shift** — when an event sits awkwardly inside its
+  snapshot (e.g. the dip is right at the left edge), use the Time Shift
+  control inside the event expander to nudge that one snapshot without
+  affecting the others.
 - **Time Filter** — use this when your CSV file covers multiple test runs and
   you want to analyse just one of them.
 - **Snapshot Window** — increase this if the voltage or frequency nadir occurs
   after the default window (slow governor response). This also widens the
   window used to find the peak deviation value.
 - **Detection Window** — increase if a single ramp step is being split into
-  multiple events; decrease if two separate steps are being grouped together.
+  multiple events. Decrease only if you have a deliberate UP-then-DOWN test
+  pattern within a few seconds — the merge logic will combine those into a
+  single net event otherwise.
+- **Fault Recovery Threshold** — the default is 10 s. A healthy generator
+  should never come close to this even on large block loads (load decreases
+  recover in under 4 s, large load acceptances within 4–8 s). Lower it to be
+  alerted earlier; raise it for ageing equipment where 12–15 s recovery is
+  expected baseline.
 - **Dev Mode** — saves all sidebar settings so they survive a browser refresh or
   app restart. Also unlocks the Recovery Verify Window slider and event
   detection overlay.
@@ -2753,6 +2990,7 @@ if _active_tab_main == "compliance":
                 snapshot_window_s=snapshot_window,
                 ln_to_ll_mode=ln_to_ll_mode,
                 recovery_verify_s=recovery_verify_s,
+                fault_recovery_threshold_s=fault_recovery_threshold_s,
             )
 
             _prog = st.empty()
@@ -2768,6 +3006,33 @@ if _active_tab_main == "compliance":
                     st.error("No data found. Check your CSV and time range.")
                     st.stop()
                 log.info(f"CSV loaded: {len(df_raw)} rows")
+
+                # Miro CSVs always skip the 100 ms interpolation step. The
+                # source rate of a Miro file is whatever the user configured
+                # the logger to record — interpolating up or down obscures the
+                # fact and changes which samples drive sustain/verify checks.
+                # The recovery algorithm now derives its grid from the actual
+                # timestamps, so it works correctly at any source rate.
+                _logger_fmt = df_raw.attrs.get("logger_format", "unknown")
+                _sample_interval_s = None
+                try:
+                    if len(df_raw) >= 2:
+                        _diffs_ns = np.diff(df_raw["Timestamp"].values).astype("timedelta64[ns]").astype(np.int64)
+                        _sample_interval_s = float(np.median(_diffs_ns)) / 1e9
+                except Exception:
+                    log.exception("Could not compute sample interval from CSV")
+                if _logger_fmt == "miro":
+                    config.skip_interpolation = True
+                    log.info(
+                        "Miro source detected (median sample interval %s s) — skipping 100ms interpolation.",
+                        f"{_sample_interval_s:.3f}" if _sample_interval_s is not None else "unknown",
+                    )
+                else:
+                    log.info(
+                        "Logger=%s, median sample interval %s s — using 100ms interpolation.",
+                        _logger_fmt,
+                        f"{_sample_interval_s:.3f}" if _sample_interval_s is not None else "unknown",
+                    )
 
                 # Validate CSV format
                 is_valid, csv_errors, csv_warnings = validate_csv_format(df_raw)
@@ -2850,6 +3115,18 @@ if _active_tab_main == "compliance":
             graph_paths = {}
             plot_errors = []
             try:
+                _show_progress_popup(_prog, 50, "Generating Detected Events plot…", "Running Analysis")
+                try:
+                    _det_path = plot_detected_events(
+                        df_proc, df_events, client_name,
+                        output_dir=GRAPH_DIR, thresh_kw=load_thresh,
+                    )
+                    if _det_path:
+                        graph_paths["Detected_Events"] = _det_path
+                except Exception:
+                    log.exception("Detected Events plot failed")
+                    plot_errors.append("⚠️ Detected Events plot failed")
+
                 _show_progress_popup(_prog, 55, "Generating kW plot…", "Running Analysis")
                 kw_paths, kw_errors = generate_plots(df_proc, client_name, metric_keys=["Avg_kW"], **plot_kwargs)
                 graph_paths.update(kw_paths)
@@ -3157,9 +3434,30 @@ if _active_tab_main == "compliance":
             if "Compliance_Status" in src.columns:
                 disp["Compliance Status"] = src["Compliance_Status"]
 
-            # Failure Reasons
+            # Potential Fault flag — surfaced separately from compliance status
+            # so abnormally long recovery times (likely indicating broken
+            # set-points or hardware issues) stand out from normal compliance
+            # fails. Reasons are merged into the Failure Reasons column below.
+            if "Potential_Fault" in src.columns:
+                disp["Potential Fault"] = src["Potential_Fault"].map(
+                    lambda x: "⚠ Investigate" if bool(x) else ""
+                )
+
+            # Failure Reasons (combined with fault reasons when present)
             if "Failure_Reasons" in src.columns:
-                disp["Failure Reasons"] = src["Failure_Reasons"].fillna("").astype(str).str.replace(";", "<br>")
+                _fr = src["Failure_Reasons"].fillna("").astype(str)
+                if "Fault_Reasons" in src.columns:
+                    _xr = src["Fault_Reasons"].fillna("").astype(str)
+                    _combined = []
+                    for _f, _x in zip(_fr, _xr):
+                        parts = []
+                        if _f:
+                            parts.append(_f)
+                        if _x:
+                            parts.append(f"⚠ Possible fault: {_x}")
+                        _combined.append("; ".join(parts))
+                    _fr = pd.Series(_combined, index=src.index)
+                disp["Failure Reasons"] = _fr.str.replace(";", "<br>")
 
 
             # Height: header (~54px, may wrap to 2 lines) + per row (~66px for
@@ -3192,6 +3490,10 @@ if _active_tab_main == "compliance":
             "Expand each event to view its snapshot and adjust the band-exit / recovery "
             "intersection points if needed. Click **Recalculate Compliance** below when done."
         )
+        # Placeholder for the streaming snapshot progress bar — rendered here so
+        # it appears between the heading and the first event expander instead of
+        # below the entire list. The streaming block populates it later.
+        _snapshot_progress_slot = st.empty()
         if snapshot_paths or not df_events.empty:
             overrides = st.session_state.setdefault("intersection_overrides", {})
 
@@ -3332,8 +3634,10 @@ if _active_tab_main == "compliance":
             _events_seq = list(df_events.iterrows())
             _total = len(_events_seq)
 
-            st.divider()
-            st.markdown(
+            # Render progress UI inside the placeholder reserved earlier — this
+            # keeps the loading bar directly under the "Event Snapshots" heading.
+            _stream_container = _snapshot_progress_slot.container()
+            _stream_container.markdown(
                 '<div style="display:flex;align-items:center;gap:0.6rem;margin:0.4rem 0 0.6rem;">'
                 '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" '
                 'stroke="#9333ea" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">'
@@ -3342,7 +3646,7 @@ if _active_tab_main == "compliance":
                 'Generating event snapshots…</span></div>',
                 unsafe_allow_html=True,
             )
-            _stream_prog = st.progress(0.0, text=f"0 / {_total} snapshots")
+            _stream_prog = _stream_container.progress(0.0, text=f"0 / {_total} snapshots")
             _stream_paths = list(st.session_state.get("snapshot_paths") or [None] * _total)
             if len(_stream_paths) < _total:
                 _stream_paths.extend([None] * (_total - len(_stream_paths)))
@@ -3389,6 +3693,7 @@ if _active_tab_main == "compliance":
                 st.session_state["snapshot_paths"] = _stream_paths
 
             _stream_prog.empty()
+            _snapshot_progress_slot.empty()
             st.session_state["snapshot_paths"] = _stream_paths
             st.session_state["snapshots_pending"] = False
             st.session_state["pending_snapshot_args"] = None
@@ -3669,6 +3974,7 @@ elif _active_tab_main == "winscope":
                     ln_to_ll_mode="force_ll",
                     recovery_verify_s=recovery_verify_s,
                     skip_interpolation=True,
+                    fault_recovery_threshold_s=fault_recovery_threshold_s,
                 )
                 _ws_df_proc, _ws_df_events = perform_analysis(_ws_df_raw, _ws_config)
                 tracking.log_event(
@@ -3690,8 +3996,20 @@ elif _active_tab_main == "winscope":
                     f_max_dev_lower=f_max_dev_inc if apply_asymmetric_freq_dev else None,
                     show_debug=False, df_events=None, thresh_kw=load_thresh,
                 )
-                _ws_graph_paths, _ws_plot_errors = generate_plots(_ws_df_proc, _ws_client_name,
+                _ws_graph_paths = {}
+                try:
+                    _ws_det_path = plot_detected_events(
+                        _ws_df_proc, _ws_df_events, _ws_client_name,
+                        output_dir=_ws_graph_dir, thresh_kw=load_thresh,
+                    )
+                    if _ws_det_path:
+                        _ws_graph_paths["Detected_Events"] = _ws_det_path
+                except Exception:
+                    log.exception("WinScope Detected Events plot failed")
+
+                _ws_v_paths, _ws_plot_errors = generate_plots(_ws_df_proc, _ws_client_name,
                                                  metric_keys=["Avg_Voltage_LL"], **_ws_plot_kw)
+                _ws_graph_paths.update(_ws_v_paths)
                 _show_progress_popup(_ws_prog, 58, "Generating remaining plots…", "WinScope Analysis")
                 _ws_other, _ws_other_errors = generate_plots(_ws_df_proc, _ws_client_name,
                                            metric_keys=["Avg_kW", "Avg_Current", "Avg_Frequency", "Avg_PF", "Avg_THD_F"],
@@ -3923,12 +4241,16 @@ elif _active_tab_main == "winscope":
                         st.image(_tpp, use_container_width=True)
 
         # Event snapshots
+        _ws_snapshot_progress_slot = None
         if (_ws_sp or not _ws_ev.empty):
             st.markdown("""
             <div class="pqa-section-header">
               <div class="pqa-section-bar" style="background:#9333ea;"></div>
               <span class="pqa-section-title">Event Snapshots</span>
             </div>""", unsafe_allow_html=True)
+            # Placeholder for the streaming progress bar so it appears between
+            # the heading and the first event expander.
+            _ws_snapshot_progress_slot = st.empty()
             import re as _re_ws2
             for _wsi in range(len(_ws_ev)):
                 _wsp = _ws_sp[_wsi] if _wsi < len(_ws_sp) else None
@@ -3962,8 +4284,13 @@ elif _active_tab_main == "winscope":
             _ws_events_seq = list(_ws_ev.iterrows())
             _ws_total = len(_ws_events_seq)
 
-            st.divider()
-            st.markdown(
+            # Render progress UI inside the placeholder reserved earlier so the
+            # bar appears under the "Event Snapshots" heading, not below the list.
+            _ws_stream_host = (
+                _ws_snapshot_progress_slot.container()
+                if _ws_snapshot_progress_slot is not None else st.container()
+            )
+            _ws_stream_host.markdown(
                 '<div style="display:flex;align-items:center;gap:0.6rem;margin:0.4rem 0 0.6rem;">'
                 '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" '
                 'stroke="#9333ea" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">'
@@ -3972,7 +4299,7 @@ elif _active_tab_main == "winscope":
                 'Generating event snapshots…</span></div>',
                 unsafe_allow_html=True,
             )
-            _ws_stream_prog = st.progress(0.0, text=f"0 / {_ws_total} snapshots")
+            _ws_stream_prog = _ws_stream_host.progress(0.0, text=f"0 / {_ws_total} snapshots")
             _ws_stream_paths = list(st.session_state.get("ws_snapshot_paths") or [None] * _ws_total)
             if len(_ws_stream_paths) < _ws_total:
                 _ws_stream_paths.extend([None] * (_ws_total - len(_ws_stream_paths)))
@@ -4019,6 +4346,8 @@ elif _active_tab_main == "winscope":
                 st.session_state["ws_snapshot_paths"] = _ws_stream_paths
 
             _ws_stream_prog.empty()
+            if _ws_snapshot_progress_slot is not None:
+                _ws_snapshot_progress_slot.empty()
             st.session_state["ws_snapshot_paths"] = _ws_stream_paths
             st.session_state["ws_snapshots_pending"] = False
             st.session_state["ws_pending_snapshot_args"] = None
