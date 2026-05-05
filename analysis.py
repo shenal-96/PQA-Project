@@ -91,9 +91,54 @@ def robust_to_datetime(series):
         return pd.to_datetime(series, dayfirst=True, errors="coerce")
 
 
+def detect_logger_format(columns):
+    """Return 'miro' or 'hioki' based on column-name fingerprints."""
+    cols = {str(c).replace("\ufeff", "").replace("\x00", "").strip() for c in columns}
+    miro_markers = {"RMS-VA-AVG [V]", "FREQ-VA-AVG [Hz]", "kW-PTOTAL-AVG [kW]"}
+    if any(m in cols for m in miro_markers):
+        return "miro"
+    return "hioki"
+
+
+def load_miro_csv(file_path_or_buffer):
+    """
+    Load a Miro logger CSV and return a DataFrame compatible with perform_analysis.
+
+    Renames Miro column names to pipeline-standard names and converts the
+    total kW column from kW \u2192 W so the pipeline's /1000 divisor is consistent.
+    Voltages stay in L-N form; AnalysisConfig.ln_to_ll_mode="auto" detects
+    U1/U2/U3 as L-N and applies \u00d7\u221a3 downstream.
+    """
+    df = pd.read_csv(file_path_or_buffer, sep=None, engine="python", encoding="latin-1")
+    df.columns = [str(c).replace("\ufeff", "").replace("\x00", "").strip() for c in df.columns]
+
+    rename_map = {
+        "RMS-VA-AVG [V]":    "U1_rms_AVG",
+        "RMS-VB-AVG [V]":    "U2_rms_AVG",
+        "RMS-VC-AVG [V]":    "U3_rms_AVG",
+        "RMS-IA-AVG [A]":    "I1_rms_AVG",
+        "RMS-IB-AVG [A]":    "I2_rms_AVG",
+        "RMS-IC-AVG [A]":    "I3_rms_AVG",
+        "FREQ-VA-AVG [Hz]":  "Freq_AVG",
+        "TPF-PTOTAL-AVG":    "PF_sum_AVG",
+    }
+    df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+
+    if "kW-PTOTAL-AVG [kW]" in df.columns:
+        df["P_sum_AVG"] = pd.to_numeric(df["kW-PTOTAL-AVG [kW]"], errors="coerce") * 1000
+
+    df["Timestamp"] = robust_to_datetime(df["Timestamp"])
+    df = df.dropna(subset=["Timestamp"]).sort_values("Timestamp").reset_index(drop=True)
+    return df
+
+
 def load_and_prepare_csv(file_path_or_buffer, start_time=None, end_time=None):
     """
     Load a CSV file and prepare it for analysis.
+
+    Auto-detects the logger format (Hioki/generic vs Miro) by inspecting the
+    header, then dispatches to the appropriate loader. The detected format is
+    stashed on df.attrs["logger_format"] for the UI to surface.
 
     Parameters:
         file_path_or_buffer: path string or file-like object
@@ -101,22 +146,39 @@ def load_and_prepare_csv(file_path_or_buffer, start_time=None, end_time=None):
         end_time: optional HH:MM:SS string to filter end
 
     Returns:
-        tuple: (df, client_name) where df has a 'Timestamp' column
+        DataFrame with a 'Timestamp' column.
     """
-    df = pd.read_csv(file_path_or_buffer, sep=None, engine="python")
-    df.columns = [str(c).replace("\ufeff", "").replace("\x00", "").replace(" (Q)", "").strip() for c in df.columns]
+    try:
+        header_df = pd.read_csv(file_path_or_buffer, nrows=0, sep=None, engine="python")
+    except UnicodeDecodeError:
+        if hasattr(file_path_or_buffer, "seek"):
+            file_path_or_buffer.seek(0)
+        header_df = pd.read_csv(file_path_or_buffer, nrows=0, sep=None, engine="python", encoding="latin-1")
+    fmt = detect_logger_format(list(header_df.columns))
 
-    # Parse timestamps from various column layouts
-    if "PC Time" in df.columns:
-        df["Timestamp"] = robust_to_datetime(df["PC Time"])
-    elif "Date" in df.columns and "Time" in df.columns:
-        df["Timestamp"] = robust_to_datetime(df["Date"] + " " + df["Time"])
+    if hasattr(file_path_or_buffer, "seek"):
+        file_path_or_buffer.seek(0)
+
+    if fmt == "miro":
+        df = load_miro_csv(file_path_or_buffer)
     else:
-        df["Timestamp"] = robust_to_datetime(df.iloc[:, 1])
+        try:
+            df = pd.read_csv(file_path_or_buffer, sep=None, engine="python")
+        except UnicodeDecodeError:
+            if hasattr(file_path_or_buffer, "seek"):
+                file_path_or_buffer.seek(0)
+            df = pd.read_csv(file_path_or_buffer, sep=None, engine="python", encoding="latin-1")
+        df.columns = [str(c).replace("\ufeff", "").replace("\x00", "").replace(" (Q)", "").strip() for c in df.columns]
 
-    df = df.dropna(subset=["Timestamp"]).sort_values("Timestamp").reset_index(drop=True)
+        if "PC Time" in df.columns:
+            df["Timestamp"] = robust_to_datetime(df["PC Time"])
+        elif "Date" in df.columns and "Time" in df.columns:
+            df["Timestamp"] = robust_to_datetime(df["Date"] + " " + df["Time"])
+        else:
+            df["Timestamp"] = robust_to_datetime(df.iloc[:, 1])
 
-    # Apply time filtering
+        df = df.dropna(subset=["Timestamp"]).sort_values("Timestamp").reset_index(drop=True)
+
     if start_time and end_time and not df.empty:
         try:
             df_date = df["Timestamp"].dt.date.iloc[0]
@@ -126,6 +188,7 @@ def load_and_prepare_csv(file_path_or_buffer, start_time=None, end_time=None):
         except Exception as e:
             print(f"Time filtering error: {e}")
 
+    df.attrs["logger_format"] = fmt
     return df
 
 

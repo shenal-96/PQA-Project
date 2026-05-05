@@ -519,7 +519,8 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                               show_debug=False, show_intersections=False, event_row=None,
                               show_max_deviation=False,
                               rated_load_kw=None, window_s=10,
-                              next_event_ts=None, prev_event_ts=None):
+                              next_event_ts=None, prev_event_ts=None,
+                              time_offset_s=0.0):
     """
     Generate a +-5 second snapshot around a load event showing V, I, F, kW.
 
@@ -536,8 +537,17 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
     # Determine time bounds: window_s is the TOTAL span (e.g. 8 -> -4s..+4s),
     # but extend if intersection markers (exit / recovery) fall outside.
     half_window = window_s / 2.0
-    left_s = half_window
-    right_s = half_window
+    # time_offset_s shifts the window forward (+) or backward (-) along the
+    # time axis while keeping the event marker at its true timestamp. The
+    # event sits at relative t=0 still — we just show more pre- or post-
+    # event data depending on the sign of the offset.
+    left_s = half_window - float(time_offset_s)
+    right_s = half_window + float(time_offset_s)
+    # Guard against degenerate windows when offset > half_window.
+    if left_s < 0.5:
+        left_s = 0.5
+    if right_s < 0.5:
+        right_s = 0.5
     if show_intersections and event_row is not None:
         for exit_key, rec_key in [("V_exit_ts", "V_rec_s"), ("F_exit_ts", "F_rec_s")]:
             ex = event_row.get(exit_key)
@@ -557,11 +567,14 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
     # Hard ceiling: never extend past neighbouring events. Otherwise a far-out
     # recovery marker drags the next event's data into this snapshot, inflating
     # load_before / load_after and producing a misleading wide x-axis.
-    if next_event_ts is not None and pd.notnull(next_event_ts):
+    # Skipped when the user has explicitly shifted the window — that is a
+    # deliberate override and should be respected even if it overlaps neighbours.
+    _explicit_shift = abs(float(time_offset_s)) > 1e-9
+    if not _explicit_shift and next_event_ts is not None and pd.notnull(next_event_ts):
         max_right = (pd.Timestamp(next_event_ts) - event_ts).total_seconds()
         if max_right > 0:
             right_s = min(right_s, max_right)
-    if prev_event_ts is not None and pd.notnull(prev_event_ts):
+    if not _explicit_shift and prev_event_ts is not None and pd.notnull(prev_event_ts):
         max_left = (event_ts - pd.Timestamp(prev_event_ts)).total_seconds()
         if max_left > 0:
             left_s = min(left_s, max_left)

@@ -18,7 +18,7 @@ import json
 import uuid
 from pathlib import Path
 
-from analysis import AnalysisConfig, load_and_prepare_csv, load_winscope_xls, perform_analysis, check_compliance, calculate_recovery_time, validate_csv_format
+from analysis import AnalysisConfig, load_and_prepare_csv, load_winscope_xls, perform_analysis, check_compliance, calculate_recovery_time, validate_csv_format, detect_logger_format
 from visualizations import (
     generate_plots,
     generate_all_snapshots,
@@ -29,6 +29,9 @@ from visualizations import (
 )
 from report import get_placeholder_map, inject_images_to_word, generate_docx, convert_to_pdf
 from html_report import get_default_template, generate_html_report
+import tracking
+
+tracking.install_global_handlers()
 
 # --- Logging setup ---
 LOG_FILE = "/tmp/pqa_debug.log"
@@ -1508,6 +1511,16 @@ with st.sidebar:
                 if _csv_tr_key not in st.session_state:
                     st.session_state[_csv_tr_key] = _get_csv_time_range(selected_csv_path)
                 auto_start, auto_end = st.session_state[_csv_tr_key]
+                try:
+                    try:
+                        _peek = pd.read_csv(selected_csv_path, nrows=0, sep=None, engine="python")
+                    except UnicodeDecodeError:
+                        _peek = pd.read_csv(selected_csv_path, nrows=0, sep=None, engine="python", encoding="latin-1")
+                    _fmt = detect_logger_format(list(_peek.columns))
+                    _label = {"miro": "Miro", "hioki": "Hioki / generic"}.get(_fmt, _fmt)
+                    st.caption(f"Detected logger: **{_label}**")
+                except Exception:
+                    pass
 
     else:
         # ── 1. WinScope Files ──────────────────────────────────────
@@ -1611,6 +1624,7 @@ with st.sidebar:
         st.rerun()
     _ds["active_preset"] = active_preset
     _any_preset = active_preset != "None"
+    tracking.log_preset_change(active_preset)
 
     # In dev mode with a preset active: fields are enabled but visually muted.
     # :user-valid fires after the user has edited a field and permanently
@@ -2272,6 +2286,31 @@ with st.sidebar:
 
 @st.dialog("PQA — User Guide", width="large")
 def _help_dialog():
+    _help_dir = os.path.join(_APP_DIR, "assets", "help")
+    st.markdown(
+        "### Generating the CSV file from PQone\n\n"
+        "Follow these steps in PQone to export the CSV file that PQA expects."
+    )
+    st.markdown("**Step 1** — Open the PQA data with PQone.")
+    st.markdown("**Step 2** — Select Line-to-Line voltage.")
+    _img2 = os.path.join(_help_dir, "csv_step2_ll_voltage.png")
+    if os.path.exists(_img2):
+        st.image(_img2, width=420)
+    st.markdown("**Step 3** — Select *Trend Graph* from the CSV export options.")
+    _img3 = os.path.join(_help_dir, "csv_step3_trend_graph.png")
+    if os.path.exists(_img3):
+        st.image(_img3, width=420)
+    st.markdown("**Step 4** — Make the following selections and click *OK* to save the CSV file.")
+    _img4 = os.path.join(_help_dir, "csv_step4_export_options.png")
+    if os.path.exists(_img4):
+        st.image(_img4, width=420)
+    st.info(
+        "The file name of the CSV file is used to auto-populate the "
+        "`{{report_title}}` placeholder in the uploaded report template "
+        "(it can be edited later). Name the file after the test that was "
+        "conducted — e.g. *ISO 8528 Step Load*."
+    )
+    st.markdown("---")
     st.markdown(r"""
 ### Overview
 PQA reads data-logger CSV files, finds load events, and checks whether the
@@ -2626,6 +2665,11 @@ _dev_mode = st.session_state.get("_ds", {}).get("dev_mode", False)
 _build_version = _get_build_version() if _dev_mode else ""
 _version_badge = f' <span style="font-size:1.3rem;color:#64748b;font-weight:500;margin-left:0.5rem;">build {_build_version}</span>' if _build_version else ""
 
+# Telemetry: stash the (always-resolved) version for the user_hash payload,
+# then fire app_open exactly once per session.
+st.session_state["_build_version"] = _build_version or _get_build_version()
+tracking.log_app_open_once()
+
 _title_col, _help_col = st.columns([14, 1])
 with _title_col:
     st.markdown(f"""
@@ -2663,7 +2707,12 @@ if _active_tab_main == "compliance":
             _prev_key = f"_csv_preview_{selected_csv_path}"
             if _prev_key not in st.session_state:
                 st.session_state[_prev_key] = pd.read_csv(
-                    selected_csv_path, sep=None, engine="python", nrows=10
+                    selected_csv_path,
+                    sep=None,
+                    engine="python",
+                    nrows=10,
+                    encoding="utf-8",
+                    encoding_errors="replace",
                 )
             st.dataframe(st.session_state[_prev_key], width="stretch")
 
@@ -2727,6 +2776,7 @@ if _active_tab_main == "compliance":
 
                 if not is_valid:
                     _prog.empty()
+                    tracking.log_error("csv_format_invalid", "; ".join(str(e) for e in all_errors)[:500])
                     st.error("### ❌ CSV Format Invalid\n\nThe uploaded file is missing required columns or data:")
                     for error in all_errors:
                         st.error(error)
@@ -2751,9 +2801,17 @@ if _active_tab_main == "compliance":
                 _show_progress_popup(_prog, 25, "Running power quality analysis…", "Running Analysis")
                 df_proc, df_events = perform_analysis(df_raw, config)
                 log.info(f"Analysis done: {len(df_events)} events detected")
-            except Exception:
+                tracking.log_event(
+                    "analysis_run",
+                    source="compliance",
+                    events=int(len(df_events)),
+                    nominal_voltage=float(config.nominal_voltage),
+                    preset=st.session_state.get("_ds", {}).get("active_preset", "None"),
+                )
+            except Exception as _ana_exc:
                 _prog.empty()
                 log.exception("perform_analysis failed")
+                tracking.log_crash(_ana_exc, context="perform_analysis (compliance)")
                 st.error("Analysis failed — see Debug Log in the sidebar for details.")
                 st.stop()
 
@@ -2768,6 +2826,7 @@ if _active_tab_main == "compliance":
                 "generated_reports": st.session_state.get("generated_reports", []),
                 "intersection_overrides": {},   # clear any overrides from previous run
                 "event_window_overrides": {},   # clear per-event snapshot window overrides
+                "event_offset_overrides": {},   # clear per-event time-shift overrides
                 "show_debug": show_debug,
                 "show_intersections": show_intersections,
                 "show_max_deviation": show_max_deviation,
@@ -3169,57 +3228,81 @@ if _active_tab_main == "compliance":
                     elif f_nr:
                         st.error("Frequency did not recover from the previous step.")
 
-                    # Dev Mode — per-event snapshot window override
-                    if dev_mode:
-                        _win_overrides = st.session_state.setdefault("event_window_overrides", {})
-                        _cur_win = float(_win_overrides.get(idx, config.snapshot_window_s))
-                        _col_w, _col_btn = st.columns([3, 1])
-                        with _col_w:
-                            _new_win = st.number_input(
-                                "Snapshot window (s)",
-                                min_value=3.0, max_value=120.0, step=1.0,
-                                value=_cur_win,
-                                key=f"snap_window_{idx}",
-                                help="Seconds shown either side of this event. Click Regenerate to apply.",
-                            )
-                        with _col_btn:
-                            st.write("")
-                            _regen = st.button("↺ Regenerate", key=f"regen_snap_{idx}", use_container_width=True)
-                        if _regen:
-                            _win_overrides[idx] = _new_win
-                            _new_path = plot_load_change_snapshot(
-                                st.session_state["df_raw"],
-                                event_ts=row["Timestamp"],
-                                load_change=row["dKw"],
-                                load_before=row["Avg_kW"] - row["dKw"],
-                                load_after=row["Avg_kW"],
-                                client_name=client_name_display,
-                                output_dir=SNAPSHOT_DIR,
-                                show_limits=False,
-                                show_tolerance_band=st.session_state.get("show_tolerance_band_snapshots", True),
-                                show_deviation_limits=st.session_state.get("show_deviation_limits_snapshots", True),
-                                nom_v=config.nominal_voltage,
-                                nom_f=config.nominal_frequency,
-                                tol_v=config.voltage_tolerance_pct,
-                                tol_f=config.frequency_tolerance_pct,
-                                v_max_dev=config.voltage_max_deviation_pct,
-                                f_max_dev=config.frequency_max_deviation_pct,
-                                show_debug=st.session_state.get("show_debug", False),
-                                show_intersections=st.session_state.get("show_intersections", False),
-                                show_max_deviation=st.session_state.get("show_max_deviation", False),
-                                event_row=row,
-                                rated_load_kw=st.session_state.get("rated_load_kw"),
-                                window_s=_new_win,
-                                prev_event_ts=df_events.iloc[idx - 1]["Timestamp"] if idx > 0 else None,
-                                next_event_ts=df_events.iloc[idx + 1]["Timestamp"] if idx + 1 < len(df_events) else None,
-                            )
-                            _paths = list(st.session_state.get("snapshot_paths", []))
-                            if snap_i < len(_paths):
-                                _paths[snap_i] = _new_path
-                            else:
-                                _paths.append(_new_path)
-                            st.session_state["snapshot_paths"] = _paths
-                            st.rerun()
+                    # Per-event snapshot window override (size + time shift).
+                    # Available to all users — the global setting in the
+                    # configuration panel is the default, and this lets you
+                    # tune individual snapshots without touching the rest.
+                    _win_overrides = st.session_state.setdefault("event_window_overrides", {})
+                    _offset_overrides = st.session_state.setdefault("event_offset_overrides", {})
+                    _cur_win = float(_win_overrides.get(idx, config.snapshot_window_s))
+                    _cur_off = float(_offset_overrides.get(idx, 0.0))
+                    _col_w, _col_o, _col_btn, _col_reset = st.columns([2, 2, 1, 1])
+                    with _col_w:
+                        _new_win = st.number_input(
+                            "Window size (s)",
+                            min_value=3.0, max_value=120.0, step=1.0,
+                            value=_cur_win,
+                            key=f"snap_window_{idx}",
+                            help="Total seconds shown around this event. Default comes from the configuration panel.",
+                        )
+                    with _col_o:
+                        _new_off = st.number_input(
+                            "Time shift (s)",
+                            min_value=-60.0, max_value=60.0, step=0.5,
+                            value=_cur_off,
+                            key=f"snap_offset_{idx}",
+                            help="Shift the window along the time axis. Negative = move backwards (show more pre-event data); positive = move forwards.",
+                        )
+                    with _col_btn:
+                        st.write("")
+                        _regen = st.button("↺ Apply", key=f"regen_snap_{idx}", use_container_width=True)
+                    with _col_reset:
+                        st.write("")
+                        _reset = st.button("⟲ Reset", key=f"reset_snap_{idx}", use_container_width=True,
+                                           help="Revert this snapshot to the global window setting.")
+                    if _reset:
+                        _win_overrides.pop(idx, None)
+                        _offset_overrides.pop(idx, None)
+                        _new_win = float(config.snapshot_window_s)
+                        _new_off = 0.0
+                        _regen = True
+                    if _regen:
+                        _win_overrides[idx] = _new_win
+                        _offset_overrides[idx] = _new_off
+                        _new_path = plot_load_change_snapshot(
+                            st.session_state["df_raw"],
+                            event_ts=row["Timestamp"],
+                            load_change=row["dKw"],
+                            load_before=row["Avg_kW"] - row["dKw"],
+                            load_after=row["Avg_kW"],
+                            client_name=client_name_display,
+                            output_dir=SNAPSHOT_DIR,
+                            show_limits=False,
+                            show_tolerance_band=st.session_state.get("show_tolerance_band_snapshots", True),
+                            show_deviation_limits=st.session_state.get("show_deviation_limits_snapshots", True),
+                            nom_v=config.nominal_voltage,
+                            nom_f=config.nominal_frequency,
+                            tol_v=config.voltage_tolerance_pct,
+                            tol_f=config.frequency_tolerance_pct,
+                            v_max_dev=config.voltage_max_deviation_pct,
+                            f_max_dev=config.frequency_max_deviation_pct,
+                            show_debug=st.session_state.get("show_debug", False),
+                            show_intersections=st.session_state.get("show_intersections", False),
+                            show_max_deviation=st.session_state.get("show_max_deviation", False),
+                            event_row=row,
+                            rated_load_kw=st.session_state.get("rated_load_kw"),
+                            window_s=_new_win,
+                            time_offset_s=_new_off,
+                            prev_event_ts=df_events.iloc[idx - 1]["Timestamp"] if idx > 0 else None,
+                            next_event_ts=df_events.iloc[idx + 1]["Timestamp"] if idx + 1 < len(df_events) else None,
+                        )
+                        _paths = list(st.session_state.get("snapshot_paths", []))
+                        if snap_i < len(_paths):
+                            _paths[snap_i] = _new_path
+                        else:
+                            _paths.append(_new_path)
+                        st.session_state["snapshot_paths"] = _paths
+                        st.rerun()
 
                     # Snapshot image (if generated)
                     _snap_path = snapshot_paths[snap_i] if snap_i < len(snapshot_paths) else None
@@ -3469,11 +3552,18 @@ if _active_tab_main == "compliance":
             _show_progress_popup(_rpt_prog, 100, "Done!", "Generating Report")
             _rpt_prog.empty()
             log.info(f"Report '{report_filename}' added to session state.")
+            tracking.log_event(
+                "report_generated",
+                source="compliance",
+                format=str(st.session_state.get("report_format", "")),
+                download_format=str(download_format),
+            )
             _success = True
 
         except Exception as _exc:
             _rpt_prog.empty()
             log.exception(f"Report generation failed: {_exc}")
+            tracking.log_crash(_exc, context="report generation (compliance)")
             st.error(f"Report generation failed: {_exc}")
 
         # Render any deferred logs / warnings now that the popup is gone
@@ -3581,6 +3671,13 @@ elif _active_tab_main == "winscope":
                     skip_interpolation=True,
                 )
                 _ws_df_proc, _ws_df_events = perform_analysis(_ws_df_raw, _ws_config)
+                tracking.log_event(
+                    "analysis_run",
+                    source="winscope",
+                    events=int(len(_ws_df_events)),
+                    nominal_voltage=float(_ws_config.nominal_voltage),
+                    preset=st.session_state.get("_ds", {}).get("active_preset", "None"),
+                )
 
                 _show_progress_popup(_ws_prog, 45, "Generating voltage plot…",  "WinScope Analysis")
                 _ws_plot_kw = dict(
@@ -3997,10 +4094,17 @@ elif _active_tab_main == "winscope":
                 st.session_state["generated_reports"] = _rpts
                 _show_progress_popup(_ws_rpt_prog, 100, "Done!", "Generating Report")
                 _ws_rpt_prog.empty()
+                tracking.log_event(
+                    "report_generated",
+                    source="winscope",
+                    format=str(st.session_state.get("report_format", "")),
+                    download_format=str(download_format),
+                )
                 _ws_success = True
             except Exception as _ws_rpt_exc:
                 _ws_rpt_prog.empty()
                 log.exception(f"WinScope report generation failed: {_ws_rpt_exc}")
+                tracking.log_crash(_ws_rpt_exc, context="report generation (winscope)")
                 st.error(f"Report generation failed: {_ws_rpt_exc}")
 
             if _ws_pdf_log.get("log"):
@@ -4113,6 +4217,7 @@ elif _active_tab_main == "setpoint":
                         else:
                             st.info("No differences found — all files are identical.")
                     except Exception as _e:
+                        tracking.log_crash(_e, context=f"setpoint comparison ({label})")
                         st.error(f"Error during {label} comparison: {str(_e)}")
         else:
             st.markdown("""
@@ -4172,6 +4277,7 @@ elif _active_tab_main == "setpoint":
                         else:
                             st.info("No differences found — all files are identical.")
                     except Exception as _e:
+                        tracking.log_crash(_e, context="setpoint CSV comparison")
                         st.error(f"Error during CSV comparison: {str(_e)}")
         else:
             st.markdown("""

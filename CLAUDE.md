@@ -30,6 +30,7 @@ Logs to `/tmp/pqa_debug.log` (also printed to terminal).
 | `ecu_csv_parser.py` | ComAp CSV configuration file parser (semicolon-delimited, Group/Sub-group/Name/Value) |
 | `ecu_multi_comparator.py` | Multi-file XLS/XLSX diff engine — finds all locations where values differ |
 | `ecu_csv_comparator.py` | Multi-file CSV diff engine — finds all parameter differences |
+| `tracking.py` | Telemetry — usage events, error logs, crash reports → Google Sheets webhook (silent-fail, daemon thread) |
 | `uploads/` | Persisted CSV and Word template uploads (survive reruns) |
 | `uploads/dev_settings.json` | Dev mode persisted sidebar settings (survive restarts) |
 | `output/` | Ephemeral per-run artefacts (Graphs/, Snapshots/, Images/, Template/) |
@@ -411,6 +412,59 @@ The legacy `generate_all_snapshots` helper is still used by the
 snapshots" branch — both are post-analysis flows where deferral isn't
 needed.
 
+## Telemetry (added 2026-05-05)
+
+Lightweight usage + error tracking shipped to a Google Sheets webhook so
+remote distributed users (Streamlit Cloud free tier) can be observed
+without standing up a backend. **Privacy posture: no names, no raw IPs,
+no uploaded data ever leaves the app** — only a 12-char salted-IP hash.
+
+### Module: `tracking.py`
+- `log_event(event_type, **details)` — writes to `usage` sheet
+- `log_error(category, message, **details)` — writes to `errors` sheet
+- `log_crash(exc, context)` — writes to `crashes` sheet with traceback
+- `log_app_open_once()` — fires `app_open` exactly once per Streamlit session (uses `_telemetry_app_open_logged` session flag)
+- `log_preset_change(current)` — fires `preset_changed` only when the active preset differs from the last-seen value (uses `_telemetry_last_preset` session flag)
+- `install_global_handlers()` — installs a `sys.excepthook` wrapper that calls `log_crash()` before delegating to the prior hook
+
+All sends run on a daemon thread via `urllib.request`. Failures are
+swallowed at every layer — telemetry must never crash or block the UI.
+If the `TELEMETRY_WEBHOOK` secret is missing (e.g. local dev), every
+call short-circuits to a no-op so dev runs do not pollute the Sheet.
+
+### Wired call sites in `app.py`
+| Event | Site | Notes |
+|---|---|---|
+| `app_open` | After `_build_version` is resolved (just before MAIN AREA layout) | Once-per-session via `log_app_open_once()` |
+| `preset_changed` | After `_ds["active_preset"] = active_preset` in the sidebar | Only fires on actual change |
+| `analysis_run` (compliance) | After `perform_analysis()` succeeds in the compliance tab | Carries `events`, `nominal_voltage`, `preset` |
+| `analysis_run` (winscope) | After `perform_analysis()` succeeds in the WinScope tab | Same payload, `source="winscope"` |
+| `report_generated` (compliance) | After report add-to-session succeeds | Carries `format`, `download_format` |
+| `report_generated` (winscope) | After WinScope report add-to-session succeeds | Same payload, `source="winscope"` |
+| `log_error("csv_format_invalid", ...)` | When `validate_csv_format()` rejects a CSV | Joined error messages capped at 500 chars |
+| `log_crash(exc, context=...)` | Compliance analysis failure, both report failures, both setpoint comparison failures, and any uncaught exception via `sys.excepthook` | |
+
+### Required Streamlit secrets
+```toml
+TELEMETRY_WEBHOOK = "https://script.google.com/macros/s/.../exec"
+TELEMETRY_SALT    = "any-random-string-pick-once-and-keep"
+```
+Changing the salt re-buckets users — pick once, keep forever.
+
+### Google Sheets backend
+- One Sheet (`PQA Telemetry`) with three tabs: `usage`, `errors`, `crashes`.
+- Header rows must match payload keys — Apps Script reads the header row and maps payload fields by name, so column order in the Sheet is flexible but **header names are load-bearing**.
+  - `usage`: `timestamp | user_hash | app_version | event_type | details`
+  - `errors`: `timestamp | user_hash | app_version | category | message | details`
+  - `crashes`: `timestamp | user_hash | app_version | error_type | message | context | traceback`
+- Apps Script `doPost(e)` parses JSON, looks up sheet by `data.sheet`, appends a row in header order. Deployed as Web app with **Anyone** access (token is the obscure URL).
+
+### Why this design (vs alternatives considered)
+- Local JSONL was rejected: Streamlit Cloud free tier filesystem is **ephemeral** (wiped on restart/redeploy/sleep), so logs would not persist.
+- Email-per-event was rejected: too noisy for ~10 users × multiple events/day.
+- GitHub PAT commits were rejected: PAT shipped in app code is a leak risk.
+- Google Sheets via Apps Script: zero infra, free, owner-controlled, no auth in shipped code (just the webhook URL in `st.secrets`).
+
 ## Known Gotchas
 
 - **Do not restart Streamlit** to pick up code changes when running locally;
@@ -441,3 +495,9 @@ needed.
 - CSV upload does **not** call `st.rerun()` after saving — files appear in the
   dropdown on the next natural rerun. Forcing a rerun caused remote browsers to
   not refresh correctly.
+- **CSV encoding fallback:** logger CSVs frequently contain cp1252/latin-1
+  bytes (e.g. `°` = `0xB0`) and `pd.read_csv` defaults to UTF-8. Both real
+  read sites are now defended:
+  - `analysis.py:load_and_prepare_csv` — `try` UTF-8, `except UnicodeDecodeError` retry with `encoding="latin-1"` (header peek and main read both wrapped).
+  - `app.py` preview pane (~line 2675) — uses `encoding="utf-8", encoding_errors="replace"` so non-UTF-8 bytes render as `�` in the 10-row preview instead of raising.
+  Any new `pd.read_csv` call against user-supplied CSVs needs the same defence.
