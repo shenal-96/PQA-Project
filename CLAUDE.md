@@ -30,6 +30,7 @@ Logs to `/tmp/pqa_debug.log` (also printed to terminal).
 | `ecu_csv_parser.py` | ComAp CSV configuration file parser (semicolon-delimited, Group/Sub-group/Name/Value) |
 | `ecu_multi_comparator.py` | Multi-file XLS/XLSX diff engine — finds all locations where values differ |
 | `ecu_csv_comparator.py` | Multi-file CSV diff engine — finds all parameter differences |
+| `ecu_recording_parser.py` | XLS/XLSX time-series ECU recording parser + keyword-based channel grouping (Temperatures, Pressures, Speeds, Power, Electrical, Fuel/Flow, Levels, Other) |
 | `tracking.py` | Telemetry — usage events, error logs, crash reports → Google Sheets webhook (silent-fail, daemon thread) |
 | `uploads/` | Persisted CSV and Word template uploads (survive reruns) |
 | `uploads/dev_settings.json` | Dev mode persisted sidebar settings (survive restarts) |
@@ -44,9 +45,13 @@ The app uses a horizontal `st.radio` as a tab selector (`_TAB_LABELS` / `_TAB_KE
 | ⚡ Compliance Analysis | `compliance` | Main PQA workflow — CSV upload, analysis config, results, report generation |
 | 📊 WinScope Viewer | `winscope` | High-resolution WinScope XLS data viewer with compliance analysis |
 | 🔧 Set Point Comparison | `setpoint` | ECU parameter file comparator — diff XLS/XLSX/CSV files across multiple units |
+| 🔌 ECU Plotting | `ecu_plotting` | Time-series viewer for ECU recordings (XLS/XLSX) — auto-grouped channels, per-plot dataset selection, no compliance analysis |
 
 ### Set Point Comparison tab
 Imports `ecu_parser`, `ecu_csv_parser`, `ecu_multi_comparator`, `ecu_csv_comparator` lazily inside the `elif` block (no startup cost on other tabs). Three inner sub-tabs: XLS Comparison / XLSX Comparison / CSV Comparison. Results shown as a filterable dataframe with CSV download.
+
+### ECU Plotting tab
+Imports `ecu_recording_parser` and `visualizations.plot_ecu_group` lazily inside the `elif` block. Uploads land in `UPLOADS_ECU_RECORDING_DIR = uploads/ecu_recording/{SESSION_ID}/`; plots are written to `output/{SESSION_ID}/ECU/` (NOT wiped by `init_output_dirs()` because ECU plotting is independent of the compliance Run Analysis flow). XLS/XLSX is read via `python_calamine` (xlrd fails on vendor-exported XLS like the test file with strange country/locale codes); the parser auto-picks the first non-empty sheet and auto-detects a timestamp column with strong/weak hint matching (strong: `datetime`/`timestamp`/`pc time`; weak: `date`/`time` plus value-parseability check, so an elapsed-seconds column like `TIME_§s` is not mistaken for the timestamp). Vendor-specific datetime formats (e.g. `2026-04-18 12:32:02,623000us`) are normalised by stripping the `us` suffix and swapping the comma for a dot. Channels are auto-classified by name keyword (Temperatures / Pressures / Speeds / Power / Electrical / Fuel/Flow / Levels / Other) and rendered as one tab per group plus a `🎯 Custom Plot` tab; each tab has a multiselect to add/remove individual datasets. A "Configure parameter groups" expander uses `st.data_editor` to let the user reassign channels between groups. Raw vendor column names like `1__1_2500_044_Engine_Speed__ECU__§rpm` are humanised to `Engine Speed ECU (rpm)` via `_tidy_channel_label` for the multiselect labels and the plot legend (the data lookup still uses raw names).
 
 ## Architecture
 
