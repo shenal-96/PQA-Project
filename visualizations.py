@@ -1321,3 +1321,64 @@ def save_compliance_table_as_image(df, filename, title_text, nom_v=415.0, nom_f=
     fig.savefig(png_path, format="png", dpi=250, bbox_inches="tight", facecolor=_BG)
     plt.close(fig)
     return svg_path
+
+
+# ── ECU Plotting ────────────────────────────────────────────────────────────
+_ECU_PALETTE = (_BLUE, _GREEN, _RED, _ORANGE, _CYAN, _PURPLE, _AMBER, _LIME)
+
+
+def plot_ecu_group(df, columns, title, output_dir, filename, label_map=None):
+    """
+    Render a multi-channel ECU time-series plot.
+
+    Parameters:
+        df: DataFrame with a "Timestamp" column + numeric channel columns.
+        columns: list of channel names from df to overlay on a single axis.
+        title: plot title (group name shown to the user).
+        output_dir: directory to write the PNG.
+        filename: filename (basename) for the saved PNG.
+        label_map: optional {raw_column_name: display_label} for nicer legend
+                   text. Falls back to the raw name when unmapped.
+
+    Returns:
+        Path to the saved PNG, or None if `columns` is empty.
+
+    Notes:
+        Channels are drawn in order using a deterministic colour palette
+        that cycles for >8 channels. Single shared y-axis — channels with
+        mismatched units should be moved to separate groups by the user
+        rather than auto-normalised.
+    """
+    if not columns:
+        return None
+
+    os.makedirs(output_dir, exist_ok=True)
+    label_map = label_map or {}
+
+    fig, ax = plt.subplots(figsize=(14, 5))
+    fig.patch.set_facecolor(_BG)
+
+    x = df["Timestamp"]
+    for i, col in enumerate(columns):
+        if col not in df.columns:
+            continue
+        y = df[col]
+        ax.plot(x, y, color=_ECU_PALETTE[i % len(_ECU_PALETTE)],
+                linewidth=1.6, solid_capstyle="round",
+                label=label_map.get(col, col))
+
+    _style_ax(ax, "Value", _TEXT_MAIN)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+    fig.autofmt_xdate(rotation=0, ha="center")
+    ax.tick_params(axis="x", labelsize=11, colors=_TEXT_SUB)
+    ax.legend(fontsize=10, framealpha=0.9, loc="upper right",
+              edgecolor=_GRID, ncol=min(3, max(1, len(columns) // 4 + 1)))
+
+    ax.set_title(title, fontsize=16, fontweight="700",
+                 color=_TEXT_MAIN, pad=18, loc="left")
+
+    fig.tight_layout(pad=1.2)
+    out_path = os.path.join(output_dir, filename)
+    fig.savefig(out_path, format="png", dpi=130, bbox_inches="tight", facecolor=_BG)
+    plt.close(fig)
+    return out_path

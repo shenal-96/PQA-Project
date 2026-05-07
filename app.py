@@ -99,15 +99,19 @@ _SESSION_ID = st.session_state["_session_id"]
 UPLOADS_CSV_DIR = os.path.join(_APP_DIR, "uploads", "csv", _SESSION_ID)
 UPLOADS_TEMPLATE_DIR = os.path.join(_APP_DIR, "uploads", "templates", _SESSION_ID)
 UPLOADS_WINSCOPE_DIR = os.path.join(_APP_DIR, "uploads", "winscope", _SESSION_ID)
+UPLOADS_ECU_RECORDING_DIR = os.path.join(_APP_DIR, "uploads", "ecu_recording", _SESSION_ID)
 os.makedirs(UPLOADS_CSV_DIR, exist_ok=True)
 os.makedirs(UPLOADS_TEMPLATE_DIR, exist_ok=True)
 os.makedirs(UPLOADS_WINSCOPE_DIR, exist_ok=True)
+os.makedirs(UPLOADS_ECU_RECORDING_DIR, exist_ok=True)
 
 OUTPUT_BASE = os.path.join(_APP_DIR, "output", _SESSION_ID)
 GRAPH_DIR = os.path.join(OUTPUT_BASE, "Graphs")
 SNAPSHOT_DIR = os.path.join(OUTPUT_BASE, "Snapshots")
 IMAGE_DIR = os.path.join(OUTPUT_BASE, "Images")
 TEMPLATE_DIR = os.path.join(OUTPUT_BASE, "Template")
+ECU_DIR = os.path.join(OUTPUT_BASE, "ECU")
+os.makedirs(ECU_DIR, exist_ok=True)
 
 # ── Dev-mode settings persistence ────────────────────────────────────────────
 DEV_SETTINGS_FILE = "uploads/dev_settings.json"
@@ -1622,7 +1626,7 @@ with st.sidebar:
                 except Exception:
                     pass
 
-    else:
+    elif _active_tab == "winscope":
         # ── 1. WinScope Files ──────────────────────────────────────
         st.subheader("WinScope Data")
         _ws_uploaded = st.file_uploader("Upload WinScope .xls file", type=["xls"], key="ws_file_uploader")
@@ -2928,8 +2932,8 @@ with _help_col:
         _help_dialog()
 
 _active_tab_main = st.session_state.get("_active_tab", "compliance")
-_TAB_LABELS = ["⚡ Compliance Analysis", "📊 WinScope Viewer", "🔧 Set Point Comparison"]
-_TAB_KEYS   = ["compliance", "winscope", "setpoint"]
+_TAB_LABELS = ["⚡ Compliance Analysis", "📊 WinScope Viewer", "🔧 Set Point Comparison", "🔌 ECU Plotting"]
+_TAB_KEYS   = ["compliance", "winscope", "setpoint", "ecu_plotting"]
 _chosen_tab = st.radio(
     "", _TAB_LABELS,
     index=_TAB_KEYS.index(_active_tab_main) if _active_tab_main in _TAB_KEYS else 0,
@@ -4652,6 +4656,190 @@ elif _active_tab_main == "setpoint":
               <p style="margin:0;font-size:0.95rem;font-weight:600;">Upload at least 2 CSV files to compare</p>
             </div>
             """, unsafe_allow_html=True)
+
+
+# ============================================================
+# ECU PLOTTING TAB
+# ============================================================
+elif _active_tab_main == "ecu_plotting":
+    from ecu_recording_parser import (
+        load_ecu_recording,
+        classify_columns,
+        slugify_group_name,
+        _tidy_channel_label,
+    )
+    from visualizations import plot_ecu_group
+
+    st.markdown("""
+    <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:1.5rem;padding-bottom:1.25rem;border-bottom:2px solid #e2e8f0;">
+      <div style="width:42px;height:42px;background:linear-gradient(135deg,#0891b2,#06b6d4);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 8px rgba(8,145,178,0.35);">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="2" x2="9" y2="4"/><line x1="15" y1="2" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="22"/><line x1="15" y1="20" x2="15" y2="22"/><line x1="20" y1="9" x2="22" y2="9"/><line x1="20" y1="14" x2="22" y2="14"/><line x1="2" y1="9" x2="4" y2="9"/><line x1="2" y1="14" x2="4" y2="14"/></svg>
+      </div>
+      <div>
+        <h2 style="margin:0;padding:0;border:none;font-size:1.4rem;font-weight:800;color:#0f172a;letter-spacing:-0.03em;line-height:1.15;">ECU Plotting</h2>
+        <p style="margin:0.2rem 0 0;font-size:0.8rem;color:#64748b;font-weight:400;">Time-series viewer for ECU recordings · Auto-grouped channels · Add or remove datasets per plot</p>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    _ecu_uploaded = st.file_uploader(
+        "Upload ECU recording (.xls / .xlsx)",
+        type=["xls", "xlsx"],
+        key="ecu_file_uploader",
+        help="Time-series ECU parameter recording. The first sheet is used.",
+    )
+    if _ecu_uploaded is not None:
+        _ecu_save_path = os.path.join(UPLOADS_ECU_RECORDING_DIR, _ecu_uploaded.name)
+        with open(_ecu_save_path, "wb") as _f:
+            _f.write(_ecu_uploaded.getbuffer())
+
+    _saved_ecu = sorted(
+        glob.glob(os.path.join(UPLOADS_ECU_RECORDING_DIR, "*.xls"))
+        + glob.glob(os.path.join(UPLOADS_ECU_RECORDING_DIR, "*.xlsx"))
+    )
+    for _ep in list(_saved_ecu):
+        _en = os.path.basename(_ep)
+        _e_kb = os.path.getsize(_ep) / 1024
+        _ec1, _ec2 = st.columns([5, 1])
+        _ec1.markdown(f"📋 **{_en}**  \n<small>{_e_kb:.0f} KB</small>", unsafe_allow_html=True)
+        if _ec2.button("✕", key=f"rm_ecu_{_en}", help=f"Remove {_en}"):
+            os.remove(_ep)
+            st.rerun()
+
+    _saved_ecu = sorted(
+        glob.glob(os.path.join(UPLOADS_ECU_RECORDING_DIR, "*.xls"))
+        + glob.glob(os.path.join(UPLOADS_ECU_RECORDING_DIR, "*.xlsx"))
+    )
+    _ecu_names = [os.path.basename(p) for p in _saved_ecu]
+    _selected_ecu_path = None
+    if _ecu_names:
+        _ecu_sel_name = st.selectbox(
+            "Select ECU recording",
+            _ecu_names,
+            key="ecu_selector",
+            placeholder="Choose a file...",
+        )
+        if _ecu_sel_name:
+            _selected_ecu_path = os.path.join(UPLOADS_ECU_RECORDING_DIR, _ecu_sel_name)
+
+    if _selected_ecu_path:
+        _mtime = os.path.getmtime(_selected_ecu_path)
+        _cache_key = f"_ecu_df_{_selected_ecu_path}_{_mtime}"
+        if _cache_key not in st.session_state:
+            try:
+                with st.spinner("Parsing ECU recording..."):
+                    st.session_state[_cache_key] = load_ecu_recording(_selected_ecu_path)
+            except Exception as _e:
+                st.error(f"Could not parse this file: {_e}")
+                st.session_state[_cache_key] = None
+
+        df_ecu = st.session_state.get(_cache_key)
+        if df_ecu is not None:
+            _channels = [c for c in df_ecu.columns if c != "Timestamp"]
+            _label_map = {c: _tidy_channel_label(c) for c in _channels}
+
+            _override_key = f"_ecu_overrides_{_selected_ecu_path}"
+            if _override_key not in st.session_state:
+                _auto = classify_columns(_channels)
+                st.session_state[_override_key] = {
+                    col: g for g, cols in _auto.items() for col in cols
+                }
+            col_to_group: dict = st.session_state[_override_key]
+            for c in _channels:
+                col_to_group.setdefault(c, "Other")
+
+            with st.expander("Preview", expanded=False):
+                st.dataframe(df_ecu.head(20), width="stretch")
+                st.caption(
+                    f"{len(df_ecu):,} rows · {len(_channels)} numeric channels · "
+                    f"{df_ecu['Timestamp'].iloc[0]} → {df_ecu['Timestamp'].iloc[-1]}"
+                )
+
+            with st.expander("Configure parameter groups", expanded=False):
+                st.caption(
+                    "Edit the Group column to move a channel between tabs. "
+                    "Channels keep their auto-detected group unless you change them."
+                )
+                _editor_df = pd.DataFrame([
+                    {
+                        "Channel": _label_map[c],
+                        "Group": col_to_group.get(c, "Other"),
+                        "_raw": c,
+                    }
+                    for c in _channels
+                ])
+                _edited = st.data_editor(
+                    _editor_df,
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "Channel": st.column_config.TextColumn("Channel", disabled=True),
+                        "Group": st.column_config.TextColumn("Group", required=True),
+                        "_raw": None,
+                    },
+                    key=f"ecu_group_editor_{_selected_ecu_path}",
+                )
+                _new_overrides = {
+                    row["_raw"]: (row["Group"] or "Other").strip()
+                    for _, row in _edited.iterrows()
+                }
+                if _new_overrides != col_to_group:
+                    st.session_state[_override_key] = _new_overrides
+                    col_to_group = _new_overrides
+
+            groups: dict = {}
+            for col in _channels:
+                groups.setdefault(col_to_group.get(col, "Other"), []).append(col)
+
+            _group_order = sorted(groups.keys(), key=lambda g: (g == "Other", g.lower()))
+            _tab_labels = _group_order + ["🎯 Custom Plot"]
+            _tabs = st.tabs(_tab_labels)
+
+            for i, gname in enumerate(_tab_labels):
+                with _tabs[i]:
+                    if gname == "🎯 Custom Plot":
+                        selected = st.multiselect(
+                            "Channels to plot",
+                            _channels,
+                            default=[],
+                            format_func=lambda c: _label_map.get(c, c),
+                            key=f"ecu_custom_sel_{_selected_ecu_path}",
+                        )
+                        plot_title = "Custom Plot"
+                        slug = "custom"
+                    else:
+                        cols_in_group = groups[gname]
+                        selected = st.multiselect(
+                            "Channels in this plot",
+                            cols_in_group,
+                            default=cols_in_group,
+                            format_func=lambda c: _label_map.get(c, c),
+                            key=f"ecu_sel_{_selected_ecu_path}_{gname}",
+                        )
+                        plot_title = gname
+                        slug = slugify_group_name(gname)
+
+                    if selected:
+                        try:
+                            _img_path = plot_ecu_group(
+                                df_ecu, selected, plot_title,
+                                ECU_DIR, f"ecu_{slug}.png",
+                                label_map=_label_map,
+                            )
+                            if _img_path:
+                                st.image(_img_path, width="stretch")
+                        except Exception as _pe:
+                            st.error(f"Plot failed: {_pe}")
+                    else:
+                        st.info("Select at least one channel to plot.")
+    else:
+        st.markdown("""
+        <div style="text-align:center;padding:4rem 2rem;border:2px dashed #e2e8f0;border-radius:12px;color:#94a3b8;margin-top:2rem;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:1rem;"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="2" x2="9" y2="4"/><line x1="15" y1="2" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="22"/><line x1="15" y1="20" x2="15" y2="22"/></svg>
+          <p style="margin:0;font-size:1rem;font-weight:600;">Upload an ECU recording (.xls / .xlsx) to begin</p>
+          <p style="margin:0.5rem 0 0;font-size:0.85rem;">Auto-grouped channels · Add or remove datasets per plot</p>
+        </div>
+        """, unsafe_allow_html=True)
 
 
 # ============================================================
