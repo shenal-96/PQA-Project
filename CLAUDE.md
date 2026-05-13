@@ -30,6 +30,7 @@ Logs to `/tmp/pqa_debug.log` (also printed to terminal).
 | `ecu_csv_parser.py` | ComAp CSV configuration file parser (semicolon-delimited, Group/Sub-group/Name/Value) |
 | `ecu_multi_comparator.py` | Multi-file XLS/XLSX diff engine — finds all locations where values differ |
 | `ecu_csv_comparator.py` | Multi-file CSV diff engine — finds all parameter differences |
+| `comparison_view.py` | UI-free HTML builder for the Set Point Comparison side-by-side diff view (full document table + clickable change navigator panel). Returns `(html, diff_count)`. |
 | `ecu_recording_parser.py` | XLS/XLSX time-series ECU recording parser + keyword-based channel grouping (Temperatures, Pressures, Speeds, Power, Electrical, Fuel/Flow, Levels, Other) |
 | `tracking.py` | Telemetry — usage events, error logs, crash reports → Google Sheets webhook (silent-fail, daemon thread) |
 | `uploads/` | Persisted CSV and Word template uploads (survive reruns) |
@@ -48,7 +49,16 @@ The app uses a horizontal `st.radio` as a tab selector (`_TAB_LABELS` / `_TAB_KE
 | 🔌 ECU Plotting | `ecu_plotting` | Time-series viewer for ECU recordings (XLS/XLSX) — auto-grouped channels, per-plot dataset selection, no compliance analysis |
 
 ### Set Point Comparison tab
-Imports `ecu_parser`, `ecu_csv_parser`, `ecu_multi_comparator`, `ecu_csv_comparator` lazily inside the `elif` block (no startup cost on other tabs). Three inner sub-tabs: XLS Comparison / XLSX Comparison / CSV Comparison. Results shown as a filterable dataframe with CSV download.
+Imports `ecu_parser`, `ecu_csv_parser`, `ecu_multi_comparator`, `ecu_csv_comparator`, and `comparison_view` lazily inside the `elif` block (no startup cost on other tabs). Three inner sub-tabs: XLS Comparison / XLSX Comparison / CSV Comparison.
+
+Results render as a **Diffchecker-style side-by-side view** built by `comparison_view.build_csv_view` / `build_xls_view` and embedded via `st.components.v1.html(..., height=720)`:
+- Full document table with every row visible (not just diffs); cells tinted where values differ between files.
+- Right-side **change navigator** panel listing every diff as a clickable card — clicking smooth-scrolls and flashes the target row inside the iframe (anchor links + small JS handler).
+- In two-file mode, baseline cells tint red and comparison cells tint green; in N-file mode (3+ files) all differing cells get an amber tint.
+
+Toggles above the iframe: **view mode** (All files side-by-side / Compare two files), **Hide unchanged rows**, **Ignore whitespace**, **Ignore case**. Two-file mode reveals baseline + comparison selectboxes. Parsed file data is cached in `st.session_state["sp_xls_data"] / ["sp_xlsx_data"] / ["sp_csv_data"]` so toggling options does not re-parse uploads.
+
+The legacy flat-diff CSV is still produced (via `ecu_multi_comparator` / `ecu_csv_comparator`) and exposed as a "Download differences as CSV" button beneath the view.
 
 ### ECU Plotting tab
 Imports `ecu_recording_parser` and `visualizations.plot_ecu_group` lazily inside the `elif` block. Uploads land in `UPLOADS_ECU_RECORDING_DIR = uploads/ecu_recording/{SESSION_ID}/`; plots are written to `output/{SESSION_ID}/ECU/` (NOT wiped by `init_output_dirs()` because ECU plotting is independent of the compliance Run Analysis flow). XLS/XLSX is read via `python_calamine` (xlrd fails on vendor-exported XLS like the test file with strange country/locale codes); the parser auto-picks the first non-empty sheet and auto-detects a timestamp column with strong/weak hint matching (strong: `datetime`/`timestamp`/`pc time`; weak: `date`/`time` plus value-parseability check, so an elapsed-seconds column like `TIME_§s` is not mistaken for the timestamp). Vendor-specific datetime formats (e.g. `2026-04-18 12:32:02,623000us`) are normalised by stripping the `us` suffix and swapping the comma for a dot. Channels are auto-classified by name keyword (Temperatures / Pressures / Speeds / Power / Electrical / Fuel/Flow / Levels / Other) and rendered as one tab per group plus a `🎯 Custom Plot` tab; each tab has a multiselect to add/remove individual datasets. A "Configure parameter groups" expander uses `st.data_editor` to let the user reassign channels between groups. Raw vendor column names like `1__1_2500_044_Engine_Speed__ECU__§rpm` are humanised to `Engine Speed ECU (rpm)` via `_tidy_channel_label` for the multiselect labels and the plot legend (the data lookup still uses raw names).

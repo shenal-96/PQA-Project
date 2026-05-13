@@ -4503,6 +4503,7 @@ elif _active_tab_main == "setpoint":
     from ecu_csv_parser import parse_csv_file as _ecu_parse_csv
     from ecu_multi_comparator import compare_all_files as _ecu_compare_all
     from ecu_csv_comparator import compare_csv_files as _ecu_compare_csv
+    from comparison_view import build_csv_view as _build_csv_view, build_xls_view as _build_xls_view
     import tempfile as _tempfile
 
     st.markdown("""
@@ -4512,7 +4513,7 @@ elif _active_tab_main == "setpoint":
       </div>
       <div>
         <h2 style="margin:0;padding:0;border:none;font-size:1.4rem;font-weight:800;color:#0f172a;letter-spacing:-0.03em;line-height:1.15;">Set Point Comparison</h2>
-        <p style="margin:0.2rem 0 0;font-size:0.8rem;color:#64748b;font-weight:400;">Compare ECU parameter files (XLS/XLSX) and ComAp configuration files (CSV) · Highlight differences across multiple units</p>
+        <p style="margin:0.2rem 0 0;font-size:0.8rem;color:#64748b;font-weight:400;">Side-by-side comparison of ECU parameter files (XLS/XLSX) and ComAp configuration files (CSV) · Cells highlighted where values differ, with click-to-jump change navigator</p>
       </div>
     </div>
     """, unsafe_allow_html=True)
@@ -4539,73 +4540,147 @@ elif _active_tab_main == "setpoint":
 
     st.divider()
 
+    # ── Shared session-state keys: parsed file data survives reruns so toggles
+    # don't force a re-parse every time the user flips an option.
+    for _k in ("sp_xls_data", "sp_xlsx_data", "sp_csv_data"):
+        if _k not in st.session_state:
+            st.session_state[_k] = None
+
     _sp_tab1, _sp_tab2, _sp_tab3 = st.tabs(["XLS Comparison", "XLSX Comparison", "CSV Comparison"])
 
-    def _sp_run_xls_xlsx(files_list, label, download_prefix):
-        if files_list and len(files_list) >= 2:
-            if st.button(f"Run {label} Comparison", key=f"sp_{label.lower()}_run", type="primary", use_container_width=True):
-                with st.spinner(f"Loading and comparing {label} files..."):
-                    try:
-                        files_data = {}
-                        with _tempfile.TemporaryDirectory() as _tmpdir:
-                            for _uf in files_list:
-                                _tp = os.path.join(_tmpdir, _uf.name)
-                                with open(_tp, "wb") as _fh:
-                                    _fh.write(_uf.getbuffer())
-                                files_data[Path(_uf.name).stem] = _ecu_parse_file(_tp)
+    def _sp_render_view_controls(prefix: str, file_labels: list[str]) -> dict:
+        """Render the comparison-options bar above the diff view. Returns options dict."""
+        _c1, _c2, _c3, _c4 = st.columns([1.3, 1, 1, 1])
+        with _c1:
+            _mode = st.radio(
+                "View mode",
+                ["All files (side-by-side)", "Compare two files"],
+                horizontal=True,
+                key=f"{prefix}_mode",
+                label_visibility="collapsed",
+            )
+        with _c2:
+            _hide = st.toggle("Hide unchanged rows", key=f"{prefix}_hide_unchanged")
+        with _c3:
+            _ws = st.toggle("Ignore whitespace", key=f"{prefix}_ignore_ws")
+        with _c4:
+            _case = st.toggle("Ignore case", key=f"{prefix}_ignore_case")
 
-                            _diffs = _ecu_compare_all(files_data)
+        _two = _mode == "Compare two files"
+        _baseline = _comparison = None
+        if _two and len(file_labels) >= 2:
+            _bc1, _bc2 = st.columns(2)
+            with _bc1:
+                _baseline = st.selectbox(
+                    "Baseline", file_labels, index=0, key=f"{prefix}_baseline"
+                )
+            with _bc2:
+                _others = [f for f in file_labels if f != _baseline]
+                _comparison = st.selectbox(
+                    "Compare against", _others,
+                    index=0 if _others else None, key=f"{prefix}_comparison"
+                )
+        return {
+            "two_file_mode": _two, "baseline": _baseline, "comparison": _comparison,
+            "hide_unchanged": _hide, "ignore_whitespace": _ws, "ignore_case": _case,
+        }
 
-                        if _diffs:
-                            _df = pd.DataFrame(_diffs)
-                            st.success(f"Found **{len(_df)}** difference locations across **{len(files_list)}** files")
-
-                            _sheet_filter = st.multiselect(
-                                "Filter by Sheet", ["Parameter", "Val_2D", "Val_3D"],
-                                default=["Parameter", "Val_2D", "Val_3D"],
-                                key=f"sp_{label.lower()}_sheet_filter"
-                            )
-                            _fdf = _df[_df["Sheet"].isin(_sheet_filter)].copy()
-                            st.subheader(f"Differences ({len(_fdf)} locations)")
-
-                            _file_cols = [c for c in _fdf.columns if c not in ["Sheet", "Nr", "Name", "Location"]]
-                            _col_cfg = {
-                                "Sheet": st.column_config.TextColumn(width="small"),
-                                "Nr": st.column_config.TextColumn(width="small"),
-                                "Name": st.column_config.TextColumn(width="medium"),
-                                "Location": st.column_config.TextColumn(width="small"),
-                            }
-                            for _fc in _file_cols:
-                                _col_cfg[_fc] = st.column_config.TextColumn(width="small")
-
-                            st.dataframe(_fdf, use_container_width=True, hide_index=True, column_config=_col_cfg)
-                            st.download_button(
-                                "📥 Download as CSV", data=_fdf.to_csv(index=False),
-                                file_name=f"{download_prefix}_differences.csv", mime="text/csv",
-                                key=f"sp_{label.lower()}_download"
-                            )
-                        else:
-                            st.info("No differences found — all files are identical.")
-                    except Exception as _e:
-                        tracking.log_crash(_e, context=f"setpoint comparison ({label})")
-                        st.error(f"Error during {label} comparison: {str(_e)}")
-        else:
+    def _sp_run_xls_xlsx(files_list, label: str, state_key: str, download_prefix: str):
+        if not files_list or len(files_list) < 2:
             st.markdown("""
             <div style="text-align:center;padding:3rem 2rem;border:2px dashed #e2e8f0;border-radius:12px;color:#94a3b8;margin-top:1rem;">
               <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:0.75rem;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
               <p style="margin:0;font-size:0.95rem;font-weight:600;">Upload at least 2 files to compare</p>
             </div>
             """, unsafe_allow_html=True)
+            return
+
+        _run_clicked = st.button(
+            f"Run {label} Comparison",
+            key=f"sp_{label.lower()}_run", type="primary", use_container_width=True,
+        )
+        if _run_clicked:
+            with st.spinner(f"Loading and parsing {label} files..."):
+                try:
+                    files_data = {}
+                    with _tempfile.TemporaryDirectory() as _tmpdir:
+                        for _uf in files_list:
+                            _tp = os.path.join(_tmpdir, _uf.name)
+                            with open(_tp, "wb") as _fh:
+                                _fh.write(_uf.getbuffer())
+                            files_data[Path(_uf.name).stem] = _ecu_parse_file(_tp)
+                    st.session_state[state_key] = files_data
+                except Exception as _e:
+                    tracking.log_crash(_e, context=f"setpoint comparison ({label})")
+                    st.error(f"Error during {label} parse: {str(_e)}")
+                    return
+
+        files_data = st.session_state.get(state_key)
+        if not files_data:
+            return
+
+        _all_sheets = ["Parameter", "Val_2D", "Val_3D"]
+        _sheet_filter = st.multiselect(
+            "Sheets to show", _all_sheets, default=_all_sheets,
+            key=f"sp_{label.lower()}_sheet_filter"
+        )
+        _opts = _sp_render_view_controls(f"sp_{label.lower()}", list(files_data.keys()))
+
+        try:
+            _html, _diff_count = _build_xls_view(
+                files_data,
+                ignore_whitespace=_opts["ignore_whitespace"],
+                ignore_case=_opts["ignore_case"],
+                hide_unchanged=_opts["hide_unchanged"],
+                two_file_mode=_opts["two_file_mode"],
+                baseline=_opts["baseline"],
+                comparison=_opts["comparison"],
+                sheet_filter=_sheet_filter,
+            )
+        except Exception as _e:
+            tracking.log_crash(_e, context=f"setpoint view build ({label})")
+            st.error(f"Error rendering comparison view: {str(_e)}")
+            return
+
+        if _diff_count == 0:
+            st.success(f"All **{len(files_data)}** {label} files match — no differences found.")
+        else:
+            st.success(
+                f"Found **{_diff_count}** difference{'s' if _diff_count != 1 else ''} "
+                f"across **{len(files_data)}** {label} files."
+            )
+        st.components.v1.html(_html, height=720, scrolling=False)
+
+        # Flat-diff CSV download as a fallback for downstream tooling
+        try:
+            _diffs = _ecu_compare_all(files_data)
+            if _diffs:
+                _df = pd.DataFrame(_diffs)
+                st.download_button(
+                    "📥 Download differences as CSV",
+                    data=_df.to_csv(index=False),
+                    file_name=f"{download_prefix}_differences.csv", mime="text/csv",
+                    key=f"sp_{label.lower()}_download",
+                )
+        except Exception:
+            pass
 
     with _sp_tab1:
-        _sp_run_xls_xlsx(_sp_xls_files, "XLS", "xls")
+        _sp_run_xls_xlsx(_sp_xls_files, "XLS", "sp_xls_data", "xls")
     with _sp_tab2:
-        _sp_run_xls_xlsx(_sp_xlsx_files, "XLSX", "xlsx")
+        _sp_run_xls_xlsx(_sp_xlsx_files, "XLSX", "sp_xlsx_data", "xlsx")
 
     with _sp_tab3:
-        if _sp_csv_files and len(_sp_csv_files) >= 2:
+        if not _sp_csv_files or len(_sp_csv_files) < 2:
+            st.markdown("""
+            <div style="text-align:center;padding:3rem 2rem;border:2px dashed #e2e8f0;border-radius:12px;color:#94a3b8;margin-top:1rem;">
+              <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:0.75rem;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <p style="margin:0;font-size:0.95rem;font-weight:600;">Upload at least 2 CSV files to compare</p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
             if st.button("Run CSV Comparison", key="sp_csv_run", type="primary", use_container_width=True):
-                with st.spinner("Loading and comparing CSV files..."):
+                with st.spinner("Loading and parsing CSV files..."):
                     try:
                         _csv_data = {}
                         with _tempfile.TemporaryDirectory() as _tmpdir:
@@ -4614,48 +4689,63 @@ elif _active_tab_main == "setpoint":
                                 with open(_tp, "wb") as _fh:
                                     _fh.write(_uf.getbuffer())
                                 _csv_data[Path(_uf.name).stem] = _ecu_parse_csv(_tp)
-
-                            _diffs = _ecu_compare_csv(_csv_data)
-
-                        if _diffs:
-                            _df = pd.DataFrame(_diffs)
-                            st.success(f"Found **{len(_df)}** difference locations across **{len(_sp_csv_files)}** files")
-
-                            _groups = _df["Group"].unique().tolist()
-                            _group_filter = st.multiselect(
-                                "Filter by Group", _groups, default=_groups, key="sp_csv_group_filter"
-                            )
-                            _fdf = _df[_df["Group"].isin(_group_filter)].copy()
-                            st.subheader(f"Differences ({len(_fdf)} locations)")
-
-                            _file_cols = [c for c in _fdf.columns if c not in ["Group", "Sub-group", "Name", "Dimension"]]
-                            _col_cfg = {
-                                "Group": st.column_config.TextColumn(width="small"),
-                                "Sub-group": st.column_config.TextColumn(width="small"),
-                                "Name": st.column_config.TextColumn(width="medium"),
-                                "Dimension": st.column_config.TextColumn(width="small"),
-                            }
-                            for _fc in _file_cols:
-                                _col_cfg[_fc] = st.column_config.TextColumn(width="small")
-
-                            st.dataframe(_fdf, use_container_width=True, hide_index=True, column_config=_col_cfg)
-                            st.download_button(
-                                "📥 Download as CSV", data=_fdf.to_csv(index=False),
-                                file_name="csv_differences.csv", mime="text/csv",
-                                key="sp_csv_download"
-                            )
-                        else:
-                            st.info("No differences found — all files are identical.")
+                        st.session_state["sp_csv_data"] = _csv_data
                     except Exception as _e:
                         tracking.log_crash(_e, context="setpoint CSV comparison")
-                        st.error(f"Error during CSV comparison: {str(_e)}")
-        else:
-            st.markdown("""
-            <div style="text-align:center;padding:3rem 2rem;border:2px dashed #e2e8f0;border-radius:12px;color:#94a3b8;margin-top:1rem;">
-              <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:0.75rem;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-              <p style="margin:0;font-size:0.95rem;font-weight:600;">Upload at least 2 CSV files to compare</p>
-            </div>
-            """, unsafe_allow_html=True)
+                        st.error(f"Error during CSV parse: {str(_e)}")
+
+            _csv_data = st.session_state.get("sp_csv_data")
+            if _csv_data:
+                _all_groups = sorted({
+                    p.get("group", "")
+                    for d in _csv_data.values()
+                    for p in d.get("data", {}).values()
+                    if p.get("group", "")
+                })
+                _group_filter = st.multiselect(
+                    "Groups to show", _all_groups, default=_all_groups,
+                    key="sp_csv_group_filter"
+                )
+                _opts = _sp_render_view_controls("sp_csv", list(_csv_data.keys()))
+
+                try:
+                    _html, _diff_count = _build_csv_view(
+                        _csv_data,
+                        ignore_whitespace=_opts["ignore_whitespace"],
+                        ignore_case=_opts["ignore_case"],
+                        hide_unchanged=_opts["hide_unchanged"],
+                        two_file_mode=_opts["two_file_mode"],
+                        baseline=_opts["baseline"],
+                        comparison=_opts["comparison"],
+                        group_filter=_group_filter,
+                    )
+                except Exception as _e:
+                    tracking.log_crash(_e, context="setpoint CSV view build")
+                    st.error(f"Error rendering comparison view: {str(_e)}")
+                    _html, _diff_count = None, 0
+
+                if _html is not None:
+                    if _diff_count == 0:
+                        st.success(f"All **{len(_csv_data)}** CSV files match — no differences found.")
+                    else:
+                        st.success(
+                            f"Found **{_diff_count}** difference{'s' if _diff_count != 1 else ''} "
+                            f"across **{len(_csv_data)}** CSV files."
+                        )
+                    st.components.v1.html(_html, height=720, scrolling=False)
+
+                    try:
+                        _diffs = _ecu_compare_csv(_csv_data)
+                        if _diffs:
+                            _df = pd.DataFrame(_diffs)
+                            st.download_button(
+                                "📥 Download differences as CSV",
+                                data=_df.to_csv(index=False),
+                                file_name="csv_differences.csv", mime="text/csv",
+                                key="sp_csv_download",
+                            )
+                    except Exception:
+                        pass
 
 
 # ============================================================
