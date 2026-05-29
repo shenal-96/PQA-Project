@@ -31,6 +31,8 @@ Logs to `/tmp/pqa_debug.log` (also printed to terminal).
 | `ecu_multi_comparator.py` | Multi-file XLS/XLSX diff engine — finds all locations where values differ |
 | `ecu_csv_comparator.py` | Multi-file CSV diff engine — finds all parameter differences |
 | `ecu_recording_parser.py` | XLS/XLSX time-series ECU recording parser + keyword-based channel grouping (Temperatures, Pressures, Speeds, Power, Electrical, Fuel/Flow, Levels, Other) |
+| `settings_reference.py` | Curated, searchable settings knowledge base for ComAp InteliGen/InteliSys NT and Leroy-Somer D550 AVR (UI-free data + `search_settings()`). Each setting carries description / control philosophy / performance effect. **Marked unverified** until checked against the manuals in `uploads/manuals/`. |
+| `uploads/manuals/` | Drop-zone for the source equipment PDFs (ComAp InteliGen/InteliConfig, Leroy-Somer D550) used to verify/expand `settings_reference.py`. Reference inputs only — not parsed at runtime. |
 | `tracking.py` | Telemetry — usage events, error logs, crash reports → Google Sheets webhook (silent-fail, daemon thread) |
 | `uploads/` | Persisted CSV and Word template uploads (survive reruns) |
 | `uploads/dev_settings.json` | Dev mode persisted sidebar settings (survive restarts) |
@@ -46,6 +48,7 @@ The app uses a horizontal `st.radio` as a tab selector (`_TAB_LABELS` / `_TAB_KE
 | 📊 WinScope Viewer | `winscope` | High-resolution WinScope XLS data viewer with compliance analysis |
 | 🔧 Set Point Comparison | `setpoint` | ECU parameter file comparator — diff XLS/XLSX/CSV files across multiple units |
 | 🔌 ECU Plotting | `ecu_plotting` | Time-series viewer for ECU recordings (XLS/XLSX) — auto-grouped channels, per-plot dataset selection, no compliance analysis |
+| 📖 Settings Reference | `settings_ref` | Searchable field guide to ComAp InteliGen / Leroy-Somer D550 settings — what each does, control philosophy, performance effect. Browse-by-group or free-text search. Data lives in `settings_reference.py` |
 
 ### Set Point Comparison tab
 Imports `ecu_parser`, `ecu_csv_parser`, `ecu_multi_comparator`, `ecu_csv_comparator` lazily inside the `elif` block (no startup cost on other tabs). Three inner sub-tabs: XLS Comparison / XLSX Comparison / CSV Comparison. Results shown as a filterable dataframe with CSV download.
