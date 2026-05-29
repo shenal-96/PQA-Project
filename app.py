@@ -2932,8 +2932,8 @@ with _help_col:
         _help_dialog()
 
 _active_tab_main = st.session_state.get("_active_tab", "compliance")
-_TAB_LABELS = ["⚡ Compliance Analysis", "📊 WinScope Viewer", "🔧 Set Point Comparison", "🔌 ECU Plotting"]
-_TAB_KEYS   = ["compliance", "winscope", "setpoint", "ecu_plotting"]
+_TAB_LABELS = ["⚡ Compliance Analysis", "📊 WinScope Viewer", "🔧 Set Point Comparison", "🔌 ECU Plotting", "📖 Settings Reference"]
+_TAB_KEYS   = ["compliance", "winscope", "setpoint", "ecu_plotting", "settings_ref"]
 _chosen_tab = st.radio(
     "", _TAB_LABELS,
     index=_TAB_KEYS.index(_active_tab_main) if _active_tab_main in _TAB_KEYS else 0,
@@ -4840,6 +4840,104 @@ elif _active_tab_main == "ecu_plotting":
           <p style="margin:0.5rem 0 0;font-size:0.85rem;">Auto-grouped channels · Add or remove datasets per plot</p>
         </div>
         """, unsafe_allow_html=True)
+
+
+# ============================================================
+# SETTINGS REFERENCE TAB
+# ============================================================
+elif _active_tab_main == "settings_ref":
+    import settings_reference as _sref
+
+    st.markdown("""
+    <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:1.5rem;padding-bottom:1.25rem;border-bottom:2px solid #e2e8f0;">
+      <div style="width:42px;height:42px;background:linear-gradient(135deg,#0891b2,#2563eb);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 8px rgba(37,99,235,0.35);">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      </div>
+      <div>
+        <h2 style="margin:0;padding:0;border:none;font-size:1.4rem;font-weight:800;color:#0f172a;letter-spacing:-0.03em;line-height:1.15;">Settings Reference</h2>
+        <p style="margin:0.2rem 0 0;font-size:0.8rem;color:#64748b;font-weight:400;">Searchable field guide to ComAp InteliGen / Leroy-Somer D550 settings · what each does, the control philosophy, and its effect on performance</p>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Provenance banner — this is a curated starting reference pending
+    # verification against the uploaded manuals.
+    st.markdown("""
+    <div style="background:#fffbeb;border:1px solid #fcd34d;border-left:4px solid #f59e0b;border-radius:8px;padding:0.75rem 1rem;margin-bottom:1.25rem;color:#92400e;font-size:0.85rem;">
+      <strong>⚠ Curated starting reference.</strong> Ranges, defaults and exact setpoint names are indicative and
+      must be verified against the official manuals. Next session: upload the ComAp InteliGen / InteliConfig and
+      Leroy-Somer D550 PDFs (drop them in <code>uploads/manuals/</code>) so these entries can be confirmed and expanded.
+    </div>
+    """, unsafe_allow_html=True)
+
+    _sref_devices = _sref.list_devices()
+
+    _sr_col1, _sr_col2 = st.columns([1, 2])
+    with _sr_col1:
+        _sr_device = st.selectbox(
+            "Device", ["All devices"] + _sref_devices, key="sref_device_select"
+        )
+    with _sr_col2:
+        _sr_query = st.text_input(
+            "Search settings", key="sref_query",
+            placeholder="e.g. 'overload', 'PID', 'frequency recovery', 'droop'…",
+        )
+
+    _sr_dev_filter = None if _sr_device == "All devices" else _sr_device
+
+    def _sref_render_card(setting, group=None, device=None):
+        """Render one setting as a styled card."""
+        _meta_bits = []
+        if device:
+            _meta_bits.append(
+                f'<span style="background:#eff6ff;color:#1d4ed8;border-radius:6px;'
+                f'padding:1px 8px;font-size:0.72rem;font-weight:600;">{device}</span>')
+        if group:
+            _meta_bits.append(
+                f'<span style="background:#f1f5f9;color:#475569;border-radius:6px;'
+                f'padding:1px 8px;font-size:0.72rem;font-weight:600;">{group}</span>')
+        _units = f" · {setting['units']}" if setting["units"] else ""
+        st.markdown(f"""
+        <div style="border:1px solid #e2e8f0;border-radius:10px;padding:1rem 1.15rem;margin-bottom:0.85rem;background:#ffffff;box-shadow:0 1px 2px rgba(15,23,42,0.04);">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
+            <div style="font-size:1.02rem;font-weight:700;color:#0f172a;">{setting['name']}<span style="color:#64748b;font-weight:500;font-size:0.85rem;">{_units}</span></div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">{''.join(_meta_bits)}</div>
+          </div>
+          <div style="display:flex;gap:18px;flex-wrap:wrap;margin:0.5rem 0 0.65rem;font-size:0.78rem;color:#475569;">
+            <span><strong style="color:#0f172a;">Range:</strong> {setting['range']}</span>
+            <span><strong style="color:#0f172a;">Default:</strong> {setting['default']}</span>
+          </div>
+          <div style="font-size:0.86rem;color:#334155;line-height:1.5;margin-bottom:0.5rem;">{setting['description']}</div>
+          <div style="font-size:0.83rem;color:#334155;line-height:1.5;border-left:3px solid #0891b2;padding-left:0.7rem;margin-bottom:0.45rem;"><strong style="color:#0e7490;">Control philosophy — </strong>{setting['philosophy']}</div>
+          <div style="font-size:0.83rem;color:#334155;line-height:1.5;border-left:3px solid #9333ea;padding-left:0.7rem;"><strong style="color:#7e22ce;">Performance effect — </strong>{setting['performance']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    if _sr_query and _sr_query.strip():
+        # Search view — flat result list across the selected device(s).
+        _results = _sref.search_settings(_sr_query, device_name=_sr_dev_filter)
+        st.markdown(f"**{len(_results)}** setting(s) match _{_sr_query}_")
+        if not _results:
+            st.info("No matching settings. Try a broader term (e.g. 'voltage', 'crank', 'gain').")
+        for _r in _results:
+            _sref_render_card(_r["setting"], group=_r["group"], device=_r["device"])
+    else:
+        # Browse view — device(s) with grouped expanders.
+        _browse_devices = [_sr_dev_filter] if _sr_dev_filter else _sref_devices
+        for _dev in _browse_devices:
+            _ddata = _sref.get_device(_dev)
+            _n = _sref.count_settings(_dev)
+            st.markdown(f"""
+            <div style="margin:1.25rem 0 0.5rem;">
+              <div style="font-size:1.1rem;font-weight:800;color:#0f172a;">{_dev}</div>
+              <div style="font-size:0.8rem;color:#64748b;">{_ddata['summary']}</div>
+              <div style="font-size:0.74rem;color:#94a3b8;margin-top:2px;">Source: {_ddata['source']} · {_n} settings</div>
+            </div>
+            """, unsafe_allow_html=True)
+            for _group, _settings in _ddata["groups"].items():
+                with st.expander(f"{_group}  ·  {len(_settings)} settings", expanded=False):
+                    for _setting in _settings:
+                        _sref_render_card(_setting)
 
 
 # ============================================================
