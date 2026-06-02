@@ -656,26 +656,45 @@ def _render_intersection_footer(overrides):
 
         # Regenerate snapshot images so updated crossing markers are visible
         try:
-            new_snap_paths = generate_all_snapshots(
-                st.session_state["df_raw"], df_ev, client,
-                output_dir=SNAPSHOT_DIR,
-                show_limits=False,
-                show_tolerance_band=st.session_state.get("show_tolerance_band_snapshots", True),
-                show_deviation_limits=st.session_state.get("show_deviation_limits_snapshots", True),
-                nom_v=cfg.nominal_voltage,
-                nom_f=cfg.nominal_frequency,
-                tol_v=cfg.voltage_tolerance_pct,
-                tol_f=cfg.frequency_tolerance_pct,
-                v_max_dev=cfg.voltage_max_deviation_pct,
-                f_max_dev=cfg.frequency_max_deviation_pct,
-                show_debug=st.session_state.get("show_debug", False),
-                show_intersections=st.session_state.get("show_intersections", False),
-                show_max_deviation=st.session_state.get("show_max_deviation", False),
-                rated_load_kw=st.session_state.get("rated_load_kw"),
-                window_s=cfg.snapshot_window_s,
-                window_overrides=st.session_state.get("event_window_overrides"),
-                offset_overrides=st.session_state.get("event_offset_overrides"),
-            )
+            _win_ov = st.session_state.get("event_window_overrides") or {}
+            _off_ov = st.session_state.get("event_offset_overrides") or {}
+            _ev_rows = list(df_ev.iterrows())
+            new_snap_paths = []
+            for _i, (_ev_idx, _row) in enumerate(_ev_rows):
+                _prev_ts = _ev_rows[_i - 1][1]["Timestamp"] if _i > 0 else None
+                _next_ts = _ev_rows[_i + 1][1]["Timestamp"] if _i + 1 < len(_ev_rows) else None
+                try:
+                    _p = plot_load_change_snapshot(
+                        st.session_state["df_raw"],
+                        event_ts=_row["Timestamp"],
+                        load_change=_row["dKw"],
+                        load_before=_row["Avg_kW"] - _row["dKw"],
+                        load_after=_row["Avg_kW"],
+                        client_name=client,
+                        output_dir=SNAPSHOT_DIR,
+                        show_limits=False,
+                        show_tolerance_band=st.session_state.get("show_tolerance_band_snapshots", True),
+                        show_deviation_limits=st.session_state.get("show_deviation_limits_snapshots", True),
+                        nom_v=cfg.nominal_voltage,
+                        nom_f=cfg.nominal_frequency,
+                        tol_v=cfg.voltage_tolerance_pct,
+                        tol_f=cfg.frequency_tolerance_pct,
+                        v_max_dev=cfg.voltage_max_deviation_pct,
+                        f_max_dev=cfg.frequency_max_deviation_pct,
+                        show_debug=st.session_state.get("show_debug", False),
+                        show_intersections=st.session_state.get("show_intersections", False),
+                        show_max_deviation=st.session_state.get("show_max_deviation", False),
+                        event_row=_row,
+                        rated_load_kw=st.session_state.get("rated_load_kw"),
+                        window_s=float(_win_ov.get(_ev_idx, cfg.snapshot_window_s)),
+                        time_offset_s=float(_off_ov.get(_ev_idx, 0.0)),
+                        prev_event_ts=_prev_ts,
+                        next_event_ts=_next_ts,
+                    )
+                    new_snap_paths.append(_p)
+                except Exception:
+                    log.exception("Snapshot regeneration failed for event at %s", _row["Timestamp"])
+                    new_snap_paths.append(None)
             st.session_state["snapshot_paths"] = new_snap_paths
         except Exception:
             pass
@@ -3765,24 +3784,41 @@ if _active_tab_main == "compliance":
                 _df_ev_clean["V_not_recovered"] = False
                 _df_ev_clean["F_not_recovered"] = False
                 _show_progress_popup(_rpt_prog, 20, "Regenerating clean snapshots…", "Generating Report")
-                generate_all_snapshots(
-                    st.session_state["df_raw"], _df_ev_clean, client_name_display,
-                    output_dir=_snap_dir_clean,
-                    show_limits=False,
-                    show_tolerance_band=st.session_state.get("show_tolerance_band_snapshots", True),
-                    show_deviation_limits=st.session_state.get("show_deviation_limits_snapshots", True),
-                    nom_v=_cfg.nominal_voltage if _cfg else 415.0,
-                    nom_f=_cfg.nominal_frequency if _cfg else 50.0,
-                    tol_v=_cfg.voltage_tolerance_pct if _cfg else 1.0,
-                    tol_f=_cfg.frequency_tolerance_pct if _cfg else 0.5,
-                    v_max_dev=_cfg.voltage_max_deviation_pct if _cfg else 15.0,
-                    f_max_dev=_cfg.frequency_max_deviation_pct if _cfg else 7.0,
-                    show_debug=False,
-                    rated_load_kw=st.session_state.get("rated_load_kw"),
-                    window_s=_cfg.snapshot_window_s if _cfg else 10.0,
-                    window_overrides=st.session_state.get("event_window_overrides"),
-                    offset_overrides=st.session_state.get("event_offset_overrides"),
-                )
+                _win_ov = st.session_state.get("event_window_overrides") or {}
+                _off_ov = st.session_state.get("event_offset_overrides") or {}
+                _global_win = _cfg.snapshot_window_s if _cfg else 10.0
+                _ev_rows = list(_df_ev_clean.iterrows())
+                for _i, (_ev_idx, _row) in enumerate(_ev_rows):
+                    _prev_ts = _ev_rows[_i - 1][1]["Timestamp"] if _i > 0 else None
+                    _next_ts = _ev_rows[_i + 1][1]["Timestamp"] if _i + 1 < len(_ev_rows) else None
+                    try:
+                        plot_load_change_snapshot(
+                            st.session_state["df_raw"],
+                            event_ts=_row["Timestamp"],
+                            load_change=_row["dKw"],
+                            load_before=_row["Avg_kW"] - _row["dKw"],
+                            load_after=_row["Avg_kW"],
+                            client_name=client_name_display,
+                            output_dir=_snap_dir_clean,
+                            show_limits=False,
+                            show_tolerance_band=st.session_state.get("show_tolerance_band_snapshots", True),
+                            show_deviation_limits=st.session_state.get("show_deviation_limits_snapshots", True),
+                            nom_v=_cfg.nominal_voltage if _cfg else 415.0,
+                            nom_f=_cfg.nominal_frequency if _cfg else 50.0,
+                            tol_v=_cfg.voltage_tolerance_pct if _cfg else 1.0,
+                            tol_f=_cfg.frequency_tolerance_pct if _cfg else 0.5,
+                            v_max_dev=_cfg.voltage_max_deviation_pct if _cfg else 15.0,
+                            f_max_dev=_cfg.frequency_max_deviation_pct if _cfg else 7.0,
+                            show_debug=False,
+                            event_row=_row,
+                            rated_load_kw=st.session_state.get("rated_load_kw"),
+                            window_s=float(_win_ov.get(_ev_idx, _global_win)),
+                            time_offset_s=float(_off_ov.get(_ev_idx, 0.0)),
+                            prev_event_ts=_prev_ts,
+                            next_event_ts=_next_ts,
+                        )
+                    except Exception:
+                        log.exception("Clean snapshot failed for event at %s", _row["Timestamp"])
                 _snap_dir = _snap_dir_clean
 
             _show_progress_popup(_rpt_prog, 35, "Mapping placeholders…", "Generating Report")
