@@ -673,6 +673,8 @@ def _render_intersection_footer(overrides):
                 show_max_deviation=st.session_state.get("show_max_deviation", False),
                 rated_load_kw=st.session_state.get("rated_load_kw"),
                 window_s=cfg.snapshot_window_s,
+                window_overrides=st.session_state.get("event_window_overrides"),
+                offset_overrides=st.session_state.get("event_offset_overrides"),
             )
             st.session_state["snapshot_paths"] = new_snap_paths
         except Exception:
@@ -3778,6 +3780,8 @@ if _active_tab_main == "compliance":
                     show_debug=False,
                     rated_load_kw=st.session_state.get("rated_load_kw"),
                     window_s=_cfg.snapshot_window_s if _cfg else 10.0,
+                    window_overrides=st.session_state.get("event_window_overrides"),
+                    offset_overrides=st.session_state.get("event_offset_overrides"),
                 )
                 _snap_dir = _snap_dir_clean
 

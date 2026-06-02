@@ -1085,21 +1085,33 @@ def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Sn
                            v_max_dev=15.0, f_max_dev=7.0,
                            show_debug=False, show_intersections=False,
                            show_max_deviation=False, rated_load_kw=None,
-                           window_s=10):
-    """Generate snapshots for all detected events. Returns (list of file paths, list of errors)."""
+                           window_s=10,
+                           window_overrides=None, offset_overrides=None):
+    """Generate snapshots for all detected events. Returns (list of file paths, list of errors).
+
+    window_overrides / offset_overrides are optional dicts keyed by df_events
+    integer index, carrying the per-snapshot window size and time-shift the user
+    set in the event expander UI. When provided, they take priority over the
+    global window_s and the default 0 s offset for that specific event.
+    """
     import logging
     log = logging.getLogger(__name__)
 
     if df_events.empty:
         return [], []
 
+    window_overrides = window_overrides or {}
+    offset_overrides = offset_overrides or {}
+
     paths = []
     snapshot_errors = []
     _events_seq = list(df_events.iterrows())
-    for idx, (_, row) in enumerate(_events_seq):
+    for idx, (ev_idx, row) in enumerate(_events_seq):
         try:
             _prev_ts = _events_seq[idx - 1][1]["Timestamp"] if idx > 0 else None
             _next_ts = _events_seq[idx + 1][1]["Timestamp"] if idx + 1 < len(_events_seq) else None
+            _win = float(window_overrides.get(ev_idx, window_s))
+            _off = float(offset_overrides.get(ev_idx, 0.0))
             path = plot_load_change_snapshot(
                 df_raw,
                 event_ts=row["Timestamp"],
@@ -1118,7 +1130,8 @@ def generate_all_snapshots(df_raw, df_events, client_name, output_dir="output/Sn
                 event_row=row,
                 show_max_deviation=show_max_deviation,
                 rated_load_kw=rated_load_kw,
-                window_s=window_s,
+                window_s=_win,
+                time_offset_s=_off,
                 prev_event_ts=_prev_ts,
                 next_event_ts=_next_ts,
             )
