@@ -679,22 +679,10 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         f"  ({load_change / rated_load_kw * 100:+.1f}% rated)"
         if rated_load_kw and rated_load_kw > 0 else ""
     )
-    # Detect partial-window \u2014 recording doesn't cover the full requested span
-    # on one or both sides. Used to shade the gap and annotate the title.
-    _GAP_TOL_S = 1.0
-    _data_min_ts = df_win["Timestamp"].min()
-    _data_max_ts = df_win["Timestamp"].max()
-    _req_left_ts  = event_ts - pd.Timedelta(seconds=left_s)
-    _req_right_ts = event_ts + pd.Timedelta(seconds=right_s)
-    _gap_left_s  = (_data_min_ts - _req_left_ts).total_seconds()  if pd.notnull(_data_min_ts) else 0.0
-    _gap_right_s = (_req_right_ts - _data_max_ts).total_seconds() if pd.notnull(_data_max_ts) else 0.0
-    _partial_window = (_gap_left_s > _GAP_TOL_S) or (_gap_right_s > _GAP_TOL_S)
-    _partial_str = "   \u26a0 partial window \u2014 recording does not cover full span" if _partial_window else ""
-
     title_str = (
         f"Event: {event_ts.strftime('%H:%M:%S')}   |   "
         f"Load: {load_before:.0f} \u2192 {load_after:.0f} kW   "
-        f"{direction} {abs(load_change):.0f} kW{_pct_str}{_partial_str}"
+        f"{direction} {abs(load_change):.0f} kW{_pct_str}"
     )
     fig.suptitle(title_str, fontsize=15, fontweight="700",
                  color=_TEXT_MAIN, y=0.995, x=0.01, ha="left")
@@ -1052,39 +1040,6 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
     axes[3].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
     fig.autofmt_xdate(rotation=0, ha="center")
     axes[3].tick_params(axis="x", labelsize=11, colors=_TEXT_SUB)
-
-    # ── Partial-window highlight ────────────────────────────────────────
-    # Shade the portion of the requested window where the recording has no
-    # data, so a flat / truncated trace can't be mistaken for a real signal.
-    if _partial_window:
-        for ax in axes:
-            if _gap_left_s > _GAP_TOL_S:
-                ax.axvspan(_req_left_ts, _data_min_ts,
-                           facecolor=_AMBER, alpha=0.12,
-                           hatch="///", edgecolor=_AMBER, linewidth=0, zorder=1)
-            if _gap_right_s > _GAP_TOL_S:
-                ax.axvspan(_data_max_ts, _req_right_ts,
-                           facecolor=_AMBER, alpha=0.12,
-                           hatch="///", edgecolor=_AMBER, linewidth=0, zorder=1)
-        # "NO DATA" rotated label, drawn once on the top (voltage) panel and
-        # the bottom (power) panel so it's visible whether the user is
-        # looking at the V/F overlays or the kW trace.
-        for _ax_idx in (0, 3):
-            _ax = axes[_ax_idx]
-            if _gap_left_s > _GAP_TOL_S:
-                _mid_left = _req_left_ts + (_data_min_ts - _req_left_ts) / 2
-                _ax.text(_mid_left, 0.5, "NO DATA",
-                         transform=_ax.get_xaxis_transform(),
-                         fontsize=11, fontweight="700", color="#b45309",
-                         alpha=0.75, ha="center", va="center", rotation=90,
-                         zorder=2)
-            if _gap_right_s > _GAP_TOL_S:
-                _mid_right = _data_max_ts + (_req_right_ts - _data_max_ts) / 2
-                _ax.text(_mid_right, 0.5, "NO DATA",
-                         transform=_ax.get_xaxis_transform(),
-                         fontsize=11, fontweight="700", color="#b45309",
-                         alpha=0.75, ha="center", va="center", rotation=90,
-                         zorder=2)
 
     # ── Not-recovered highlighting ──────────────────────────────────────
     if event_row is not None:

@@ -377,6 +377,32 @@ def _recompute_df_interp(df_proc, skip_interpolation: bool = False):
     )
 
 
+def _event_partial_window(df_raw, ev_ts, window_s: float, time_offset_s: float = 0.0,
+                          gap_tol_s: float = 1.0) -> bool:
+    """Return True when the requested snapshot window extends past the recording.
+
+    Mirrors the window-bound logic in ``plot_load_change_snapshot``: the window
+    is centred on ``ev_ts`` with ``window_s/2`` either side, then shifted by
+    ``time_offset_s``. If df_raw lacks data within ``gap_tol_s`` of either
+    requested edge, the snapshot will be truncated and we flag it.
+    """
+    if df_raw is None or df_raw.empty or "Timestamp" not in df_raw.columns:
+        return False
+    half = float(window_s) / 2.0
+    left_s = max(0.5, half - float(time_offset_s))
+    right_s = max(0.5, half + float(time_offset_s))
+    req_left  = pd.Timestamp(ev_ts) - pd.Timedelta(seconds=left_s)
+    req_right = pd.Timestamp(ev_ts) + pd.Timedelta(seconds=right_s)
+    ts = df_raw["Timestamp"]
+    data_min = ts.min()
+    data_max = ts.max()
+    if pd.isnull(data_min) or pd.isnull(data_max):
+        return False
+    gap_left  = (data_min - req_left).total_seconds()
+    gap_right = (req_right - data_max).total_seconds()
+    return (gap_left > gap_tol_s) or (gap_right > gap_tol_s)
+
+
 def _show_progress_popup(placeholder, pct: int, step: str, title: str = "Processing"):
     """Render a fixed-position progress popup into a st.empty() placeholder."""
     placeholder.markdown(f"""
@@ -2344,6 +2370,36 @@ with st.sidebar:
         remove_nr_warnings = False
         st.session_state.pop("remove_nr_warnings", None)
 
+    # ── Partial-window warning ─────────────────────────────────
+    # Flag events whose snapshot window extends past the recorded data.
+    _df_raw_check = (
+        st.session_state.get("df_raw") if _compliance_mode
+        else st.session_state.get("ws_df_raw")
+    )
+    _partial_events = []
+    if _df_ev_check is not None and not _df_ev_check.empty and _df_raw_check is not None:
+        if _compliance_mode:
+            _cfg_chk    = st.session_state.get("config")
+            _global_win = float(getattr(_cfg_chk, "snapshot_window_s", 10.0)) if _cfg_chk else 10.0
+            _win_overrides_chk    = st.session_state.get("event_window_overrides", {}) or {}
+            _offset_overrides_chk = st.session_state.get("event_offset_overrides", {}) or {}
+        else:
+            _ws_cfg_chk = st.session_state.get("ws_config")
+            _global_win = float(getattr(_ws_cfg_chk, "snapshot_window_s", 10.0)) if _ws_cfg_chk else 10.0
+            _win_overrides_chk    = {}
+            _offset_overrides_chk = {}
+        for _pi, (_pidx, _prow) in enumerate(_df_ev_check.iterrows()):
+            _pw = float(_win_overrides_chk.get(_pidx, _global_win))
+            _po = float(_offset_overrides_chk.get(_pidx, 0.0))
+            if _event_partial_window(_df_raw_check, _prow["Timestamp"], _pw, _po):
+                _partial_events.append(_pi + 1)
+    if _partial_events:
+        _pe_str = ", ".join(f"Event {n}" for n in _partial_events)
+        st.warning(
+            f"⚠️ Snapshot window is not fully covered by the recording for: {_pe_str}. "
+            "The plots will be truncated in the report."
+        )
+
     _btn_disabled = _has_nr and not remove_nr_warnings
 
     analysis_ready = (
@@ -3542,7 +3598,12 @@ if _active_tab_main == "compliance":
                 )
                 v_nr = bool(row.get("V_not_recovered", False))
                 f_nr = bool(row.get("F_not_recovered", False))
-                nr_badge = "⚠️ " if (v_nr or f_nr) else ""
+                _ev_win    = float(st.session_state.get("event_window_overrides", {}).get(idx, config.snapshot_window_s))
+                _ev_offset = float(st.session_state.get("event_offset_overrides", {}).get(idx, 0.0))
+                partial_win = _event_partial_window(
+                    st.session_state.get("df_raw"), ev_ts, _ev_win, _ev_offset
+                )
+                nr_badge = "⚠️ " if (v_nr or f_nr or partial_win) else ""
                 label = (
                     f"{nr_badge}{badge}Event {snap_i + 1} — {ev_ts.strftime('%H:%M:%S')}  "
                     f"|  {direction} {abs(dkw):.0f} kW{_pct_str}"
@@ -3556,6 +3617,12 @@ if _active_tab_main == "compliance":
                         st.error("Voltage did not recover from the previous step.")
                     elif f_nr:
                         st.error("Frequency did not recover from the previous step.")
+                    if partial_win:
+                        st.warning(
+                            "Snapshot window is not fully covered by the recording. "
+                            "The plot is truncated — extend the recording or reduce the "
+                            "snapshot window to see the full event."
+                        )
 
                     # Per-event snapshot window override (size + time shift).
                     # Available to all users — the global setting in the
@@ -4333,6 +4400,7 @@ elif _active_tab_main == "winscope":
             # the heading and the first event expander.
             _ws_snapshot_progress_slot = st.empty()
             import re as _re_ws2
+            _ws_win_s = float(getattr(_ws_cfg, "snapshot_window_s", 10.0))
             for _wsi in range(len(_ws_ev)):
                 _wsp = _ws_sp[_wsi] if _wsi < len(_ws_sp) else None
                 _ws_ev_row  = _ws_ev.iloc[_wsi]
@@ -4341,8 +4409,18 @@ elif _active_tab_main == "winscope":
                 _ws_ev_lbl  = f"{'▲' if _ws_ev_dkw > 0 else '▼'} {abs(_ws_ev_dkw):.0f} kW"
                 _ws_compl   = _ws_ev_row.get("Compliance_Status", "—")
                 _ws_cc      = "#16a34a" if _ws_compl == "Pass" else "#dc2626" if _ws_compl == "Fail" else "#64748b"
-                with st.expander(f"Event {_wsi+1} · {_ws_ev_ts} · {_ws_ev_lbl}", expanded=(_wsi == 0)):
+                _ws_partial = _event_partial_window(
+                    st.session_state.get("ws_df_raw"), _ws_ev_row["Timestamp"], _ws_win_s,
+                )
+                _ws_warn_badge = "⚠️ " if _ws_partial else ""
+                with st.expander(f"{_ws_warn_badge}Event {_wsi+1} · {_ws_ev_ts} · {_ws_ev_lbl}", expanded=(_wsi == 0)):
                     st.markdown(f'<span style="color:{_ws_cc};font-weight:700;font-size:13px;">{_ws_compl}</span>', unsafe_allow_html=True)
+                    if _ws_partial:
+                        st.warning(
+                            "Snapshot window is not fully covered by the recording. "
+                            "The plot is truncated — extend the recording or reduce the "
+                            "snapshot window to see the full event."
+                        )
                     if _wsp and _wsp.endswith(".svg") and os.path.exists(_wsp):
                         with open(_wsp, "r", encoding="utf-8") as _wsf2:
                             _wsnap = _wsf2.read()
