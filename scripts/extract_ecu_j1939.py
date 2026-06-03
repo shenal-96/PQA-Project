@@ -19,6 +19,7 @@ This is a build-time tool — not imported by the app. The app reads the JSON.
 """
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -251,6 +252,43 @@ def parse_fault_codes(doc, start_page=240, end_page=290):
     return faults
 
 
+ADEC_DEFAULT = ("manuals_inbox/6_Latest ADEC alarms all applications "
+                "2_2_33_1_11_3_ALARM_2_1_1_1_20_3_ALARM_Eng.pdf")
+
+_ADEC_BOILER = re.compile(
+    r"\(?\s*Alarm Configuration Parameter.*?\)?\s*$", re.IGNORECASE | re.DOTALL)
+
+
+def parse_adec_alarms(path):
+    """
+    Parse the ADEC alarms PDF (No | ZKP-No | Name | Description) into lookups.
+    Returns (by_no, by_name) dicts mapping to {description, zkp}.
+    """
+    by_no, by_name = {}, {}
+    if not os.path.exists(path):
+        return by_no, by_name
+    doc = fitz.open(path)
+    for p in range(doc.page_count):
+        for t in doc[p].find_tables().tables:
+            if t.col_count != 4:
+                continue
+            rows = t.extract()
+            for row in rows:
+                no = clean_val(row[0] or "")
+                zkp = clean_val(row[1] or "")
+                name = clean_name(row[2] or "")
+                desc = clean_name(row[3] or "")
+                if no.lower() == "no" or not name or not desc:
+                    continue
+                # drop the repeated boilerplate footnote
+                desc = _ADEC_BOILER.sub("", desc).strip().rstrip("(").strip()
+                rec = {"description": desc, "zkp": zkp}
+                if no:
+                    by_no[no] = rec
+                by_name[name.lower()] = rec
+    return by_no, by_name
+
+
 def parse_config_params(doc):
     """Section 5 editable config params — small, parsed from text reliably."""
     # These are stable; transcribe from the parsed Section 5 text (p237-238).
@@ -305,6 +343,22 @@ def main():
     command, telemetry = parse_pgns(doc, toc)
     faults = parse_fault_codes(doc)
     config = parse_config_params(doc)
+
+    # Enrich fault codes with ADEC plain-English descriptions (join by
+    # alarm No., fall back to name match).
+    adec_by_no, adec_by_name = parse_adec_alarms(ADEC_DEFAULT)
+    enriched = 0
+    for f in faults:
+        rec = adec_by_no.get(f.get("alarm_no", "")) \
+            or adec_by_name.get(f["name"].lower())
+        if rec:
+            f["description"] = rec["description"]
+            if rec.get("zkp"):
+                f["zkp"] = rec["zkp"]
+            enriched += 1
+        else:
+            f["description"] = ""
+    print(f"  fault descriptions joined from ADEC: {enriched}/{len(faults)}")
 
     data = {
         "meta": {

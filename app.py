@@ -5070,14 +5070,19 @@ elif _active_tab_main == "ecu9_ref":
         _q = st.text_input("Search fault codes", key="ecu9_flt_q",
                            placeholder="e.g. 'coolant', 'overspeed', 'SPN 110'…")
         _frows = [{"SPN": f["spn"], "FMI": f["fmi"], "Alarm No.": f.get("alarm_no", ""),
-                   "Designation": f["name"]} for f in _eref.fault_codes()]
+                   "ZKP": f.get("zkp", ""), "Designation": f["name"],
+                   "Description": f.get("description", "")} for f in _eref.fault_codes()]
         _fdf = pd.DataFrame(_frows)
+        _n_desc = int((_fdf["Description"].str.len() > 0).sum())
         if _q and _q.strip():
             _ql = _q.strip().lower().replace("spn", "").strip()
-            _mask = _fdf.apply(lambda r: _ql in f"{r['SPN']} {r['FMI']} {r['Alarm No.']} {r['Designation']}".lower(), axis=1)
+            _mask = _fdf.apply(lambda r: _ql in f"{r['SPN']} {r['FMI']} {r['Alarm No.']} {r['ZKP']} {r['Designation']} {r['Description']}".lower(), axis=1)
             _fdf = _fdf[_mask]
-        st.caption(f"{len(_fdf)} fault codes")
-        st.dataframe(_fdf, width='stretch', hide_index=True)
+        st.caption(f"{len(_fdf)} fault codes · {_n_desc} carry plain-English descriptions (from the ADEC alarm list)")
+        st.dataframe(_fdf, width='stretch', hide_index=True, column_config={
+            "Description": st.column_config.TextColumn(width="large"),
+            "Designation": st.column_config.TextColumn(width="medium"),
+        })
         st.download_button("📥 Download fault list (CSV)", _fdf.to_csv(index=False),
                           file_name="ecu9_fault_codes.csv", mime="text/csv", key="ecu9_flt_dl")
         with st.expander("FMI (Failure Mode Indicator) meanings"):
