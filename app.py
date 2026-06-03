@@ -2932,8 +2932,8 @@ with _help_col:
         _help_dialog()
 
 _active_tab_main = st.session_state.get("_active_tab", "compliance")
-_TAB_LABELS = ["⚡ Compliance Analysis", "📊 WinScope Viewer", "🔧 Set Point Comparison", "🔌 ECU Plotting", "📖 Settings Reference"]
-_TAB_KEYS   = ["compliance", "winscope", "setpoint", "ecu_plotting", "settings_ref"]
+_TAB_LABELS = ["⚡ Compliance Analysis", "📊 WinScope Viewer", "🔧 Set Point Comparison", "🔌 ECU Plotting", "📖 Settings Reference", "🔧 ECU 9 Reference"]
+_TAB_KEYS   = ["compliance", "winscope", "setpoint", "ecu_plotting", "settings_ref", "ecu9_ref"]
 _chosen_tab = st.radio(
     "", _TAB_LABELS,
     index=_TAB_KEYS.index(_active_tab_main) if _active_tab_main in _TAB_KEYS else 0,
@@ -4938,6 +4938,160 @@ elif _active_tab_main == "settings_ref":
                 with st.expander(f"{_group}  ·  {len(_settings)} settings", expanded=False):
                     for _setting in _settings:
                         _sref_render_card(_setting)
+
+
+# ============================================================
+# ECU 9 REFERENCE TAB
+# ============================================================
+elif _active_tab_main == "ecu9_ref":
+    import ecu_reference as _eref
+
+    _ec = _eref.counts()
+    _emeta = _eref.meta()
+
+    st.markdown("""
+    <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:1.25rem;padding-bottom:1.25rem;border-bottom:2px solid #e2e8f0;">
+      <div style="width:42px;height:42px;background:linear-gradient(135deg,#ea580c,#f59e0b);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 8px rgba(234,88,12,0.35);">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="2" x2="9" y2="4"/><line x1="15" y1="2" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="22"/><line x1="15" y1="20" x2="15" y2="22"/><line x1="2" y1="9" x2="4" y2="9"/><line x1="2" y1="15" x2="4" y2="15"/><line x1="20" y1="9" x2="22" y2="9"/><line x1="20" y1="15" x2="22" y2="15"/></svg>
+      </div>
+      <div>
+        <h2 style="margin:0;padding:0;border:none;font-size:1.4rem;font-weight:800;color:#0f172a;letter-spacing:-0.03em;line-height:1.15;">MTU ECU 9 — J1939 Reference</h2>
+        <p style="margin:0.2rem 0 0;font-size:0.8rem;color:#64748b;font-weight:400;">Configurable parameters, controllable commands, telemetry & fault codes · """ + _emeta.get("doc_ref", "") + """</p>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="background:#fffbeb;border:1px solid #fcd34d;border-left:4px solid #f59e0b;border-radius:8px;padding:0.75rem 1rem;margin-bottom:1.25rem;color:#92400e;font-size:0.83rem;">
+      <strong>ℹ This is the J1939 interface spec.</strong> Editable config is limited to the interface settings below;
+      <strong>commands</strong> are what a genset/external controller sends to drive the engine; <strong>telemetry</strong> is read-only.
+      The deep engine-tuning values (governor PID, fuel limits, the actual droop-curve percentages) live in a separate MTU
+      parameter-list manual — OHECS only lets you <em>select</em> which pre-programmed droop curve is active.
+    </div>
+    """, unsafe_allow_html=True)
+
+    _e_sub = st.radio(
+        "ECU section",
+        ["⚙ Editable Config", "🎛 Commands", "📊 Telemetry", "⚠ Fault Codes"],
+        horizontal=True, label_visibility="collapsed", key="ecu9_subtab",
+    )
+
+    def _spn_effect_html(spn):
+        eff = _eref.effect_for(spn["spn"])
+        if not eff:
+            return ""
+        phil, perf = eff
+        return (
+            f'<div style="font-size:0.8rem;color:#334155;line-height:1.45;border-left:3px solid #0891b2;padding-left:0.6rem;margin:0.3rem 0 0.25rem;"><strong style="color:#0e7490;">Philosophy — </strong>{phil}</div>'
+            f'<div style="font-size:0.8rem;color:#334155;line-height:1.45;border-left:3px solid #9333ea;padding-left:0.6rem;"><strong style="color:#7e22ce;">Effect — </strong>{perf}</div>'
+        )
+
+    # ---------------- Editable Config ----------------
+    if _e_sub == "⚙ Editable Config":
+        st.markdown(f"**{_ec['config']}** editable J1939 interface parameters (set via MTU **DiaSys**; most take effect after restart).")
+        for _cp in _eref.config_params():
+            _badge = '<span style="background:#fff7ed;color:#c2410c;border-radius:6px;padding:1px 8px;font-size:0.72rem;font-weight:700;">ECU 9 only</span>' if _cp.get("ecu9_only") else ''
+            st.markdown(f"""
+            <div style="border:1px solid #e2e8f0;border-radius:10px;padding:0.9rem 1.1rem;margin-bottom:0.7rem;background:#fff;">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
+                <div style="font-size:1rem;font-weight:700;color:#0f172a;">{_cp['name']} <span style="color:#94a3b8;font-weight:500;font-size:0.78rem;font-family:monospace;">ZKP {_cp['zkp']}</span></div>
+                {_badge}
+              </div>
+              <div style="display:flex;gap:18px;flex-wrap:wrap;margin:0.4rem 0 0.4rem;font-size:0.78rem;color:#475569;">
+                <span><strong style="color:#0f172a;">Range:</strong> {_cp['range']}</span>
+                <span><strong style="color:#0f172a;">Default:</strong> {_cp['default']}</span>
+              </div>
+              <div style="font-size:0.85rem;color:#334155;line-height:1.5;">{_cp['description']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # ---------------- Commands ----------------
+    elif _e_sub == "🎛 Commands":
+        st.markdown(f"**{_ec['command_pgns']}** controllable message groups (PGNs the ECU **receives**) · "
+                    f"{_ec['command_spns']} parameters. Genset-relevant ones are listed first; "
+                    f"⭐ marks parameters with curated control/performance notes.")
+        _q = st.text_input("Search commands", key="ecu9_cmd_q",
+                           placeholder="e.g. 'speed', 'droop', 'start', 'torque'…")
+        _cmd_pgns = _eref.command_pgns()
+        for _pgn in _cmd_pgns:
+            _spns = _pgn["spns"]
+            if _q and _q.strip():
+                _ql = _q.strip().lower()
+                _spns = [s for s in _spns if _ql in f"{_pgn['name']} {s['name']} {s['spn']}".lower()]
+                if not _spns:
+                    continue
+            _is_priority = _pgn["pgn"] in _eref.PRIORITY_COMMAND_PGNS
+            _hdr = f"PGN {_pgn['pgn']} · {_pgn['name']}  ·  {len(_spns)} params"
+            with st.expander(_hdr, expanded=bool(_q and _q.strip()) or (_is_priority and _pgn["pgn"] == 0)):
+                _cyc = f" · cycle {_pgn['cycle']}" if _pgn.get("cycle") else ""
+                st.caption(f"PGN hex {_pgn.get('pgn_hex','')}{_cyc} · page {_pgn.get('page','')}")
+                for _s in _spns:
+                    _star = "⭐ " if _eref.effect_for(_s["spn"]) else ""
+                    _rng = f" · range {_s['range']}" if _s.get("range") else ""
+                    _unit = f" {_s['unit']}" if _s.get("unit") else ""
+                    _e9 = ' <span style="color:#c2410c;font-size:0.7rem;font-weight:700;">[ECU9]</span>' if _s.get("ecu9") else ''
+                    st.markdown(f"""
+                    <div style="border-top:1px solid #f1f5f9;padding:0.5rem 0 0.4rem;">
+                      <div style="font-size:0.9rem;font-weight:600;color:#0f172a;">{_star}{_s['name']}
+                        <span style="color:#94a3b8;font-weight:500;font-size:0.74rem;font-family:monospace;">SPN {_s['spn']}{_rng}{_unit}</span>{_e9}</div>
+                      {_spn_effect_html(_s)}
+                    </div>
+                    """, unsafe_allow_html=True)
+
+    # ---------------- Telemetry ----------------
+    elif _e_sub == "📊 Telemetry":
+        st.markdown(f"**{_ec['telemetry_spns']}** read-only monitoring parameters across "
+                    f"**{_ec['telemetry_pgns']}** message groups. Search to filter.")
+        _q = st.text_input("Search telemetry", key="ecu9_tel_q",
+                           placeholder="e.g. 'oil temperature', 'boost', 'fuel rate'…")
+        _rows = []
+        for _pgn in _eref.telemetry_pgns():
+            for _s in _pgn["spns"]:
+                _rows.append({
+                    "PGN": _pgn["pgn"], "Message": _pgn["name"],
+                    "Parameter": _s["name"], "SPN": _s["spn"],
+                    "Range": _s.get("range", ""), "Unit": _s.get("unit", ""),
+                    "Resolution/Offset": _s.get("resolution", ""),
+                })
+        _tdf = pd.DataFrame(_rows)
+        if _q and _q.strip():
+            _ql = _q.strip().lower()
+            _mask = _tdf.apply(lambda r: _ql in f"{r['Message']} {r['Parameter']} {r['SPN']} {r['Unit']}".lower(), axis=1)
+            _tdf = _tdf[_mask]
+        st.caption(f"{len(_tdf)} parameters")
+        st.dataframe(_tdf, width='stretch', hide_index=True)
+        st.download_button("📥 Download telemetry list (CSV)", _tdf.to_csv(index=False),
+                          file_name="ecu9_telemetry.csv", mime="text/csv", key="ecu9_tel_dl")
+
+    # ---------------- Fault Codes ----------------
+    else:
+        st.markdown(f"**{_ec['faults']}** diagnostic trouble codes (DTC). "
+                    "Search by SPN, FMI, alarm number, or description.")
+        _q = st.text_input("Search fault codes", key="ecu9_flt_q",
+                           placeholder="e.g. 'coolant', 'overspeed', 'SPN 110'…")
+        _frows = [{"SPN": f["spn"], "FMI": f["fmi"], "Alarm No.": f.get("alarm_no", ""),
+                   "Designation": f["name"]} for f in _eref.fault_codes()]
+        _fdf = pd.DataFrame(_frows)
+        if _q and _q.strip():
+            _ql = _q.strip().lower().replace("spn", "").strip()
+            _mask = _fdf.apply(lambda r: _ql in f"{r['SPN']} {r['FMI']} {r['Alarm No.']} {r['Designation']}".lower(), axis=1)
+            _fdf = _fdf[_mask]
+        st.caption(f"{len(_fdf)} fault codes")
+        st.dataframe(_fdf, width='stretch', hide_index=True)
+        st.download_button("📥 Download fault list (CSV)", _fdf.to_csv(index=False),
+                          file_name="ecu9_fault_codes.csv", mime="text/csv", key="ecu9_flt_dl")
+        with st.expander("FMI (Failure Mode Indicator) meanings"):
+            st.markdown("""
+- **0** — Above normal range, most severe
+- **1** — Below normal range, most severe
+- **11** — Root cause not known
+- **15** — Above normal range, least severe
+- **16** — Above normal range, moderately severe
+- **17** — Below normal range, least severe
+- **31** — Condition exists
+
+SPNs 520192–524287 are MTU-proprietary; others are standard SAE J1939.
+            """)
 
 
 # ============================================================
