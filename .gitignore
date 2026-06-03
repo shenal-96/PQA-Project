@@ -8,3 +8,11 @@ __pycache__/
 *.docx
 *.pdf
 *.zip
+
+# Exception: equipment manuals dropped here for processing into
+# settings_reference.py. PDFs in this folder ARE tracked (override *.pdf
+# above) so they can be uploaded via GitHub and pulled here. Delete the
+# files after processing to keep the repo lean.
+!manuals_inbox/
+!manuals_inbox/**
+
