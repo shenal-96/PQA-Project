@@ -3440,7 +3440,7 @@ if _active_tab_main == "compliance":
             # Voltage Recovery
             if "V_rec_s" in src.columns:
                 disp["Voltage Recovery"] = pd.to_numeric(src["V_rec_s"], errors="coerce").map(
-                    lambda x: f"{x:.2f} s" if pd.notnull(x) else "—"
+                    lambda x: f"{x:.2f} s" if pd.notnull(x) else "0.00 s"
                 )
 
             # Frequency Deviation — actual measured min/max frequency (Hz)
@@ -3454,7 +3454,7 @@ if _active_tab_main == "compliance":
             # Frequency Recovery
             if "F_rec_s" in src.columns:
                 disp["Frequency Recovery"] = pd.to_numeric(src["F_rec_s"], errors="coerce").map(
-                    lambda x: f"{x:.2f} s" if pd.notnull(x) else "—"
+                    lambda x: f"{x:.2f} s" if pd.notnull(x) else "0.00 s"
                 )
 
             # Compliance Status
@@ -4285,13 +4285,13 @@ elif _active_tab_main == "winscope":
                     lambda v: f"{v:.1f} V ({(v - _wnom) / _wnom * 100:+.2f}%)" if pd.notna(v) else "—")
             if "V_rec_s" in _ws_src.columns:
                 _ws_disp["V Recovery (s)"] = _ws_src["V_rec_s"].apply(
-                    lambda v: f"{v:.2f}" if pd.notna(v) else "—")
+                    lambda v: f"{v:.2f}" if pd.notna(v) else "0.00")
             if "F_dev" in _ws_src.columns:
                 _ws_disp["Freq Deviation"] = _ws_src["F_dev"].apply(
                     lambda v: f"{v:.3f} Hz ({(v - _ws_cfg.nominal_frequency) / _ws_cfg.nominal_frequency * 100:+.3f}%)" if pd.notna(v) else "—")
             if "F_rec_s" in _ws_src.columns:
                 _ws_disp["F Recovery (s)"] = _ws_src["F_rec_s"].apply(
-                    lambda v: f"{v:.2f}" if pd.notna(v) else "—")
+                    lambda v: f"{v:.2f}" if pd.notna(v) else "0.00")
             if "Compliance_Status" in _ws_src.columns:
                 _ws_disp["Compliance Status"] = _ws_src["Compliance_Status"]
 
