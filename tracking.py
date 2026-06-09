@@ -19,9 +19,11 @@ import json
 import logging
 import sys
 import threading
+import time
 import traceback
 import urllib.error
 import urllib.request
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -33,6 +35,12 @@ _TIMEOUT_S = 5.0
 _USER_HASH_LEN = 12
 _SESSION_FLAG = "_telemetry_app_open_logged"
 _PRESET_FLAG = "_telemetry_last_preset"
+_SESSION_ID_KEY = "_telemetry_session_id"
+_SESSION_START_KEY = "_telemetry_session_start"
+_LAST_HEARTBEAT_KEY = "_telemetry_last_heartbeat"
+_ANALYSIS_COUNT_KEY = "_telemetry_analysis_count"
+_REPORT_DL_COUNT_KEY = "_telemetry_report_dl_count"
+_HEARTBEAT_INTERVAL_S = 60.0
 
 
 def _get_secret(name: str, default: str = "") -> str:
@@ -69,6 +77,28 @@ def _app_version() -> str:
         return "unknown"
 
 
+def _session_id() -> str:
+    """Stable per-Streamlit-session id (uuid4, 12-char prefix)."""
+    try:
+        sid = st.session_state.get(_SESSION_ID_KEY)
+        if not sid:
+            sid = uuid.uuid4().hex[:12]
+            st.session_state[_SESSION_ID_KEY] = sid
+            st.session_state[_SESSION_START_KEY] = time.time()
+        return sid
+    except Exception:
+        return "unknown"
+
+
+def _bump_counter(key: str) -> int:
+    try:
+        n = int(st.session_state.get(key, 0)) + 1
+        st.session_state[key] = n
+        return n
+    except Exception:
+        return 0
+
+
 def _post(url: str, payload: dict[str, Any]) -> None:
     try:
         body = json.dumps(payload, default=str).encode("utf-8")
@@ -93,6 +123,7 @@ def _send(sheet: str, **fields: Any) -> None:
             "sheet": sheet,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "user_hash": _user_hash(),
+            "session_id": _session_id(),
             "app_version": _app_version(),
             **fields,
         }
@@ -131,6 +162,38 @@ def log_app_open_once() -> None:
             log_event("app_open")
     except Exception:
         pass
+
+
+def log_session_heartbeat() -> None:
+    """Emit a session_heartbeat with elapsed seconds since session start.
+
+    Throttled to one beat per ``_HEARTBEAT_INTERVAL_S`` (60 s) — Streamlit
+    only re-runs on user interaction, so the sum/max of elapsed_s over a
+    session is a reasonable proxy for active time-on-app.
+    """
+    try:
+        _session_id()  # ensure session_id + start time are seeded
+        now = time.time()
+        last = float(st.session_state.get(_LAST_HEARTBEAT_KEY, 0.0))
+        if last and (now - last) < _HEARTBEAT_INTERVAL_S:
+            return
+        st.session_state[_LAST_HEARTBEAT_KEY] = now
+        start = float(st.session_state.get(_SESSION_START_KEY, now))
+        log_event("session_heartbeat", elapsed_s=round(now - start, 1))
+    except Exception:
+        pass
+
+
+def log_analysis_run(source: str, **details: Any) -> None:
+    """Record an analysis run, attaching a per-session run_number."""
+    n = _bump_counter(_ANALYSIS_COUNT_KEY)
+    log_event("analysis_run", source=source, run_number=n, **details)
+
+
+def log_report_downloaded(fmt: str, source: str = "") -> None:
+    """Record that a generated report was downloaded by the user."""
+    n = _bump_counter(_REPORT_DL_COUNT_KEY)
+    log_event("report_downloaded", format=fmt, source=source, download_number=n)
 
 
 def log_preset_change(current: str) -> None:

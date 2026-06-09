@@ -2381,33 +2381,37 @@ with st.sidebar:
         for i, entry in enumerate(sidebar_reports):
             st.markdown(f"**{entry['name']}**")
             c1, c2, c3 = st.columns([5, 5, 2])
+            _src = str(entry.get("source", ""))
             if "docx" in entry["files"]:
-                c1.download_button(
+                if c1.download_button(
                     "⬇ .docx",
                     data=bytes(entry["files"]["docx"]),
                     file_name=f"{entry['name']}.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     key=f"sb_dl_docx_{i}",
                     use_container_width=True,
-                )
+                ):
+                    tracking.log_report_downloaded("docx", source=_src)
             elif "html" in entry["files"]:
-                c1.download_button(
+                if c1.download_button(
                     "⬇ .html",
                     data=bytes(entry["files"]["html"]),
                     file_name=f"{entry['name']}.html",
                     mime="text/html",
                     key=f"sb_dl_html_{i}",
                     use_container_width=True,
-                )
+                ):
+                    tracking.log_report_downloaded("html", source=_src)
             if "pdf" in entry["files"]:
-                c2.download_button(
+                if c2.download_button(
                     "⬇ .pdf",
                     data=bytes(entry["files"]["pdf"]),
                     file_name=f"{entry['name']}.pdf",
                     mime="application/pdf",
                     key=f"sb_dl_pdf_{i}",
                     use_container_width=True,
-                )
+                ):
+                    tracking.log_report_downloaded("pdf", source=_src)
             elif "docx" in entry["files"] or "html" in entry["files"]:
                 c2.caption("PDF n/a")
             if c3.button("🗑", key=f"sb_del_{i}", help="Remove this report", use_container_width=True):
@@ -2933,6 +2937,7 @@ _version_badge = f' <span style="font-size:1.3rem;color:#64748b;font-weight:500;
 # then fire app_open exactly once per session.
 st.session_state["_build_version"] = _build_version or _get_build_version()
 tracking.log_app_open_once()
+tracking.log_session_heartbeat()
 
 _title_col, _help_col = st.columns([14, 1])
 with _title_col:
@@ -3093,8 +3098,7 @@ if _active_tab_main == "compliance":
                 _show_progress_popup(_prog, 25, "Running power quality analysis…", "Running Analysis")
                 df_proc, df_events = perform_analysis(df_raw, config)
                 log.info(f"Analysis done: {len(df_events)} events detected")
-                tracking.log_event(
-                    "analysis_run",
+                tracking.log_analysis_run(
                     source="compliance",
                     events=int(len(df_events)),
                     nominal_voltage=float(config.nominal_voltage),
@@ -3840,7 +3844,7 @@ if _active_tab_main == "compliance":
                 )
 
             output_base = os.path.join(OUTPUT_BASE, report_filename)
-            entry = {"name": report_filename, "files": {}}
+            entry = {"name": report_filename, "files": {}, "source": "compliance"}
 
             if report_format == "Word Template":
                 log.info(f"Word report — template: {selected_template_path}, output: {report_filename}, format: {download_format}")
@@ -4023,8 +4027,7 @@ elif _active_tab_main == "winscope":
                     fault_recovery_threshold_s=fault_recovery_threshold_s,
                 )
                 _ws_df_proc, _ws_df_events = perform_analysis(_ws_df_raw, _ws_config)
-                tracking.log_event(
-                    "analysis_run",
+                tracking.log_analysis_run(
                     source="winscope",
                     events=int(len(_ws_df_events)),
                     nominal_voltage=float(_ws_config.nominal_voltage),
@@ -4468,7 +4471,7 @@ elif _active_tab_main == "winscope":
                     image_dir=st.session_state.get("ws_img_dir", IMAGE_DIR),
                 )
                 _ws_output_base = os.path.join(OUTPUT_BASE, report_filename)
-                _ws_entry = {"name": report_filename, "files": {}}
+                _ws_entry = {"name": report_filename, "files": {}, "source": "winscope"}
 
                 if report_format == "Word Template":
                     _show_progress_popup(_ws_rpt_prog, 50, "Injecting content into Word template…", "Generating Report")
