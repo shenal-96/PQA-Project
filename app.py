@@ -1470,6 +1470,30 @@ with st.sidebar:
         )
         _ds["dev_mode"] = dev_mode
         if dev_mode:
+            try:
+                import psutil as _psutil
+                _cpu = _psutil.cpu_percent(interval=0.1)
+                _mem = _psutil.virtual_memory()
+                _mem_pct = _mem.percent
+                _mem_used = _mem.used / (1024 ** 3)
+                _mem_total = _mem.total / (1024 ** 3)
+                _cpu_col = "#dc2626" if _cpu > 80 else "#f59e0b" if _cpu > 50 else "#16a34a"
+                _mem_col = "#dc2626" if _mem_pct > 80 else "#f59e0b" if _mem_pct > 50 else "#16a34a"
+                st.markdown(f"""
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:2px 0 8px 0;">
+  <div style="background:#1e293b;border-radius:6px;padding:7px 10px;border-left:3px solid {_cpu_col};">
+    <div style="font-size:0.62rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.09em;margin-bottom:2px;">CPU</div>
+    <div style="font-size:1.15rem;font-weight:700;color:{_cpu_col};font-family:'JetBrains Mono',monospace;line-height:1;">{_cpu:.0f}%</div>
+  </div>
+  <div style="background:#1e293b;border-radius:6px;padding:7px 10px;border-left:3px solid {_mem_col};">
+    <div style="font-size:0.62rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.09em;margin-bottom:2px;">RAM</div>
+    <div style="font-size:1.15rem;font-weight:700;color:{_mem_col};font-family:'JetBrains Mono',monospace;line-height:1;">{_mem_pct:.0f}%</div>
+    <div style="font-size:0.6rem;color:#64748b;margin-top:2px;">{_mem_used:.1f} / {_mem_total:.1f} GB</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+            except ImportError:
+                st.caption("⚠ Install `psutil` for resource monitoring.")
             st.caption("Settings auto-saved to `uploads/dev_settings.json`")
         if st.button("Reset all settings to defaults", use_container_width=True):
             if os.path.exists(DEV_SETTINGS_FILE):
