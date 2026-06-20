@@ -44,3 +44,16 @@ jobs:
           name: PQA-windows-x64
           path: dist/PQA
           if-no-files-found: error
+
+      - name: Build Windows installer (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" desktop\installer.iss
+
+      - name: Upload installer (PQA-windows-installer)
+        uses: actions/upload-artifact@v4
+        with:
+          name: PQA-windows-installer
+          path: desktop/Output/*.exe
+          if-no-files-found: error
