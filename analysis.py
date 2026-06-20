@@ -65,6 +65,23 @@ class AnalysisConfig:
     # usually indicates broken set-points or hardware issues — worth surfacing
     # distinctly from "exceeded the ISO recovery limit".
     fault_recovery_threshold_s: float = 10.0
+    # ── Optional ISO 8528-5 two-band frequency evaluation ────────────────────
+    # When False (default) the freq_recovery_* fields above are used for BOTH
+    # the stopwatch start (band exit) and stop (recovery re-entry) — current
+    # behaviour, byte-identical. When True the stopwatch STARTS when frequency
+    # leaves the tighter β_f start band (freq_start_* below) and STOPS when it
+    # permanently re-enters the wider α_f stop band (which is carried by the
+    # existing freq_recovery_* fields). Also enables the §7 pre-step /
+    # post-recovery steady-state checks for both voltage and frequency.
+    # Voltage stays single-band (ΔU_st for both start and stop) per the spec.
+    iso_8528_5_mode: bool = False
+    # β_f start band (absolute Hz). Defaults equal the stop-band defaults so
+    # that if these are ever read while iso_8528_5_mode is False the start band
+    # equals the stop band and behaviour is unchanged.
+    freq_start_upper_increase: float = 50.50
+    freq_start_lower_increase: float = 49.75
+    freq_start_upper_decrease: float = 50.25
+    freq_start_lower_decrease: float = 49.50
 
     @classmethod
     def iso_8528_defaults(cls):
@@ -674,6 +691,28 @@ def check_compliance(row, config: AnalysisConfig):
             status = "Fail"
             reasons.append(f"F Recovery {row['F_rec_s']:.1f}s > {config.frequency_recovery_time_s}s")
 
+    # ── ISO 8528-5 §7 steady-state pass/fail (optional) ──────────────────
+    # Pre-step (#1): the signal must already sit within its steady-state band
+    # before the load step. Post-step (#4): it must re-establish steady state
+    # after recovery — surfaced only when recovery itself passed, so a
+    # not-recovered event is not penalised twice. Gated on ISO mode so legacy
+    # Failure_Reasons are unchanged; a missing column defaults to "ok".
+    # NB: these columns hold numpy.bool_, for which `x is False` is always
+    # False — use `not row.get(..., True)` instead.
+    if getattr(config, "iso_8528_5_mode", False):
+        if not row.get("F_presstep_ok", True):
+            status = "Fail"
+            reasons.append("Freq not in steady-state band before load step")
+        if not row.get("V_presstep_ok", True):
+            status = "Fail"
+            reasons.append("Voltage not in steady-state band before load step")
+        if not row.get("F_poststep_ok", True) and pd.notnull(row.get("F_rec_s")):
+            status = "Fail"
+            reasons.append("Freq did not hold steady state after recovery")
+        if not row.get("V_poststep_ok", True) and pd.notnull(row.get("V_rec_s")):
+            status = "Fail"
+            reasons.append("Voltage did not hold steady state after recovery")
+
     # ── Potential-fault flag ─────────────────────────────────────────────
     # Recovery times that grossly exceed the ISO limit are usually a sign of
     # broken set-points or hardware issues, not just marginal performance.
@@ -899,12 +938,28 @@ def perform_analysis(df, config: AnalysisConfig):
             # Frequency band is asymmetric and direction-dependent.
             # Load increase (dKw > 0): freq drops → use increase band.
             # Load decrease (dKw <= 0): freq rises → use decrease band.
+            # The recovery band is the STOP band (α_f in ISO 8528-5 terms):
+            # the stopwatch stops when frequency permanently re-enters it.
             def _f_band(dkw):
                 if dkw > 0:
                     return (config.freq_recovery_upper_increase,
                             config.freq_recovery_lower_increase)
                 return (config.freq_recovery_upper_decrease,
                         config.freq_recovery_lower_decrease)
+
+            # The exit band is the START band. In legacy (single-band) mode it
+            # is identical to the recovery band, so behaviour is unchanged. In
+            # ISO 8528-5 two-band mode it is the tighter β_f band: the stopwatch
+            # starts the moment frequency leaves β_f, while recovery is still
+            # measured against the wider α_f band above.
+            def _f_start_band(dkw):
+                if not config.iso_8528_5_mode:
+                    return _f_band(dkw)
+                if dkw > 0:
+                    return (config.freq_start_upper_increase,
+                            config.freq_start_lower_increase)
+                return (config.freq_start_upper_decrease,
+                        config.freq_start_lower_decrease)
 
             events["F_rec_upper"] = events["dKw"].apply(
                 lambda dk: config.freq_recovery_upper_increase if dk > 0
@@ -914,6 +969,17 @@ def perform_analysis(df, config: AnalysisConfig):
                 lambda dk: config.freq_recovery_lower_increase if dk > 0
                            else config.freq_recovery_lower_decrease
             )
+            # In ISO mode also expose the β_f start band per event so the
+            # snapshot can draw it and place the exit marker on the right line.
+            if config.iso_8528_5_mode:
+                events["F_start_upper"] = events["dKw"].apply(
+                    lambda dk: config.freq_start_upper_increase if dk > 0
+                               else config.freq_start_upper_decrease
+                )
+                events["F_start_lower"] = events["dKw"].apply(
+                    lambda dk: config.freq_start_lower_increase if dk > 0
+                               else config.freq_start_lower_decrease
+                )
             # Compute F_dev first so we can gate the forward scan on it.
             events["F_dev"] = events.apply(
                 lambda row: _measured_extreme(df_proc, row["Timestamp"], "Avg_Frequency",
@@ -923,7 +989,9 @@ def perform_analysis(df, config: AnalysisConfig):
             f_exit_vals = []
             for _, row in events.iterrows():
                 ts = row["Timestamp"]
-                f_upper, f_lower = _f_band(row["dKw"])
+                # Exit (stopwatch start) uses the START band — β_f in ISO mode,
+                # identical to the recovery band otherwise.
+                f_upper, f_lower = _f_start_band(row["dKw"])
                 exit_ts = calculate_exit_time(df_interp, ts, "Avg_Frequency", f_upper, f_lower)
                 if exit_ts is None:
                     # Only scan forward if the measured extreme actually left the band.
@@ -1002,6 +1070,66 @@ def perform_analysis(df, config: AnalysisConfig):
             )
         else:
             events["F_not_recovered"] = False
+
+        # ── ISO 8528-5 §7 steady-state checks (optional) ─────────────────────
+        # Only evaluated in ISO mode so legacy output is byte-identical.
+        if config.iso_8528_5_mode:
+            def _steady_after_recovery(exit_ts, rec_s, column, upper, lower):
+                """True unless the signal drifted back out of the steady-state
+                band AFTER the recovery verify window (§7 #4). Returns True when
+                there was no recovery to check, the metric is missing, or the
+                post-recovery window runs past the data — never fabricate a
+                failure. The recovery algorithm already guarantees sustained
+                in-band data for recovery_verify_s after re-entry, so this only
+                inspects the first reading beyond that window."""
+                if pd.isna(exit_ts) or pd.isna(rec_s):
+                    return True
+                t_stop = pd.Timestamp(exit_ts) + pd.Timedelta(seconds=float(rec_s))
+                w_start = t_stop + pd.Timedelta(seconds=config.recovery_verify_s)
+                w_end = w_start + pd.Timedelta(seconds=1)
+                post = df_interp[
+                    (df_interp["Timestamp"] >= w_start) &
+                    (df_interp["Timestamp"] <= w_end)
+                ]
+                if post.empty or column not in post.columns:
+                    return True
+                val = pd.to_numeric(post[column].iloc[-1], errors="coerce")
+                if pd.isna(val):
+                    return True
+                return bool(lower <= val <= upper)
+
+            # Pre-step (§7 #1): steady state must be in band before the load step.
+            # Frequency uses the α_f stop band, which equals the F_rec_* band the
+            # not-recovered test already evaluated — so reuse it directly. Voltage
+            # uses the ΔU_st steady-state tolerance band (nom ± tol), NOT the
+            # V_rec_* recovery band, per the spec.
+            events["F_presstep_ok"] = ~events["F_not_recovered"].astype(bool)
+            if "Avg_Voltage_LL" in df_interp.columns:
+                events["V_presstep_ok"] = ~events.apply(
+                    lambda row: _already_out_of_band(
+                        row["Timestamp"], "Avg_Voltage_LL",
+                        nom_v * (1 + tol_v / 100), nom_v * (1 - tol_v / 100),
+                    ),
+                    axis=1,
+                )
+            else:
+                events["V_presstep_ok"] = True
+
+            # Post-step (§7 #4): steady state must re-establish after recovery.
+            events["F_poststep_ok"] = events.apply(
+                lambda row: _steady_after_recovery(
+                    row.get("F_exit_ts"), row.get("F_rec_s"), "Avg_Frequency",
+                    row.get("F_rec_upper"), row.get("F_rec_lower"),
+                ),
+                axis=1,
+            )
+            events["V_poststep_ok"] = events.apply(
+                lambda row: _steady_after_recovery(
+                    row.get("V_exit_ts"), row.get("V_rec_s"), "Avg_Voltage_LL",
+                    nom_v * (1 + tol_v / 100), nom_v * (1 - tol_v / 100),
+                ),
+                axis=1,
+            )
 
         # Widen V_dev / F_dev for not-recovered events so the deep dip from the
         # prior step (which is bleeding into this event's window) is captured.
