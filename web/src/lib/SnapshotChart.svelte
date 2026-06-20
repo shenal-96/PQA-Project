@@ -37,7 +37,15 @@
     return data.length ? { silent: true, symbol: 'none', label: { show: false }, data } : undefined;
   }
 
-  function markPoint(p: SnapshotPanel) {
+  function extremeLabel(key: keyof SnapshotData['panels'], p: SnapshotPanel): string {
+    const value = p.extreme?.value;
+    if (typeof value !== 'number' || !Number.isFinite(value)) return '';
+    if (key === 'voltage') return `${value.toFixed(1)} V`;
+    if (key === 'frequency') return `${value.toFixed(3)} Hz`;
+    return fmt2(value);
+  }
+
+  function markPoint(key: keyof SnapshotData['panels'], p: SnapshotPanel) {
     const data: unknown[] = [];
     if (SHOW.intersections && p.exit?.ts != null && p.exit.value != null)
       data.push({ coord: [p.exit.ts, p.exit.value], symbol: 'pin', symbolSize: 28,
@@ -49,7 +57,21 @@
                  color: '#0f172a', fontSize: 10 } });
     if (SHOW.extreme && p.extreme?.ts != null && p.extreme.value != null)
       data.push({ coord: [p.extreme.ts, p.extreme.value], symbol: 'circle', symbolSize: 9,
-        itemStyle: { color: '#dc2626' }, label: { show: false } });
+        itemStyle: { color: '#dc2626', borderColor: '#ffffff', borderWidth: 1 },
+        label: {
+          show: true,
+          formatter: extremeLabel(key, p),
+          position: p.limit?.side === 'lower' ? 'bottom' : 'top',
+          distance: 7,
+          color: '#dc2626',
+          fontSize: 10,
+          fontWeight: 700,
+          backgroundColor: 'rgba(255,255,255,0.88)',
+          borderColor: '#fecaca',
+          borderWidth: 1,
+          borderRadius: 4,
+          padding: [2, 5],
+        } });
     return data.length ? { data } : undefined;
   }
 
@@ -78,7 +100,7 @@
         showSymbol: false, sampling: 'lttb',
         lineStyle: { width: 1.4, color: p.color }, itemStyle: { color: p.color },
         data: pairs(p),
-        markLine: markLine(p), markPoint: markPoint(p),
+        markLine: markLine(p), markPoint: markPoint(key, p),
       };
     });
     return {
