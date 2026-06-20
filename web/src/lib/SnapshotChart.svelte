@@ -4,7 +4,15 @@
   import type { SnapshotData, SnapshotPanel } from '../backend/types';
   import { fmt2 } from './format';
 
-  let { snap }: { snap: SnapshotData } = $props();
+  export interface SnapshotShow {
+    band: boolean;        // tolerance band lines
+    limit: boolean;       // max-deviation limit line
+    intersections: boolean; // exit + recovery markers
+    extreme: boolean;     // peak-deviation marker
+  }
+
+  let { snap, show }: { snap: SnapshotData; show?: SnapshotShow } = $props();
+  const SHOW = $derived<SnapshotShow>(show ?? { band: true, limit: true, intersections: true, extreme: true });
 
   let el: HTMLDivElement;
   let chart: echarts.ECharts | undefined;
@@ -19,11 +27,11 @@
 
   function markLine(p: SnapshotPanel) {
     const data: unknown[] = [];
-    if (p.band) {
+    if (SHOW.band && p.band) {
       data.push({ yAxis: p.band.upper, lineStyle: { color: '#f59e0b', type: 'dashed', width: 1 } });
       data.push({ yAxis: p.band.lower, lineStyle: { color: '#f59e0b', type: 'dashed', width: 1 } });
     }
-    if (p.limit) {
+    if (SHOW.limit && p.limit) {
       data.push({ yAxis: p.limit.value, lineStyle: { color: '#dc2626', type: 'dashed', width: 1.2 } });
     }
     return data.length ? { silent: true, symbol: 'none', label: { show: false }, data } : undefined;
@@ -31,15 +39,15 @@
 
   function markPoint(p: SnapshotPanel) {
     const data: unknown[] = [];
-    if (p.exit?.ts != null && p.exit.value != null)
+    if (SHOW.intersections && p.exit?.ts != null && p.exit.value != null)
       data.push({ coord: [p.exit.ts, p.exit.value], symbol: 'pin', symbolSize: 28,
         itemStyle: { color: '#ea580c' }, label: { show: false } });
-    if (p.recovery?.ts != null && p.recovery.value != null)
+    if (SHOW.intersections && p.recovery?.ts != null && p.recovery.value != null)
       data.push({ coord: [p.recovery.ts, p.recovery.value], symbol: 'pin', symbolSize: 30,
         itemStyle: { color: '#10b981' },
         label: { show: true, formatter: `${(p.recovery.rec_s ?? 0).toFixed(2)}s`, position: 'top',
                  color: '#0f172a', fontSize: 10 } });
-    if (p.extreme?.ts != null && p.extreme.value != null)
+    if (SHOW.extreme && p.extreme?.ts != null && p.extreme.value != null)
       data.push({ coord: [p.extreme.ts, p.extreme.value], symbol: 'circle', symbolSize: 9,
         itemStyle: { color: '#dc2626' }, label: { show: false } });
     return data.length ? { data } : undefined;
@@ -93,7 +101,7 @@
     return () => { ro.disconnect(); chart?.dispose(); };
   });
 
-  $effect(() => { void snap; render(); });
+  $effect(() => { void snap; void show; render(); });
 </script>
 
 <div class="snap" bind:this={el}></div>

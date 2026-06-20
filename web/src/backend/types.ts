@@ -104,6 +104,7 @@ export interface ReportRequest {
   html_template?: string;
   docx_template_b64?: string;
   rated_load_kw?: number | null;
+  image_options?: Record<string, unknown>;
 }
 export interface ReportArtifacts {
   pdf_b64?: string | null;

@@ -2,17 +2,20 @@
   import type { EventRecord, EventOverride, SnapshotData, SnapshotOpts } from '../backend/types';
   import { cell, num2 } from './format';
   import SnapshotChart from './SnapshotChart.svelte';
+  import type { SnapshotShow } from './SnapshotChart.svelte';
 
   let {
     event,
     index,
     snap,
+    show,
     onApply,
     onOverride,
   }: {
     event: EventRecord;
     index: number;
     snap: SnapshotData | null;
+    show?: SnapshotShow;
     onApply: (i: number, opts: SnapshotOpts) => void;
     onOverride: (i: number, ov: EventOverride) => void;
   } = $props();
@@ -62,7 +65,7 @@
 
   {#if open}
     {#if snap}
-      <SnapshotChart {snap} />
+      <SnapshotChart {snap} {show} />
     {:else}
       <div class="placeholder">Snapshot rendering…</div>
     {/if}

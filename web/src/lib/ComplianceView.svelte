@@ -2,8 +2,9 @@
   import { onMount } from 'svelte';
   import type { AnalysisBackend } from '../backend';
   import type { AnalysisResult, Caps, CsvMeta, EventOverride, SnapshotData, SnapshotOpts } from '../backend/types';
-  import { DEFAULT_CONFIG, loadConfig, saveConfig } from '../config/defaults';
+  import { DEFAULT_CONFIG, loadConfig, saveConfig, resolveConfig, displayOptions } from '../config/defaults';
   import type { AnalysisConfigInput } from '../config/defaults';
+  import type { SnapshotShow } from './SnapshotChart.svelte';
   import { metricLabel, METRIC_COLORS } from './format';
   import Sidebar from './Sidebar.svelte';
   import TimeSeriesChart from './TimeSeriesChart.svelte';
@@ -56,6 +57,17 @@
     ),
   );
   const streaming = $derived(snapshots.length > 0 && snapshots.some((s) => s === null));
+  const snapShow = $derived<SnapshotShow>({
+    band: config.show_tolerance_band,
+    limit: config.show_deviation_limits,
+    intersections: config.show_intersections,
+    extreme: config.show_max_deviation,
+  });
+  const stepsWarning = $derived(
+    result && config.expected_steps != null && result.events.length !== config.expected_steps
+      ? `Detected ${result.events.length} event(s) but ${config.expected_steps} were expected.`
+      : undefined,
+  );
 
   function loadFile(file: File): Promise<CsvMeta> {
     if (isWinscope) {
@@ -73,7 +85,7 @@
     snapOpts = {};
     snapshots = [];
     try {
-      const r = await backend.runAnalysis({ ...config });
+      const r = await backend.runAnalysis(resolveConfig(config));
       if (!r.metrics[selected]) selected = Object.keys(r.metrics)[0] ?? selected;
       result = r;
       saveConfig(config);
@@ -171,6 +183,7 @@
       <div class="banner info">Demo mode — the in-browser preview uses bundled sample data and ignores config changes. In the desktop app, Run Analysis recomputes from your file.</div>
     {/if}
     {#if error}<div class="banner error">{error}</div>{/if}
+    {#if stepsWarning}<div class="banner warn">⚠ {stepsWarning}</div>{/if}
 
     {#if result}
       <section class="cards">
@@ -204,7 +217,7 @@
         {/if}
         <div class="events">
           {#each result.events as ev, i}
-            <EventCard event={ev} index={i} snap={snapshots[i] ?? null} onApply={applySnapshot} {onOverride} />
+            <EventCard event={ev} index={i} snap={snapshots[i] ?? null} show={snapShow} onApply={applySnapshot} {onOverride} />
           {/each}
         </div>
         <div class="recalc-row">
@@ -218,7 +231,7 @@
       {/if}
 
       <div class="section-head"><span class="bar reports"></span><h2>Report</h2></div>
-      <ReportPanel {backend} {caps} />
+      <ReportPanel {backend} {caps} displayOpts={displayOptions(config)} />
     {:else if loading}
       <div class="empty"><div class="bolt">⚡</div><p>Analyzing…</p></div>
     {:else}
@@ -236,6 +249,7 @@
   .banner { padding: 10px 14px; border-radius: 8px; font-size: 13px; }
   .banner.info { background: #eff6ff; color: #1d4ed8; }
   .banner.error { background: #fee2e2; color: #b91c1c; }
+  .banner.warn { background: #fffbeb; color: #b45309; }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
   .card { background: var(--navy); border: 1px solid #1e293b; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; color: #e2e8f0; }
   .card .k { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }

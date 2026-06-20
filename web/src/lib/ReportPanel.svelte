@@ -1,13 +1,16 @@
 <script lang="ts">
   import type { AnalysisBackend } from '../backend';
   import type { Caps, ReportFields, ReportRequest, ReportResult } from '../backend/types';
+  import type { DisplayOptions } from '../config/defaults';
 
   let {
     backend,
     caps,
+    displayOpts,
   }: {
     backend: AnalysisBackend | undefined;
     caps: Caps | undefined;
+    displayOpts?: DisplayOptions;
   } = $props();
 
   const FIELDS_KEY = 'pqa.report.v1';
@@ -97,6 +100,16 @@
         filename: filename || 'PQA_Report',
         outputs: { pdf: outPdf, html: outHtml, docx: outDocx },
         docx_template_b64: outDocx ? docxTemplateB64 : undefined,
+        rated_load_kw: displayOpts?.rated_load_kw ?? null,
+        image_options: displayOpts
+          ? {
+              show_limits: displayOpts.show_limits,
+              show_tolerance_band: displayOpts.show_tolerance_band,
+              show_deviation_limits: displayOpts.show_deviation_limits,
+              show_intersections: displayOpts.show_intersections,
+              show_max_deviation: displayOpts.show_max_deviation,
+            }
+          : undefined,
       };
       const res: ReportResult = await backend.generateReport(req);
       warnings = res.warnings ?? [];
