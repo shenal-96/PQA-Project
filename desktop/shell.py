@@ -170,6 +170,12 @@ def _index_url() -> str:
 
 def main() -> None:
     """Launch the desktop window (Windows: WebView2 / Edge Chromium)."""
+    # On Windows (including ARM64 under Parallels), pythonnet must use the
+    # built-in .NET Framework 4.8.1 (which includes WinForms) rather than
+    # trying to load coreclr. Set before any pywebview/pythonnet import.
+    if sys.platform == "win32":
+        os.environ.setdefault("PYTHONNET_RUNTIME", "netfx")
+
     import webview  # lazy: only needed to actually open a window
 
     bridge = HostBridge()
