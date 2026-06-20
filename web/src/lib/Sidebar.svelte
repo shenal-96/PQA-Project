@@ -50,7 +50,7 @@
   <div class="head">
     <div class="bolt">⚡</div>
     <div>
-      <div class="title">PQA PROJECT</div>
+      <div class="title">PQA PROJECT <span class="ver">v4.1</span></div>
       <div class="sub">Configuration</div>
     </div>
     {#if caps}<span class="env">{caps.platform}</span>{/if}
@@ -242,6 +242,7 @@
   .head { display: flex; align-items: center; gap: 10px; }
   .head .bolt { width: 36px; height: 36px; display: grid; place-items: center; background: var(--blue); border-radius: 9px; font-size: 18px; }
   .head .title { font-weight: 700; color: #fff; font-size: 17px; }
+  .head .title .ver { font-weight: 600; font-size: 10px; color: #94a3b8; background: #1e293b; padding: 2px 6px; border-radius: 999px; vertical-align: middle; }
   .head .sub { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.08em; }
   .head .env { margin-left: auto; background: #1e293b; color: #94a3b8; font-size: 11px; padding: 2px 8px; border-radius: 999px; }
   section { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid #1e293b; padding-top: 14px; }

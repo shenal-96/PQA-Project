@@ -42,7 +42,7 @@
 
 <div class="shell">
   <nav class="tabbar">
-    <div class="brand"><span class="bolt">⚡</span> PQA PROJECT</div>
+    <div class="brand"><span class="bolt">⚡</span> PQA PROJECT <span class="ver">v4.1</span></div>
     <div class="tabs">
       {#each visibleTabs as t}
         <button class="tab" class:active={tab === t.key} onclick={() => go(t.key)}>{t.label}</button>
@@ -88,6 +88,7 @@
   }
   .brand { display: flex; align-items: center; gap: 6px; font-weight: 800; letter-spacing: -0.02em; color: #fff; padding-right: 10px; }
   .brand .bolt { display: grid; place-items: center; width: 26px; height: 26px; background: var(--blue); border-radius: 7px; font-size: 14px; }
+  .brand .ver { margin-left: 6px; font-weight: 600; font-size: 11px; color: #94a3b8; background: #1e293b; padding: 2px 7px; border-radius: 999px; letter-spacing: 0; }
   .tabs { display: flex; align-items: stretch; gap: 2px; flex: 1; }
   .tab {
     background: none;

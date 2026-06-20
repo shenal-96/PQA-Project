@@ -317,7 +317,7 @@ def main() -> None:
     import webview  # lazy: only needed to actually open a window
 
     bridge = HostBridge()
-    webview.create_window("PQA PROJECT", url=_index_url(),
+    webview.create_window("PQA PROJECT v4.1", url=_index_url(),
                           js_api=bridge, width=1400, height=900, min_size=(1024, 700))
     # gui='edgechromium' forces WebView2 on Windows; harmless elsewhere.
     webview.start(gui="edgechromium")
