@@ -1,7 +1,7 @@
 import type {
-  AnalysisResult, Caps, CsvMeta, EventOverride, EventRecord,
+  AnalysisResult, Caps, CsvMeta, EcuRecording, EventOverride, EventRecord,
   MetricSeries, ReportRequest, ReportResult, SaveResult,
-  SnapshotData, SnapshotOpts,
+  SetpointResult, SnapshotData, SnapshotOpts,
 } from './types';
 
 /**
@@ -15,6 +15,8 @@ import type {
 export interface AnalysisBackend {
   caps(): Promise<Caps>;
   loadCsv(file: File): Promise<CsvMeta>;
+  /** Load a WinScope .xls/.xlsx export (desktop, gated on caps.canXls). */
+  loadWinscope?(file: File): Promise<CsvMeta>;
   runAnalysis(config?: Record<string, unknown>): Promise<AnalysisResult>;
   metricSeries(column: string): Promise<MetricSeries>;
   /** 4-panel snapshot for one event (by positional index). */
@@ -27,6 +29,12 @@ export interface AnalysisBackend {
   generateReport(req: ReportRequest): Promise<ReportResult>;
   /** The built-in editable HTML report template. */
   defaultHtmlTemplate(): Promise<string>;
+
+  // ---- XLS tabs (gated on caps.canXls) ---------------------------------------
+  /** Diff 2+ ECU parameter files (XLS/XLSX or ComAp CSV). */
+  compareSetpoint?(kind: 'xls' | 'csv', files: File[]): Promise<SetpointResult>;
+  /** Read an ECU recording XLS/XLSX into grouped time series. */
+  ecuRecording?(file: File): Promise<EcuRecording>;
   /**
    * Optional native "Save As" (desktop only). When absent the UI falls back to a
    * browser blob download. `dataB64` is the file's base64 bytes.

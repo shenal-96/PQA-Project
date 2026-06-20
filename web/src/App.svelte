@@ -2,246 +2,107 @@
   import { onMount } from 'svelte';
   import { selectBackend } from './backend';
   import type { AnalysisBackend } from './backend';
-  import type { AnalysisResult, Caps, EventOverride, SnapshotData, SnapshotOpts } from './backend/types';
-  import { DEFAULT_CONFIG, loadConfig, saveConfig } from './config/defaults';
-  import type { AnalysisConfigInput } from './config/defaults';
-  import { metricLabel, METRIC_COLORS } from './lib/format';
-  import Sidebar from './lib/Sidebar.svelte';
-  import TimeSeriesChart from './lib/TimeSeriesChart.svelte';
-  import ComplianceTable from './lib/ComplianceTable.svelte';
-  import EventCard from './lib/EventCard.svelte';
-  import ReportPanel from './lib/ReportPanel.svelte';
+  import type { Caps } from './backend/types';
+  import ComplianceView from './lib/ComplianceView.svelte';
+  import SetPointView from './lib/SetPointView.svelte';
+  import EcuPlotView from './lib/EcuPlotView.svelte';
 
   let backend = $state<AnalysisBackend | undefined>(undefined);
   let caps = $state<Caps | undefined>(undefined);
-  let result = $state<AnalysisResult | undefined>(undefined);
-  let loading = $state(false);
-  let error = $state<string | undefined>(undefined);
-  let selected = $state('Avg_Voltage_LL');
+  let ready = $state(false);
 
-  let config = $state<AnalysisConfigInput>({ ...DEFAULT_CONFIG });
-  let activePreset = $state('None');
-  let fileName = $state<string | undefined>(undefined);
-  let loggerFormat = $state<string | null | undefined>(undefined);
+  type TabKey = 'compliance' | 'winscope' | 'setpoint' | 'ecu';
+  const TABS: { key: TabKey; label: string; xls: boolean }[] = [
+    { key: 'compliance', label: '⚡ Compliance', xls: false },
+    { key: 'winscope', label: '📊 WinScope', xls: true },
+    { key: 'setpoint', label: '🔧 Set Point', xls: true },
+    { key: 'ecu', label: '🔌 ECU Plotting', xls: true },
+  ];
 
-  // Event snapshots (deferred streaming) + per-event overrides.
-  let snapshots = $state<(SnapshotData | null)[]>([]);
-  let snapProgress = $state(0);
-  let snapOpts: Record<number, SnapshotOpts> = {};
-  let overrides = $state<Record<number, EventOverride>>({});
-  let recalcing = $state(false);
+  let tab = $state<TabKey>('compliance');
+  // Lazy-mount each view on first visit, then keep it mounted (hidden) so its
+  // state (loaded file, analysis, plots) survives tab switches.
+  let mounted = $state<Record<TabKey, boolean>>({
+    compliance: true, winscope: false, setpoint: false, ecu: false,
+  });
 
-  const metricKeys = $derived(result ? Object.keys(result.metrics) : []);
-  const passCount = $derived(
-    result ? result.events.filter((e) => String(e['Compliance_Status'] ?? '').toLowerCase() === 'pass').length : 0,
-  );
-  const failCount = $derived(result ? result.events.length - passCount : 0);
-  const faultCount = $derived(result ? result.events.filter((e) => e['Potential_Fault'] === true).length : 0);
-  const anyOverride = $derived(
-    Object.values(overrides).some(
-      (o) =>
-        (o.v_exit_offset ?? 0) !== 0 ||
-        (o.f_exit_offset ?? 0) !== 0 ||
-        o.v_rec_override != null ||
-        o.f_rec_override != null,
-    ),
-  );
-  const streaming = $derived(snapshots.length > 0 && snapshots.some((s) => s === null));
+  const visibleTabs = $derived(TABS.filter((t) => !t.xls || caps?.canXls));
 
-  async function run() {
-    if (!backend) return;
-    loading = true;
-    error = undefined;
-    overrides = {};
-    snapOpts = {};
-    snapshots = [];
-    try {
-      const r = await backend.runAnalysis({ ...config });
-      if (!r.metrics[selected]) selected = Object.keys(r.metrics)[0] ?? selected;
-      result = r;
-      saveConfig(config);
-      void streamSnapshots(); // deferred: table + charts show now, snapshots fill in
-    } catch (e) {
-      error = String(e);
-    } finally {
-      loading = false;
-    }
-  }
-
-  async function streamSnapshots() {
-    if (!backend || !result) return;
-    const n = result.events.length;
-    snapshots = new Array(n).fill(null);
-    snapProgress = 0;
-    for (let i = 0; i < n; i++) {
-      try {
-        snapshots[i] = await backend.snapshot(i, snapOpts[i] ?? {});
-      } catch (e) {
-        console.error('snapshot', i, e);
-      }
-      snapProgress = Math.round(((i + 1) / n) * 100);
-    }
-  }
-
-  async function applySnapshot(i: number, opts: SnapshotOpts) {
-    if (!backend) return;
-    snapOpts[i] = opts;
-    snapshots[i] = null;
-    try {
-      snapshots[i] = await backend.snapshot(i, opts);
-    } catch (e) {
-      console.error('snapshot apply', i, e);
-    }
-  }
-
-  function onOverride(i: number, ov: EventOverride) {
-    overrides = { ...overrides, [i]: ov };
-  }
-
-  async function recalc() {
-    if (!backend || !result) return;
-    recalcing = true;
-    try {
-      const r = await backend.recalc(overrides);
-      result = { ...result, events: r.events };
-      await streamSnapshots(); // refresh markers after recompute
-    } catch (e) {
-      error = String(e);
-    } finally {
-      recalcing = false;
-    }
-  }
-
-  async function onFile(ev: Event) {
-    const input = ev.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file || !backend) return;
-    loading = true;
-    error = undefined;
-    try {
-      const meta = await backend.loadCsv(file);
-      fileName = meta.filename ?? file.name;
-      loggerFormat = meta.logger_format;
-      if (!meta.valid) {
-        error = 'Invalid CSV: ' + meta.errors.join('; ');
-        result = undefined;
-        return;
-      }
-      await run();
-    } catch (e) {
-      error = String(e);
-    } finally {
-      loading = false;
-      input.value = '';
-    }
+  function go(key: TabKey) {
+    tab = key;
+    if (!mounted[key]) mounted = { ...mounted, [key]: true };
   }
 
   onMount(async () => {
-    config = loadConfig();
     backend = await selectBackend();
     caps = await backend.caps();
-    if (caps.platform === 'mock') {
-      fileName = 'hioki_sample.csv (demo)';
-      loggerFormat = 'hioki';
-      await run(); // dev: render the bundled sample immediately
-    }
+    ready = true;
   });
 </script>
 
-<div class="app">
-  <Sidebar {config} {caps} {fileName} {loggerFormat} {loading} bind:activePreset onRun={run} {onFile} />
+<div class="shell">
+  <nav class="tabbar">
+    <div class="brand"><span class="bolt">⚡</span> PQA</div>
+    <div class="tabs">
+      {#each visibleTabs as t}
+        <button class="tab" class:active={tab === t.key} onclick={() => go(t.key)}>{t.label}</button>
+      {/each}
+    </div>
+    {#if caps}<span class="env">{caps.platform}</span>{/if}
+  </nav>
 
-  <main class="main">
-    {#if caps?.platform === 'mock'}
-      <div class="banner info">Demo mode — the in-browser preview uses bundled sample data and ignores config changes. In the desktop app, Run Analysis recomputes from your CSV.</div>
+  {#if ready}
+    <div class="view" class:hidden={tab !== 'compliance'}>
+      {#if mounted.compliance}<ComplianceView {backend} {caps} mode="csv" />{/if}
+    </div>
+    {#if caps?.canXls}
+      <div class="view" class:hidden={tab !== 'winscope'}>
+        {#if mounted.winscope}<ComplianceView {backend} {caps} mode="winscope" />{/if}
+      </div>
+      <div class="view" class:hidden={tab !== 'setpoint'}>
+        {#if mounted.setpoint}<SetPointView {backend} {caps} />{/if}
+      </div>
+      <div class="view" class:hidden={tab !== 'ecu'}>
+        {#if mounted.ecu}<EcuPlotView {backend} {caps} />{/if}
+      </div>
     {/if}
-    {#if error}<div class="banner error">{error}</div>{/if}
-
-    {#if result}
-      <section class="cards">
-        <div class="card"><span class="k">Events</span><span class="v">{result.events.length}</span></div>
-        <div class="card pass"><span class="k">Pass</span><span class="v">{passCount}</span></div>
-        <div class="card fail"><span class="k">Fail</span><span class="v">{failCount}</span></div>
-        <div class="card warn"><span class="k">Faults</span><span class="v">{faultCount}</span></div>
-        <div class="card"><span class="k">Samples</span><span class="v">{result.n_rows}</span></div>
-      </section>
-
-      <div class="section-head"><span class="bar plots"></span><h2>Time-series</h2></div>
-      <section class="tabs">
-        {#each metricKeys as k}
-          <button class="tab" class:active={k === selected} onclick={() => (selected = k)}>{metricLabel(k)}</button>
-        {/each}
-      </section>
-      {#if result.metrics[selected]}
-        <TimeSeriesChart series={result.metrics[selected]} label={metricLabel(selected)} color={METRIC_COLORS[selected] ?? '#2563eb'} />
-      {/if}
-
-      <div class="section-head"><span class="bar compliance"></span><h2>Compliance</h2></div>
-      <ComplianceTable events={result.events} />
-
-      {#if result.events.length}
-        <div class="section-head">
-          <span class="bar snapshots"></span><h2>Event snapshots</h2>
-          {#if streaming}<span class="muted">rendering {snapProgress}%</span>{/if}
-        </div>
-        {#if streaming}
-          <div class="progress"><div class="bar-fill" style="width:{snapProgress}%"></div></div>
-        {/if}
-        <div class="events">
-          {#each result.events as ev, i}
-            <EventCard event={ev} index={i} snap={snapshots[i] ?? null} onApply={applySnapshot} {onOverride} />
-          {/each}
-        </div>
-        <div class="recalc-row">
-          <button class="recalc" onclick={recalc} disabled={!anyOverride || recalcing}>
-            {recalcing ? 'Recalculating…' : '🔄 Recalculate Compliance'}
-          </button>
-          {#if caps?.platform === 'mock'}
-            <span class="muted">Recalculate runs in the desktop app (the in-browser preview can't recompute).</span>
-          {/if}
-        </div>
-      {/if}
-
-      <div class="section-head"><span class="bar reports"></span><h2>Report</h2></div>
-      <ReportPanel {backend} {caps} />
-    {:else if loading}
-      <div class="empty"><div class="bolt">⚡</div><p>Analyzing…</p></div>
-    {:else}
-      <div class="empty"><div class="bolt">⚡</div><p>Load a logger CSV and click <b>Run Analysis</b>.</p></div>
-    {/if}
-  </main>
+  {:else}
+    <div class="boot"><div class="bolt">⚡</div><p>Starting…</p></div>
+  {/if}
 </div>
 
 <style>
-  .app { display: flex; align-items: stretch; min-height: 100vh; }
-  .main { flex: 1; min-width: 0; padding: clamp(1rem, 2.5vw, 2rem); display: flex; flex-direction: column; gap: 16px; }
-  .banner { padding: 10px 14px; border-radius: 8px; font-size: 13px; }
-  .banner.info { background: #eff6ff; color: #1d4ed8; }
-  .banner.error { background: #fee2e2; color: #b91c1c; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
-  .card { background: var(--navy); border: 1px solid #1e293b; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; color: #e2e8f0; }
-  .card .k { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
-  .card .v { font-size: 26px; font-weight: 700; }
-  .card.pass { border-color: var(--green); } .card.pass .v { color: #4ade80; }
-  .card.fail { border-color: var(--red); } .card.fail .v { color: #f87171; }
-  .card.warn { border-color: var(--amber); } .card.warn .v { color: #fbbf24; }
-  .section-head { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
-  .section-head .bar { width: 4px; height: 20px; border-radius: 2px; }
-  .bar.plots { background: var(--cyan, #0891b2); } .bar.compliance { background: var(--blue); }
-  h2 { margin: 0; font-size: 1.1rem; }
-  .tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--border); }
-  .tab { background: none; border: none; padding: 9px 14px; font-size: 14px; color: var(--text-sub); border-bottom: 2px solid transparent; margin-bottom: -1px; }
-  .tab.active { color: var(--blue); border-bottom-color: var(--blue); font-weight: 600; }
-  .empty { display: grid; place-items: center; gap: 10px; padding: 80px 0; color: var(--text-sub); border: 2px dashed var(--border); border-radius: 12px; }
-  .empty .bolt { font-size: 34px; opacity: 0.4; }
-  .bar.snapshots { background: #9333ea; }
-  .bar.reports { background: var(--green, #16a34a); }
-  .muted { color: var(--text-sub); font-size: 12px; }
-  .progress { height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
-  .progress .bar-fill { height: 100%; background: #9333ea; transition: width 0.2s; }
-  .events { display: flex; flex-direction: column; gap: 10px; }
-  .recalc-row { display: flex; align-items: center; gap: 12px; margin-top: 6px; flex-wrap: wrap; }
-  .recalc { background: var(--blue); color: #fff; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; cursor: pointer; }
-  .recalc:disabled { background: #cbd5e1; cursor: not-allowed; }
-  @media (max-width: 820px) { .app { flex-direction: column; } }
+  .shell { min-height: 100vh; display: flex; flex-direction: column; }
+  .tabbar {
+    height: 48px;
+    flex: 0 0 48px;
+    background: var(--navy);
+    color: #e2e8f0;
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    padding: 0 14px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .brand { display: flex; align-items: center; gap: 6px; font-weight: 800; letter-spacing: -0.02em; color: #fff; padding-right: 10px; }
+  .brand .bolt { display: grid; place-items: center; width: 26px; height: 26px; background: var(--blue); border-radius: 7px; font-size: 14px; }
+  .tabs { display: flex; align-items: stretch; gap: 2px; flex: 1; }
+  .tab {
+    background: none;
+    border: none;
+    color: #94a3b8;
+    font-size: 14px;
+    padding: 0 14px;
+    border-bottom: 2px solid transparent;
+  }
+  .tab:hover { color: #e2e8f0; }
+  .tab.active { color: #fff; border-bottom-color: var(--blue); font-weight: 600; }
+  .env { align-self: center; background: #1e293b; color: #94a3b8; font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+  .view { flex: 1; min-height: 0; }
+  .view.hidden { display: none; }
+  .boot { flex: 1; display: grid; place-items: center; gap: 10px; color: var(--text-sub); }
+  .boot .bolt { font-size: 34px; opacity: 0.4; }
+  @media (max-width: 640px) { .tabbar { gap: 2px; padding: 0 6px; } .tab { padding: 0 8px; font-size: 13px; } }
 </style>

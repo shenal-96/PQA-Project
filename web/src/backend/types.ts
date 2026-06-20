@@ -124,6 +124,31 @@ export interface SaveResult {
   error?: string;
 }
 
+// --- Set Point comparison (M4) -------------------------------------------------
+export type SetpointKind = 'xls' | 'csv';
+export interface SetpointFile {
+  filename: string;
+  b64: string;
+}
+export interface SetpointResult {
+  kind: SetpointKind;
+  columns: string[];
+  labels: string[];
+  rows: Array<Record<string, string | number | boolean | null>>;
+  n_files: number;
+  n_diffs: number;
+}
+
+// --- ECU recording (M4) --------------------------------------------------------
+export interface EcuRecording {
+  filename: string;
+  n_rows: number;
+  timestamps: Array<string | number>;
+  channels: Record<string, Array<number | null>>;
+  groups: Record<string, string[]>;
+  labels: Record<string, string>;
+}
+
 // Per-event override (matches core.recalc / app.py intersection_overrides).
 export interface EventOverride {
   v_exit_offset?: number;

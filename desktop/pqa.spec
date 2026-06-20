@@ -20,8 +20,11 @@ binaries = []
 # by string from desktop.report_host, so PyInstaller needs them declared here).
 hiddenimports = [
     "core", "core.analysis", "core.serialize", "core.viz_dataprep", "core.recalc",
-    "desktop.report_host", "desktop.viz_report",
+    "desktop.report_host", "desktop.viz_report", "desktop.xls_host",
     "report", "html_report", "visualizations",
+    # XLS tabs (lazily string-imported from desktop.xls_host).
+    "ecu_parser", "ecu_csv_parser", "ecu_multi_comparator", "ecu_csv_comparator",
+    "ecu_recording_parser", "python_calamine",
     "docx", "PIL",
 ]
 

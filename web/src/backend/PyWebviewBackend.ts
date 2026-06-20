@@ -1,8 +1,8 @@
 import type { AnalysisBackend } from './AnalysisBackend';
 import type {
-  AnalysisResult, Caps, CsvMeta, EventOverride, EventRecord,
+  AnalysisResult, Caps, CsvMeta, EcuRecording, EventOverride, EventRecord,
   MetricSeries, ReportRequest, ReportResult, SaveResult,
-  SnapshotData, SnapshotOpts,
+  SetpointResult, SnapshotData, SnapshotOpts,
 } from './types';
 
 declare global {
@@ -43,6 +43,23 @@ export class PyWebviewBackend implements AnalysisBackend {
   async loadCsv(file: File): Promise<CsvMeta> {
     const csv_b64 = await fileToBase64(file);
     return this.api.load_csv({ csv_b64, filename: file.name }) as Promise<CsvMeta>;
+  }
+
+  async loadWinscope(file: File): Promise<CsvMeta> {
+    const b64 = await fileToBase64(file);
+    return this.api.load_winscope({ b64, filename: file.name }) as Promise<CsvMeta>;
+  }
+
+  async compareSetpoint(kind: 'xls' | 'csv', files: File[]): Promise<SetpointResult> {
+    const payload = await Promise.all(
+      files.map(async (f) => ({ filename: f.name, b64: await fileToBase64(f) })),
+    );
+    return this.api.compare_setpoint({ kind, files: payload }) as Promise<SetpointResult>;
+  }
+
+  async ecuRecording(file: File): Promise<EcuRecording> {
+    const b64 = await fileToBase64(file);
+    return this.api.ecu_recording({ b64, filename: file.name }) as Promise<EcuRecording>;
   }
 
   runAnalysis(config: Record<string, unknown> = {}): Promise<AnalysisResult> {

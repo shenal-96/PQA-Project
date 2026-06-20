@@ -9,6 +9,8 @@
     fileName,
     loggerFormat,
     loading,
+    accept = '.csv,text/csv',
+    fileLabel = 'Logger CSV',
     activePreset = $bindable('None'),
     onRun,
     onFile,
@@ -18,6 +20,8 @@
     fileName: string | undefined;
     loggerFormat: string | null | undefined;
     loading: boolean;
+    accept?: string;
+    fileLabel?: string;
     activePreset?: string;
     onRun: () => void;
     onFile: (ev: Event) => void;
@@ -41,10 +45,10 @@
   </div>
 
   <section>
-    <div class="grp-label">Logger CSV</div>
+    <div class="grp-label">{fileLabel}</div>
     <label class="file-btn">
-      {fileName ? 'Change CSV' : 'Load CSV'}
-      <input type="file" accept=".csv,text/csv" onchange={onFile} hidden />
+      {fileName ? 'Change file' : 'Load file'}
+      <input type="file" {accept} onchange={onFile} hidden />
     </label>
     {#if fileName}
       <div class="filename" title={fileName}>{fileName}</div>

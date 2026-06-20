@@ -1,0 +1,35 @@
+{
+  "kind": "csv",
+  "columns": [
+    "Group",
+    "Sub-group",
+    "Name",
+    "Dimension",
+    "UnitA",
+    "UnitB"
+  ],
+  "labels": [
+    "UnitA",
+    "UnitB"
+  ],
+  "rows": [
+    {
+      "Group": "Engine",
+      "Sub-group": "Speed",
+      "Name": "Overspeed",
+      "Dimension": "rpm",
+      "UnitA": "1650",
+      "UnitB": "1800"
+    },
+    {
+      "Group": "Gen",
+      "Sub-group": "Voltage",
+      "Name": "Nominal",
+      "Dimension": "V",
+      "UnitA": "415",
+      "UnitB": "400"
+    }
+  ],
+  "n_files": 2,
+  "n_diffs": 2
+}
