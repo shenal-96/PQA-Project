@@ -25,7 +25,9 @@ binaries += _b
 hiddenimports += _h + collect_submodules("webview")
 
 a = Analysis(
-    [os.path.join("desktop", "shell.py")],
+    # Absolute path: PyInstaller resolves relative script paths against the spec's
+    # own directory (desktop/), which would wrongly yield desktop/desktop/shell.py.
+    [os.path.join(ROOT, "desktop", "shell.py")],
     pathex=[ROOT],
     binaries=binaries,
     datas=datas,
