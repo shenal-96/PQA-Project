@@ -1,11 +1,12 @@
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
+import { viteSingleFile } from 'vite-plugin-singlefile';
 
-// base: './' makes the built index.html reference assets with relative paths, so
-// it loads from a local file:// path (the Windows desktop shell) and from any
-// sub-path (the future iPad PWA) without a web server.
+// viteSingleFile inlines all JS/CSS into one index.html so the desktop shell
+// loads it from a local file:// path with NO web server and no ES-module CORS
+// issue. base: './' keeps references relative (also needed for the future PWA).
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [svelte(), viteSingleFile()],
   base: './',
   build: { outDir: 'dist', emptyOutDir: true, target: 'es2020' },
   server: { port: 5174 },

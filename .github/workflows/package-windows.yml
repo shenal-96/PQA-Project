@@ -1,0 +1,46 @@
+name: package-windows
+
+# Build the Windows x86-64 desktop app and upload it as a downloadable artifact.
+# Manual trigger (Actions tab -> "package-windows" -> Run workflow). The x64 .exe
+# also runs on Windows-on-ARM (Apple Silicon Parallels) via Windows' emulation.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["claude/**"]
+    paths:
+      - "desktop/**"
+      - "core/**"
+      - "web/**"
+      - ".github/workflows/package-windows.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+      - name: Build single-file web UI
+        run: npm ci && npm run build
+        working-directory: web
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install host deps + PyInstaller
+        run: pip install -r desktop/requirements.txt
+
+      - name: Build desktop app (PyInstaller)
+        run: pyinstaller desktop/pqa.spec --noconfirm
+
+      - name: Upload artifact (PQA-windows-x64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: PQA-windows-x64
+          path: dist/PQA
+          if-no-files-found: error

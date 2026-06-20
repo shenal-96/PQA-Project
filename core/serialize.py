@@ -65,10 +65,16 @@ def metric_series(df_proc: pd.DataFrame, column: str, time_col: str = "Timestamp
     }
 
 
-def analysis_result(df_proc: pd.DataFrame, df_events: pd.DataFrame, metrics=DEFAULT_METRICS) -> dict:
-    """The full payload returned by ``HostBridge.run_analysis`` (and Pyodide later)."""
+def analysis_result(df_proc: pd.DataFrame, df_events: pd.DataFrame, metrics=DEFAULT_METRICS,
+                    logger_format: str | None = None) -> dict:
+    """The full payload returned by ``HostBridge.run_analysis`` (and Pyodide later).
+
+    ``logger_format`` is passed explicitly because pandas drops ``df.attrs``
+    across the operations in ``perform_analysis``, so ``df_proc`` no longer
+    carries it.
+    """
     return {
-        "logger_format": df_proc.attrs.get("logger_format"),
+        "logger_format": logger_format if logger_format is not None else df_proc.attrs.get("logger_format"),
         "n_rows": int(len(df_proc)),
         "events": events_to_records(df_events),
         "metrics": {m: metric_series(df_proc, m) for m in metrics if m in df_proc.columns},

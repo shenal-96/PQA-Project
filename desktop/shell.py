@@ -15,6 +15,7 @@ import base64
 import dataclasses
 import io
 import os
+import sys
 
 
 class HostBridge:
@@ -87,7 +88,8 @@ class HostBridge:
 
         self._df_proc, self._df_events = ca.perform_analysis(self._df, cfg)
         self._config = cfg
-        return analysis_result(self._df_proc, self._df_events)
+        return analysis_result(self._df_proc, self._df_events,
+                               logger_format=self._df.attrs.get("logger_format"))
 
     def metric_series(self, column: str) -> dict:
         """Return one processed-metric time-series for charting."""
@@ -111,9 +113,18 @@ class HostBridge:
 
 
 def _index_url() -> str:
-    """Local path to the built web UI, or a placeholder if it isn't built yet."""
-    here = os.path.dirname(os.path.abspath(__file__))
-    built = os.path.join(here, os.pardir, "web", "dist", "index.html")
+    """Local path to the built web UI, or a placeholder if it isn't built yet.
+
+    Works from source and when frozen by PyInstaller (onedir/onefile), where the
+    bundled web assets live under ``sys._MEIPASS``. The UI is a single
+    self-contained HTML file, so it loads from ``file://`` with no web server.
+    """
+    if getattr(sys, "frozen", False):
+        base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+        built = os.path.join(base, "web", "dist", "index.html")
+    else:
+        here = os.path.dirname(os.path.abspath(__file__))
+        built = os.path.join(here, os.pardir, "web", "dist", "index.html")
     if os.path.exists(built):
         return built
     return ("data:text/html,<h1 style='font-family:sans-serif'>PQA desktop shell</h1>"

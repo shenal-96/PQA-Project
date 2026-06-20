@@ -1,5 +1,5 @@
 {
-  "logger_format": null,
+  "logger_format": "hioki",
   "n_rows": 150,
   "events": [
     {
