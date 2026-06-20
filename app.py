@@ -813,6 +813,21 @@ html, body, [class*="css"] {
     max-width: 100%;
 }
 
+/* ── Independent scroll regions ──
+   The sidebar (configuration) and the main workspace each pin to the full
+   viewport height and own their own vertical scrollbar, so scrolling the
+   results on the right no longer drags the config panel with it (and the
+   reverse). Each pane is exactly 100vh, so the page itself never scrolls. */
+section[data-testid="stSidebar"] {
+    height: 100vh !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+}
+[data-testid="stMain"], section.main, .main {
+    height: 100vh !important;
+    overflow-y: auto !important;
+}
+
 /* ── Sidebar ── */
 div[data-testid="stSidebar"] {
     background-color: #0a1628;
@@ -1288,6 +1303,98 @@ hr {
 .pqa-section-badge.red   { background: #fef2f2; color: #dc2626; }
 </style>
 """, unsafe_allow_html=True)
+
+
+# ── Resizable sidebar ──────────────────────────────────────────────────────
+# Streamlit gives the sidebar a fixed width and no first-class way to resize it.
+# This injects a thin drag handle on the sidebar's right edge (reaching the
+# parent document from the component iframe). Width is clamped, persisted in
+# localStorage so it survives reruns/reloads, and reapplied on each Streamlit
+# re-render (which otherwise resets the inline width). Double-click resets.
+# The component runs in a throwaway iframe; to keep the drag listeners and the
+# maintenance interval alive across reruns we inject the real logic as a <script>
+# into the parent document (a session-persistent realm) exactly once.
+_SIDEBAR_RESIZER_LOGIC = """
+(function(){
+  var MINW = 220, MAXW = 720, dragging = false;
+  function sidebar(){ return document.querySelector('section[data-testid="stSidebar"]'); }
+  function collapsed(){ var s = sidebar(); return s && s.getAttribute('aria-expanded') === 'false'; }
+  function savedWidth(){
+    var v = parseInt(localStorage.getItem('pqaSidebarWidth'));
+    return (v && v >= MINW && v <= MAXW) ? v : null;
+  }
+  function applyWidth(w){
+    var s = sidebar(); if(!s) return;
+    s.style.setProperty('width', w + 'px', 'important');
+    s.style.setProperty('min-width', w + 'px', 'important');
+    s.style.setProperty('max-width', w + 'px', 'important');
+  }
+  function ensureHandle(){
+    var s = sidebar(); if(!s) return;
+    s.style.position = 'relative';
+    if (s.querySelector('.pqa-resizer')) return;
+    var h = document.createElement('div');
+    h.className = 'pqa-resizer';
+    h.title = 'Drag to resize \\u00b7 double-click to reset';
+    h.style.cssText = 'position:absolute;top:0;right:0;width:7px;height:100%;'
+      + 'cursor:col-resize;z-index:1001;background:transparent;transition:background .15s ease;';
+    h.addEventListener('mouseenter', function(){ h.style.background = 'rgba(59,130,246,0.45)'; });
+    h.addEventListener('mouseleave', function(){ if(!dragging) h.style.background = 'transparent'; });
+    h.addEventListener('mousedown', function(e){
+      dragging = true;
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'col-resize';
+      h.style.background = 'rgba(59,130,246,0.7)';
+      e.preventDefault();
+    });
+    h.addEventListener('dblclick', function(){
+      localStorage.removeItem('pqaSidebarWidth');
+      var s2 = sidebar();
+      if(s2){ s2.style.removeProperty('width'); s2.style.removeProperty('min-width'); s2.style.removeProperty('max-width'); }
+    });
+    s.appendChild(h);
+  }
+  document.addEventListener('mousemove', function(e){
+    if(!dragging) return;
+    var s = sidebar(); if(!s) return;
+    var w = Math.max(MINW, Math.min(MAXW, e.clientX - s.getBoundingClientRect().left));
+    applyWidth(w);
+  });
+  document.addEventListener('mouseup', function(){
+    if(!dragging) return;
+    dragging = false;
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+    var s = sidebar();
+    if(s){
+      localStorage.setItem('pqaSidebarWidth', Math.round(s.getBoundingClientRect().width));
+      var h = s.querySelector('.pqa-resizer'); if(h) h.style.background = 'transparent';
+    }
+  });
+  // Keep the handle present and the chosen width applied across Streamlit
+  // re-renders, which rebuild the sidebar subtree and reset the inline width.
+  setInterval(function(){
+    ensureHandle();
+    if(!dragging && !collapsed()){ var sw = savedWidth(); if(sw) applyWidth(sw); }
+  }, 600);
+  ensureHandle();
+  var sw0 = savedWidth(); if(sw0) applyWidth(sw0);
+})();
+"""
+_SIDEBAR_RESIZER_JS = """
+<script>
+(function(){
+  var W, doc;
+  try { W = window.parent; doc = W.document; } catch(e){ return; }
+  if (!doc || W.__pqaResizerInstalled) return;
+  W.__pqaResizerInstalled = true;
+  var el = doc.createElement('script');
+  el.textContent = __LOGIC__;
+  doc.body.appendChild(el);
+})();
+</script>
+""".replace("__LOGIC__", "`" + _SIDEBAR_RESIZER_LOGIC + "`")
+st.components.v1.html(_SIDEBAR_RESIZER_JS, height=0)
 
 
 def _parse_hms(s: str) -> datetime.time:
