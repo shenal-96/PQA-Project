@@ -1,90 +1,42 @@
-# Power Quality Analysis (PQA) - Streamlit App
+# PQA — Power Quality Analysis (Desktop)
 
-A locally-installable web app for analyzing power quality data from CSV files.
+Fully-local **Windows desktop app** for power-quality compliance analysis (ISO 8528):
+CSV/XLS logger ingest, load-event detection, voltage/frequency recovery times, and
+Word/PDF compliance reports. The UI is a Svelte/ECharts front-end rendered in an
+embedded Edge **WebView2** control via **PyWebview** — 100% local, no server, ships
+as a single PyInstaller `.exe`.
 
-## Quick Start
+> **The legacy Streamlit app lives on the [`streamlit-legacy`](https://github.com/shenal-96/PQA-Project/tree/streamlit-legacy) branch.**
+> `main` is now the desktop app. The two share the validated analysis engine
+> (`core/analysis.py`); engine changes are ported between branches as needed.
 
-### 1. Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. Run the App
-
-```bash
-streamlit run app.py
-```
-
-The app will open automatically at `http://localhost:8501`
-
----
-
-## What You Can Do
-
-1. **Upload CSV** - drag & drop your power quality recorder CSV file
-2. **Configure Standards** - set voltage/frequency tolerances, recovery times, or use ISO 8528 presets
-3. **Run Analysis** - detects load events, calculates compliance (Pass/Fail)
-4. **View Results**:
-   - Summary metrics (events detected, pass/fail counts)
-   - Time-series plots (Voltage, Power, Current, Frequency, THD, PF)
-   - Event snapshots (±5 second windows around each event)
-   - Interactive compliance table
-5. **Generate Report** - upload a Word `.docx` template with placeholders like `{{Avg_Voltage_LL}}` and it injects your plots/data
-
----
-
-## Files
-
-- `app.py` - Streamlit UI (main entry point)
-- `analysis.py` - Core engine (event detection, compliance)
-- `visualizations.py` - All plotting functions
-- `report.py` - Word/PDF report generation
-- `requirements.txt` - Dependencies
-
----
-
-## Available Placeholders for Word Templates
-
-**Graphs:** `{{Avg_Voltage_LL}}`, `{{Avg_kW}}`, `{{Avg_Current}}`, `{{Avg_Frequency}}`, `{{Avg_THD_F}}`, `{{Avg_PF}}`
-
-**Table:** `{{Compliance_Table}}`
-
-**Snapshots:** `{{Snapshot_1}}`, `{{Snapshot_2}}`, ...
-
-**Metadata:** `{{Report_Title}}`, `{{Gen_SN}}`, `{{Site_Address}}`, `{{Custom_Field}}`, `{{Date}}`, `{{Start Time}}`, `{{End Time}}`
-
----
-
-## Status
-
-✅ **Code Complete** - All functionality from your Colab notebook is preserved:
-- ISO 8528 standard presets
-- L-N to L-L voltage detection (√3 scaling)
-- Event grouping (within 5 seconds)
-- Recovery time calculation
-- Compliance Pass/Fail logic
-- 6 metric plots
-- Event snapshots (4 subplots each)
-- Styled compliance table
-- Word template injection
-- PDF conversion (if LibreOffice installed)
-
-❌ **GitHub Push** - Due to platform permission issues, code is committed locally but not pushed to GitHub yet. You can push manually when ready:
+## Run / build
 
 ```bash
-git push -u origin claude/plan-app-development-OQvmL
+# Engine + bridge tests (the parity harness is the central correctness guard)
+pip install "pandas>=2.2,<3" "numpy>=1.24" pytest
+python -m pytest tests/ -q
+
+# Web UI (single self-contained web/dist/index.html)
+cd web && npm install && npm run build && npm run check
+
+# Desktop app (Windows; from repo root)
+pip install -r desktop/requirements.txt
+python -m desktop.shell
 ```
 
----
+The Windows `.exe` + Inno Setup installer build in CI on every push
+(`.github/workflows/package-windows.yml` → `PQA-windows-x64` / `PQA-windows-installer`).
 
-## Next Steps
+## Layout
 
-1. **Test the app locally** with your CSV data
-2. **Create a Word template** with the placeholders above
-3. **Generate your report** - app will inject all plots and data
-4. **Push to GitHub** when you're ready (manual `git push` command above)
+| Path | Purpose |
+|---|---|
+| `core/` | Pure pandas/numpy engine (`analysis.py`), JSON contract (`serialize.py`), chart/snapshot data-prep (`viz_dataprep.py`), recalc (`recalc.py`) |
+| `desktop/` | PyWebview shell + `HostBridge` (`shell.py`), reports (`report_host.py`, `viz_report.py`), XLS tabs (`xls_host.py`), PyInstaller spec, Inno Setup installer |
+| `web/` | Svelte + Vite + ECharts UI; `src/backend/` adapter seam (PyWebview now, Pyodide/iPad later) |
+| `tests/` | Parity harness (golden), contract/host-bridge/snapshot/recalc/report/XLS tests |
+| `visualizations.py`, `report.py`, `html_report.py`, `ecu_*.py` | Host-native modules reused by the desktop (and the Streamlit app on `streamlit-legacy`) |
 
----
-
-Built with Streamlit, pandas, matplotlib, python-docx
+See **`ROADMAP.md`** for the architecture and milestone status, and **`CLAUDE.md`** for
+domain/engine reference (compliance logic, logger formats, recovery algorithm).

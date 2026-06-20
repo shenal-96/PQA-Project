@@ -1,5 +1,15 @@
 # PQA — Power Quality Analysis
 
+> **⚠️ Branch note:** `main` is now the **desktop app** (PyWebview/WebView2 + Svelte).
+> The document below describes the **legacy Streamlit app**, which now lives on the
+> **`streamlit-legacy`** branch. It is kept here because the desktop app reuses the
+> same validated analysis engine and host modules (`core/analysis.py`,
+> `visualizations.py`, `report.py`, `html_report.py`, `ecu_*.py`), so the
+> **domain/engine sections remain accurate and useful** (compliance logic, Hioki/Miro
+> formats, recovery algorithm, ISO bands). The Streamlit-UI sections (`app.py`,
+> `st.*`, tabs) apply only to `streamlit-legacy`. **For the desktop architecture and
+> milestone status, see `ROADMAP.md`.**
+
 Power quality compliance tool for the backup energy generation industry.
 Processes CSV logger data, detects load events, calculates voltage/frequency
 recovery times, and generates Word/PDF compliance reports (ISO 8528).
