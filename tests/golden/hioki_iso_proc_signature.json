@@ -1,0 +1,45 @@
+{
+  "n_rows": 150,
+  "columns": [
+    "Timestamp",
+    "Avg_Voltage_LL",
+    "Avg_Current",
+    "Avg_THD_F",
+    "Avg_PF",
+    "Avg_kW",
+    "Avg_Frequency",
+    "dKw"
+  ],
+  "stats": {
+    "Avg_Voltage_LL": {
+      "sum": 62247.018,
+      "mean": 414.98012,
+      "min": 399.0,
+      "max": 429.0
+    },
+    "Avg_Frequency": {
+      "sum": 7499.8319,
+      "mean": 49.998879,
+      "min": 49.55,
+      "max": 50.33
+    },
+    "Avg_kW": {
+      "sum": 32000.0,
+      "mean": 213.333333,
+      "min": 120.0,
+      "max": 340.0
+    },
+    "Avg_Current": {
+      "sum": 49482.564,
+      "mean": 329.88376,
+      "min": 185.494,
+      "max": 546.642
+    },
+    "Avg_PF": {
+      "sum": 135.0,
+      "mean": 0.9,
+      "min": 0.9,
+      "max": 0.9
+    }
+  }
+}

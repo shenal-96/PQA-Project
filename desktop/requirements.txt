@@ -1,0 +1,14 @@
+# Windows desktop host runtime (PyWebview/WebView2). No Streamlit, no LibreOffice/WeasyPrint.
+# The legacy Streamlit app keeps using the root requirements.txt during migration.
+pandas>=2.2,<3
+numpy>=1.24
+matplotlib>=3.7            # report images only (lazy-imported, host side)
+python-docx>=1.1.0         # editable .docx reports
+Pillow>=10.0.0
+python-calamine>=0.2.0     # XLS/XLSX parsing (WinScope / ECU tabs)
+psutil>=5.9.0
+pywebview>=5.0             # desktop shell; uses WebView2 (Edge Chromium) on Windows
+pyinstaller>=6.0           # packaging (build-time)
+
+# Removed vs the Streamlit app: streamlit, weasyprint, docx2pdf, fpdf2, reportlab, mammoth.
+# PDF is produced by the shell's Chromium (WebView2 PrintToPdf / headless msedge).
