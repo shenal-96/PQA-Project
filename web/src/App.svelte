@@ -42,7 +42,7 @@
 
 <div class="shell">
   <nav class="tabbar">
-    <div class="brand"><span class="bolt">⚡</span> PQA</div>
+    <div class="brand"><span class="bolt">⚡</span> PQA PROJECT</div>
     <div class="tabs">
       {#each visibleTabs as t}
         <button class="tab" class:active={tab === t.key} onclick={() => go(t.key)}>{t.label}</button>
@@ -72,7 +72,7 @@
 </div>
 
 <style>
-  .shell { min-height: 100vh; display: flex; flex-direction: column; }
+  .shell { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
   .tabbar {
     height: 48px;
     flex: 0 0 48px;
@@ -100,9 +100,11 @@
   .tab:hover { color: #e2e8f0; }
   .tab.active { color: #fff; border-bottom-color: var(--blue); font-weight: 600; }
   .env { align-self: center; background: #1e293b; color: #94a3b8; font-size: 11px; padding: 2px 8px; border-radius: 999px; }
-  .view { flex: 1; min-height: 0; }
+  .view { flex: 1; min-height: 0; overflow: hidden; }
   .view.hidden { display: none; }
   .boot { flex: 1; display: grid; place-items: center; gap: 10px; color: var(--text-sub); }
   .boot .bolt { font-size: 34px; opacity: 0.4; }
+  /* Narrow: drop the fixed-height split and let the page scroll naturally. */
+  @media (max-width: 820px) { .shell { height: auto; min-height: 100vh; overflow: visible; } .view { overflow: visible; } }
   @media (max-width: 640px) { .tabbar { gap: 2px; padding: 0 6px; } .tab { padding: 0 8px; font-size: 13px; } }
 </style>

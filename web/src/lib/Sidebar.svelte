@@ -38,7 +38,7 @@
   <div class="head">
     <div class="bolt">⚡</div>
     <div>
-      <div class="title">PQA</div>
+      <div class="title">PQA PROJECT</div>
       <div class="sub">Configuration</div>
     </div>
     {#if caps}<span class="env">{caps.platform}</span>{/if}
@@ -132,7 +132,7 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-    min-height: 100vh;
+    height: 100%;
     overflow-y: auto;
   }
   .head { display: flex; align-items: center; gap: 10px; }

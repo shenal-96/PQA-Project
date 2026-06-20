@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import * as echarts from 'echarts';
   import type { MetricSeries } from '../backend/types';
+  import { fmt2 } from './format';
 
   let { series, label, color = '#2563eb' }:
     { series: MetricSeries; label: string; color?: string } = $props();
@@ -14,7 +15,7 @@
     chart.setOption(
       {
         grid: { left: 60, right: 24, top: 28, bottom: 56 },
-        tooltip: { trigger: 'axis' },
+        tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => fmt2(v) },
         xAxis: {
           type: 'time',
           axisLine: { lineStyle: { color: '#cbd5e1' } },

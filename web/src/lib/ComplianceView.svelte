@@ -228,8 +228,11 @@
 </div>
 
 <style>
-  .app { display: flex; align-items: stretch; min-height: calc(100vh - 48px); }
-  .main { flex: 1; min-width: 0; padding: clamp(1rem, 2.5vw, 2rem); display: flex; flex-direction: column; gap: 16px; }
+  .app { display: flex; align-items: stretch; height: 100%; overflow: hidden; }
+  .main { flex: 1; min-width: 0; height: 100%; overflow-y: auto; padding: clamp(1rem, 2.5vw, 2rem); display: flex; flex-direction: column; gap: 16px; }
+  /* In a fixed-height scroll column, keep children at intrinsic height (charts/
+     table must not be compressed by flex-shrink — they overflow and scroll). */
+  .main > :global(*) { flex-shrink: 0; }
   .banner { padding: 10px 14px; border-radius: 8px; font-size: 13px; }
   .banner.info { background: #eff6ff; color: #1d4ed8; }
   .banner.error { background: #fee2e2; color: #b91c1c; }
@@ -258,5 +261,9 @@
   .recalc-row { display: flex; align-items: center; gap: 12px; margin-top: 6px; flex-wrap: wrap; }
   .recalc { background: var(--blue); color: #fff; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; cursor: pointer; }
   .recalc:disabled { background: #cbd5e1; cursor: not-allowed; }
-  @media (max-width: 820px) { .app { flex-direction: column; } }
+  /* Narrow windows: stack and let the whole view scroll as one column. */
+  @media (max-width: 820px) {
+    .app { flex-direction: column; height: auto; overflow-y: auto; }
+    .main { height: auto; overflow: visible; }
+  }
 </style>

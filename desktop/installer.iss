@@ -20,8 +20,8 @@
 ; AppDir can be overridden:  iscc /DAppDir=path\to\PQA desktop\installer.iss
 ; ─────────────────────────────────────────────────────────────────────────────
 
-#define AppName "PQA — Power Quality Analysis"
-#define AppShortName "PQA"
+#define AppName "PQA PROJECT"
+#define AppShortName "PQA PROJECT"
 #define AppVersion "0.1.0"
 #define AppPublisher "PQA"
 #define AppExe "PQA.exe"

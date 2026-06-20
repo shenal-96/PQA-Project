@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import * as echarts from 'echarts';
+  import { fmt2 } from './format';
 
   export interface EcuSeries {
     name: string;
@@ -25,7 +26,7 @@
       {
         grid: { left: 60, right: 24, top: 36, bottom: 64 },
         legend: { type: 'scroll', top: 4, textStyle: { color: '#475569', fontSize: 11 } },
-        tooltip: { trigger: 'axis' },
+        tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => fmt2(v) },
         xAxis: {
           type: 'time',
           axisLine: { lineStyle: { color: '#cbd5e1' } },

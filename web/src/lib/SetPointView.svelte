@@ -140,7 +140,8 @@
 </main>
 
 <style>
-  .wrap { padding: clamp(1rem, 2.5vw, 2rem); display: flex; flex-direction: column; gap: 16px; }
+  .wrap { height: 100%; overflow-y: auto; padding: clamp(1rem, 2.5vw, 2rem); display: flex; flex-direction: column; gap: 16px; }
+  .wrap > :global(*) { flex-shrink: 0; }
   .head { display: flex; align-items: center; gap: 10px; }
   .head .bar { width: 4px; height: 22px; border-radius: 2px; background: var(--amber); }
   h2 { margin: 0; font-size: 1.2rem; }

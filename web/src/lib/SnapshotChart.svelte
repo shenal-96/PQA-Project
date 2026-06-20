@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import * as echarts from 'echarts';
   import type { SnapshotData, SnapshotPanel } from '../backend/types';
+  import { fmt2 } from './format';
 
   let { snap }: { snap: SnapshotData } = $props();
 
@@ -36,7 +37,7 @@
     if (p.recovery?.ts != null && p.recovery.value != null)
       data.push({ coord: [p.recovery.ts, p.recovery.value], symbol: 'pin', symbolSize: 30,
         itemStyle: { color: '#10b981' },
-        label: { show: true, formatter: `${(p.recovery.rec_s ?? 0).toFixed(1)}s`, position: 'top',
+        label: { show: true, formatter: `${(p.recovery.rec_s ?? 0).toFixed(2)}s`, position: 'top',
                  color: '#0f172a', fontSize: 10 } });
     if (p.extreme?.ts != null && p.extreme.value != null)
       data.push({ coord: [p.extreme.ts, p.extreme.value], symbol: 'circle', symbolSize: 9,
@@ -74,7 +75,7 @@
     });
     return {
       animation: false,
-      tooltip: { trigger: 'axis' },
+      tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => fmt2(v) },
       axisPointer: { link: [{ xAxisIndex: 'all' }] },
       grid, xAxis, yAxis, series,
     };

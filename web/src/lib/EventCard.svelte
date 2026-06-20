@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { EventRecord, EventOverride, SnapshotData, SnapshotOpts } from '../backend/types';
-  import { cell } from './format';
+  import { cell, num2 } from './format';
   import SnapshotChart from './SnapshotChart.svelte';
 
   let {
@@ -56,7 +56,7 @@
   <summary>
     <span class="pill" class:pass={isPass} class:bad={!isPass}>{cell(event['Compliance_Status'])}</span>
     {#if isFault}<span class="pill warn">⚠</span>{/if}
-    <span class="dkw">{Number(event['dKw']) >= 0 ? '+' : ''}{cell(event['dKw'])} kW</span>
+    <span class="dkw">{Number(event['dKw']) >= 0 ? '+' : ''}{num2(event['dKw'])} kW</span>
     <span class="ts">{cell(event['Start_Timestamp'])}</span>
   </summary>
 
