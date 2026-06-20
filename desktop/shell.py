@@ -37,10 +37,19 @@ class HostBridge:
         return {"platform": "desktop", "canReport": True, "canXls": True}
 
     # ---- CSV ingest -------------------------------------------------------
-    def load_csv(self, csv_b64: str | None = None, csv_text: str | None = None,
-                 filename: str | None = None) -> dict:
-        """Load a CSV (base64 bytes preferred; raw text accepted) and validate it."""
+    def load_csv(self, params: dict | None = None) -> dict:
+        """Load a CSV and validate it.
+
+        ``params`` is a single dict (PyWebview passes one JS object across the
+        bridge): ``{"csv_b64": str, "csv_text": str, "filename": str}``. Base64
+        bytes are preferred; raw text is accepted as a fallback.
+        """
         import core.analysis as ca
+
+        params = params or {}
+        csv_b64 = params.get("csv_b64")
+        csv_text = params.get("csv_text")
+        filename = params.get("filename")
 
         if csv_b64 is not None:
             raw = base64.b64decode(csv_b64)

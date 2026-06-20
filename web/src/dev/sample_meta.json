@@ -1,0 +1,23 @@
+{
+  "filename": "hioki_sample.csv",
+  "logger_format": "hioki",
+  "n_rows": 150,
+  "columns": [
+    "PC Time",
+    "U12_rms_AVG",
+    "U23_rms_AVG",
+    "U31_rms_AVG",
+    "I1_rms_AVG",
+    "I2_rms_AVG",
+    "I3_rms_AVG",
+    "Freq_AVG",
+    "P_sum_AVG",
+    "PF_sum_AVG",
+    "Timestamp"
+  ],
+  "valid": true,
+  "errors": [],
+  "warnings": [
+    "\u26a0\ufe0f Missing THD columns. THD graphs unavailable."
+  ]
+}

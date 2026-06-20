@@ -1,0 +1,51 @@
+import type { AnalysisBackend } from './AnalysisBackend';
+import type { AnalysisResult, Caps, CsvMeta, MetricSeries } from './types';
+
+declare global {
+  interface Window {
+    pywebview?: { api: Record<string, (...args: unknown[]) => Promise<unknown>> };
+  }
+}
+
+/** Read a File as base64 (no data: prefix) for binary-safe transfer over the bridge. */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      const res = reader.result as string;
+      resolve(res.slice(res.indexOf(',') + 1));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Windows desktop backend: calls host Python through PyWebview's in-process
+ * bridge (`window.pywebview.api.*`). No HTTP, no network — direct function calls
+ * inside the same process.
+ */
+export class PyWebviewBackend implements AnalysisBackend {
+  private get api() {
+    const api = window.pywebview?.api;
+    if (!api) throw new Error('PyWebview bridge is not available');
+    return api;
+  }
+
+  caps(): Promise<Caps> {
+    return this.api.caps() as Promise<Caps>;
+  }
+
+  async loadCsv(file: File): Promise<CsvMeta> {
+    const csv_b64 = await fileToBase64(file);
+    return this.api.load_csv({ csv_b64, filename: file.name }) as Promise<CsvMeta>;
+  }
+
+  runAnalysis(config: Record<string, unknown> = {}): Promise<AnalysisResult> {
+    return this.api.run_analysis(config) as Promise<AnalysisResult>;
+  }
+
+  metricSeries(column: string): Promise<MetricSeries> {
+    return this.api.metric_series(column) as Promise<MetricSeries>;
+  }
+}

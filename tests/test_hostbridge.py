@@ -31,7 +31,7 @@ def test_caps():
 
 
 def test_load_csv_metadata():
-    meta = HostBridge().load_csv(csv_b64=_b64_fixture(), filename="hioki_sample.csv")
+    meta = HostBridge().load_csv({"csv_b64": _b64_fixture(), "filename": "hioki_sample.csv"})
     assert meta["logger_format"] == "hioki"
     assert meta["valid"] is True
     assert meta["n_rows"] == 150
@@ -40,7 +40,7 @@ def test_load_csv_metadata():
 
 def test_run_analysis_contract():
     bridge = HostBridge()
-    bridge.load_csv(csv_b64=_b64_fixture())
+    bridge.load_csv({"csv_b64": _b64_fixture()})
     res = bridge.run_analysis({})
 
     # shape
@@ -62,7 +62,7 @@ def test_run_analysis_contract():
 
 def test_metric_series_requires_analysis():
     bridge = HostBridge()
-    bridge.load_csv(csv_b64=_b64_fixture())
+    bridge.load_csv({"csv_b64": _b64_fixture()})
     try:
         bridge.metric_series("Avg_kW")
     except RuntimeError:
