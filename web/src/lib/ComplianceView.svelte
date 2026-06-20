@@ -205,13 +205,13 @@
         <TimeSeriesChart series={result.metrics[selected]} label={metricLabel(selected)} color={METRIC_COLORS[selected] ?? '#2563eb'} />
       {/if}
 
-      <div class="section-head"><span class="bar compliance"></span><h2>Compliance</h2></div>
-      <ComplianceTable events={result.events} />
-
       {#if result.itic}
         <div class="section-head"><span class="bar itic"></span><h2>ITIC (CBEMA) Curve</h2></div>
         <IticChart itic={result.itic} />
       {/if}
+
+      <div class="section-head"><span class="bar compliance"></span><h2>Compliance</h2></div>
+      <ComplianceTable events={result.events} />
 
       {#if result.events.length}
         <div class="section-head">
