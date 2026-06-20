@@ -118,29 +118,30 @@ DEV_SETTINGS_FILE = "uploads/dev_settings.json"
 _PRESETS_FILE = "uploads/presets.json"
 
 # ISO 8528-5 two-band keys (iso_8528_5, band_mode, beta_f_pct, alpha_f_pct,
-# f_start_*, f_stop_*) drive the optional dual-band frequency method. They are
-# all OFF by default (iso_8528_5=False) so selecting a built-in preset keeps the
-# current single-band behaviour. The β_f / α_f absolute values are the ISO Table 4
-# band widths resolved at 50 Hz; in "pct" mode they are recomputed from
-# beta_f_pct / alpha_f_pct for the active nominal frequency.
+# f_start_*, f_stop_*) drive the optional dual-band frequency method. The built-in
+# G1/G2/G3 presets enable it (iso_8528_5=True) — selecting one turns the two-band
+# method on; turning the sidebar toggle off then deselects the preset (→ "None").
+# The global default (no preset) stays off via _DEV_DEFAULTS. The β_f / α_f
+# absolute values are the ISO Table 4 band widths resolved at 50 Hz; in "pct" mode
+# they are recomputed from beta_f_pct / alpha_f_pct for the active nominal frequency.
 _BUILTIN_PRESETS: list = [
     {"name": "ISO 8528 G3", "v_tol": 1.0, "v_rec": 4.0, "v_max_dev_inc": 15.0, "v_max_dev_dec": 20.0,
      "f_tol": 0.5, "f_rec": 3.0, "f_max_dev_inc": 7.0, "f_max_dev_dec": 10.0,
      "f_rec_upper_inc": 50.50, "f_rec_lower_inc": 49.75, "f_rec_upper_dec": 50.25, "f_rec_lower_dec": 49.50,
      "apply_asymmetric_freq": True, "apply_asymmetric_volt": False, "apply_asymmetric_volt_dev": True, "apply_asymmetric_freq_dev": True,
-     "iso_8528_5": False, "band_mode": "pct", "beta_f_pct": 0.5, "alpha_f_pct": 2.0,
+     "iso_8528_5": True, "band_mode": "pct", "beta_f_pct": 0.5, "alpha_f_pct": 2.0,
      "f_start_upper": 50.125, "f_start_lower": 49.875, "f_stop_upper": 50.50, "f_stop_lower": 49.50},
     {"name": "ISO 8528 G2", "v_tol": 5.0, "v_rec": 6.0, "v_max_dev_inc": 20.0, "v_max_dev_dec": 25.0,
      "f_tol": 0.5, "f_rec": 5.0, "f_max_dev_inc": 10.0, "f_max_dev_dec": 12.0,
      "f_rec_upper_inc": 51.50, "f_rec_lower_inc": 48.75, "f_rec_upper_dec": 51.25, "f_rec_lower_dec": 48.50,
      "apply_asymmetric_freq": True, "apply_asymmetric_volt": False, "apply_asymmetric_volt_dev": True, "apply_asymmetric_freq_dev": True,
-     "iso_8528_5": False, "band_mode": "pct", "beta_f_pct": 1.5, "alpha_f_pct": 2.0,
+     "iso_8528_5": True, "band_mode": "pct", "beta_f_pct": 1.5, "alpha_f_pct": 2.0,
      "f_start_upper": 50.375, "f_start_lower": 49.625, "f_stop_upper": 50.50, "f_stop_lower": 49.50},
     {"name": "ISO 8528 G1", "v_tol": 10.0, "v_rec": 10.0, "v_max_dev_inc": 25.0, "v_max_dev_dec": 30.0,
      "f_tol": 0.5, "f_rec": 10.0, "f_max_dev_inc": 15.0, "f_max_dev_dec": 18.0,
      "f_rec_upper_inc": 51.50, "f_rec_lower_inc": 48.75, "f_rec_upper_dec": 51.25, "f_rec_lower_dec": 48.50,
      "apply_asymmetric_freq": True, "apply_asymmetric_volt": False, "apply_asymmetric_volt_dev": True, "apply_asymmetric_freq_dev": True,
-     "iso_8528_5": False, "band_mode": "pct", "beta_f_pct": 2.5, "alpha_f_pct": 3.5,
+     "iso_8528_5": True, "band_mode": "pct", "beta_f_pct": 2.5, "alpha_f_pct": 3.5,
      "f_start_upper": 50.625, "f_start_lower": 49.375, "f_stop_upper": 50.875, "f_stop_lower": 49.125},
 ]
 
@@ -1317,6 +1318,22 @@ def _on_end_slider():
         st.session_state[_TF_END_TEXT] = v.strftime("%H:%M:%S")
 
 
+def _iso_cb():
+    """on_change for the ISO 8528-5 two-band toggle. Built-in ISO presets enable
+    the method, so turning it OFF means the configuration no longer matches the
+    active preset — deselect it (active preset → "None"). Runs before the next
+    script pass, so retargeting the keyless Active Preset selectbox via _ds is
+    safe and Streamlit reruns automatically."""
+    if st.session_state.get("iso_8528_5_cb", False):
+        return  # turned on — nothing to reconcile
+    _ds = st.session_state.get("_ds", {})
+    ap = _ds.get("active_preset", "None")
+    preset = next((p for p in st.session_state.get("presets", []) if p["name"] == ap), None)
+    if preset and bool(preset.get("iso_8528_5", False)):
+        _ds["active_preset"] = "None"
+        _ds["iso_8528_5_mode"] = False
+
+
 def _get_csv_time_range(path):
     """Read a CSV file path and return (start_str, end_str) or (None, None)."""
     try:
@@ -1510,6 +1527,10 @@ if "_ds" not in st.session_state:
                 "fault_recovery_threshold_s"):
         if _k not in st.session_state:
             st.session_state[_k] = _loaded.get(_k, _DEV_DEFAULTS[_k])
+    # ISO two-band toggle: keyed widget ("iso_8528_5_cb") seeded from the _ds
+    # value ("iso_8528_5_mode"); the names differ so it can't ride the loop above.
+    if "iso_8528_5_cb" not in st.session_state:
+        st.session_state["iso_8528_5_cb"] = bool(_loaded.get("iso_8528_5_mode", False))
     # Time filter: restore only if the saved CSV path still matches
     if _loaded.get("_tf_csv_path"):
         st.session_state["_tf_csv_path"] = _loaded["_tf_csv_path"]
@@ -1925,8 +1946,11 @@ with st.sidebar:
         _ds["apply_asymmetric_volt"]     = bool(_active_preset_data.get("apply_asymmetric_volt", False))
         _ds["apply_asymmetric_volt_dev"] = bool(_active_preset_data.get("apply_asymmetric_volt_dev", True))
         _ds["apply_asymmetric_freq_dev"] = bool(_active_preset_data.get("apply_asymmetric_freq_dev", True))
-        # ISO 8528-5 two-band frequency method (seeded from the preset).
-        _ds["iso_8528_5_mode"] = bool(_active_preset_data.get("iso_8528_5", False))
+        # ISO 8528-5 two-band frequency method (seeded from the preset). The
+        # toggle is a keyed widget ("iso_8528_5_cb"), so snap it to the preset's
+        # value directly in session_state before the checkbox renders — selecting
+        # an ISO preset turns the method on.
+        st.session_state["iso_8528_5_cb"] = bool(_active_preset_data.get("iso_8528_5", False))
         _ds["iso_band_mode"]   = str(_active_preset_data.get("band_mode", "pct"))
         beta_f_pct    = float(_active_preset_data.get("beta_f_pct", 0.5))
         alpha_f_pct   = float(_active_preset_data.get("alpha_f_pct", 2.0))
@@ -1963,8 +1987,8 @@ with st.sidebar:
         help="Enable separate recovery band limits for frequency — one set for load increase events (frequency drops) and another for load decrease (frequency rises). Unlocks the Frequency Recovery Bands inputs below.")
     apply_asymmetric_freq_dev = st.checkbox("Apply asymmetric Frequency deviation limit", value=_ds.get("apply_asymmetric_freq_dev", False),
         help="Enable separate max deviation limits for frequency — one for load increase events (frequency drops below nominal) and another for load decrease (frequency rises above nominal). Unlocks the Frequency Max Deviation inputs below.")
-    iso_8528_5_mode = st.checkbox("Apply ISO 8528-5 two-band frequency method", value=_ds.get("iso_8528_5_mode", False),
-        help="Optional ISO 8528-5 §7 method for frequency only. The recovery stopwatch STARTS when frequency leaves the tighter β_f start band and STOPS when it re-enters the wider α_f stop band (vs a single band for both). Also adds pre-step and post-recovery steady-state pass/fail checks for voltage and frequency. Off = current single-band behaviour. Unlocks the ISO 8528-5 Frequency Bands inputs below.")
+    iso_8528_5_mode = st.checkbox("Apply ISO 8528-5 two-band frequency method", key="iso_8528_5_cb", on_change=_iso_cb,
+        help="Optional ISO 8528-5 §7 method for frequency only. The recovery stopwatch STARTS when frequency leaves the tighter β_f start band and STOPS when it re-enters the wider α_f stop band (vs a single band for both). Also adds pre-step and post-recovery steady-state pass/fail checks for voltage and frequency. Off = current single-band behaviour. The ISO G1/G2/G3 presets enable this; turning it off deselects the active preset. Unlocks the ISO 8528-5 Frequency Bands inputs below.")
 
     col1, col2 = st.columns(2)
     with col1:
