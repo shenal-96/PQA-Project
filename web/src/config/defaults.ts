@@ -33,6 +33,16 @@ export interface AnalysisConfigInput {
   apply_asymmetric_freq: boolean;       // frequency recovery bands
   apply_asymmetric_freq_dev: boolean;   // frequency max-deviation
 
+  // ── ISO 8528-5 dual frequency bands (β_f start / α_f stop) ──
+  // When on, the frequency stopwatch STARTS when freq leaves the tighter β_f
+  // start band and STOPS when it re-enters the α_f stop band (the freq recovery
+  // bands above). Also enables the §7 pre/post steady-state checks.
+  iso_8528_5_mode: boolean;
+  freq_start_upper_increase: number;
+  freq_start_lower_increase: number;
+  freq_start_upper_decrease: number;
+  freq_start_lower_decrease: number;
+
   // ── Asymmetric voltage recovery bands (absolute V) ──
   volt_recovery_upper_increase: number;
   volt_recovery_lower_increase: number;
@@ -83,6 +93,12 @@ export const DEFAULT_CONFIG: AnalysisConfigInput = {
   apply_asymmetric_volt_dev: false,
   apply_asymmetric_freq: false,
   apply_asymmetric_freq_dev: false,
+
+  iso_8528_5_mode: false,
+  freq_start_upper_increase: 50.25,
+  freq_start_lower_increase: 49.75,
+  freq_start_upper_decrease: 50.25,
+  freq_start_lower_decrease: 49.75,
 
   volt_recovery_upper_increase: 419.15,
   volt_recovery_lower_increase: 410.85,
@@ -165,7 +181,7 @@ export const BUILTIN_PRESETS: Preset[] = [
  * per-direction values are used. Only engine fields are emitted — display flags,
  * rated load and expected steps stay client-side.
  */
-export function resolveConfig(c: AnalysisConfigInput): Record<string, number | string> {
+export function resolveConfig(c: AnalysisConfigInput): Record<string, number | string | boolean> {
   const vUp = c.nominal_voltage * (1 + c.voltage_tolerance_pct / 100);
   const vLo = c.nominal_voltage * (1 - c.voltage_tolerance_pct / 100);
   const fUp = c.nominal_frequency * (1 + c.frequency_tolerance_pct / 100);
@@ -197,6 +213,13 @@ export function resolveConfig(c: AnalysisConfigInput): Record<string, number | s
     volt_max_dev_pct_decrease: c.apply_asymmetric_volt_dev ? c.volt_max_dev_pct_decrease : c.voltage_max_deviation_pct,
     freq_max_dev_pct_increase: c.apply_asymmetric_freq_dev ? c.freq_max_dev_pct_increase : c.frequency_max_deviation_pct,
     freq_max_dev_pct_decrease: c.apply_asymmetric_freq_dev ? c.freq_max_dev_pct_decrease : c.frequency_max_deviation_pct,
+    // ISO 8528-5 dual frequency bands: β_f start band (engine reads these only
+    // when iso_8528_5_mode is on; the α_f stop band is the freq recovery band).
+    iso_8528_5_mode: c.iso_8528_5_mode,
+    freq_start_upper_increase: c.freq_start_upper_increase,
+    freq_start_lower_increase: c.freq_start_lower_increase,
+    freq_start_upper_decrease: c.freq_start_upper_decrease,
+    freq_start_lower_decrease: c.freq_start_lower_decrease,
   };
 }
 

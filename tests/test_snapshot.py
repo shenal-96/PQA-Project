@@ -90,3 +90,31 @@ def test_itic_curve_empty_events_still_has_envelope():
     itic = itic_curve(pd.DataFrame(), 415.0)
     assert itic["events"] == []
     assert itic["upper"] and itic["lower"]          # the curve is always drawable
+
+
+def test_iso_8528_5_two_band_mode():
+    df = ca.load_and_prepare_csv(FIXTURE)
+    cfg = ca.AnalysisConfig(
+        iso_8528_5_mode=True,
+        freq_start_upper_increase=50.2, freq_start_lower_increase=49.85,
+        freq_start_upper_decrease=50.15, freq_start_lower_decrease=49.8,
+    )
+    df_proc, df_events = ca.perform_analysis(df, cfg)
+    df_events = df_events.reset_index(drop=True)
+    # Engine exposes the β_f start band + §7 steady-state columns in ISO mode.
+    for col in ("F_start_upper", "F_start_lower", "F_presstep_ok", "V_presstep_ok",
+                "F_poststep_ok", "V_poststep_ok"):
+        assert col in df_events.columns, col
+    # Snapshot frequency panel carries the start band and the exit marker sits on it.
+    snap = snapshot_data(df_proc, df_events.iloc[0], cfg, event_index=0)
+    fp = snap["panels"]["frequency"]
+    assert fp["start_band"] == {"upper": 50.2, "lower": 49.85}
+    if "exit" in fp:
+        assert fp["exit"]["value"] in (50.2, 49.85)     # on the β_f band, not α_f
+
+
+def test_iso_mode_off_has_no_start_band():
+    df_proc, df_events, cfg = _events()  # default cfg → ISO mode off
+    snap = snapshot_data(df_proc, df_events.iloc[0], cfg, event_index=0)
+    assert "start_band" not in snap["panels"]["frequency"]
+    assert "F_start_upper" not in df_events.columns

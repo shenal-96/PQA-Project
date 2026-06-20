@@ -72,6 +72,7 @@ export interface SnapshotPanel {
   timestamps: Array<string | number>;
   values: Array<number | null>;
   band?: SnapshotBand;
+  start_band?: SnapshotBand;   // ISO 8528-5 β_f start band (frequency only)
   limit?: SnapshotLimit;
   exit?: SnapshotMarker;
   recovery?: SnapshotMarker;

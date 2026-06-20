@@ -96,6 +96,7 @@
     <label class="chk"><input type="checkbox" bind:checked={config.apply_asymmetric_volt_dev} /> Apply asymmetric Voltage deviation limit</label>
     <label class="chk"><input type="checkbox" bind:checked={config.apply_asymmetric_freq} /> Apply asymmetric Frequency tolerance band</label>
     <label class="chk"><input type="checkbox" bind:checked={config.apply_asymmetric_freq_dev} /> Apply asymmetric Frequency deviation limit</label>
+    <label class="chk"><input type="checkbox" bind:checked={config.iso_8528_5_mode} /> Apply ISO dual frequency bands</label>
 
     <div class="two">
       <div class="col">
@@ -155,6 +156,23 @@
       <div class="two">
         <div class="col"><div class="cap">Load Increase</div><div class="field col-f"><span>Increase</span><input type="number" min="0" step="1" bind:value={config.freq_max_dev_pct_increase} /></div></div>
         <div class="col"><div class="cap">Load Decrease</div><div class="field col-f"><span>Decrease</span><input type="number" min="0" step="1" bind:value={config.freq_max_dev_pct_decrease} /></div></div>
+      </div>
+    {/if}
+
+    {#if config.iso_8528_5_mode}
+      <div class="grp-label">β_f Start Band (Hz)</div>
+      <div class="cap">Stopwatch starts when frequency leaves this tighter band; it stops on re-entry to the Frequency Recovery (α_f) band.</div>
+      <div class="two">
+        <div class="col">
+          <div class="cap">Load Increase</div>
+          <div class="field col-f"><span>Upper</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_upper_increase} /></div>
+          <div class="field col-f"><span>Lower</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_lower_increase} /></div>
+        </div>
+        <div class="col">
+          <div class="cap">Load Decrease</div>
+          <div class="field col-f"><span>Upper</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_upper_decrease} /></div>
+          <div class="field col-f"><span>Lower</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_lower_decrease} /></div>
+        </div>
       </div>
     {/if}
 

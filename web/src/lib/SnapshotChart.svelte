@@ -31,6 +31,11 @@
       data.push({ yAxis: p.band.upper, lineStyle: { color: '#f59e0b', type: 'dashed', width: 1 } });
       data.push({ yAxis: p.band.lower, lineStyle: { color: '#f59e0b', type: 'dashed', width: 1 } });
     }
+    // ISO 8528-5 β_f start band (cyan dotted) — the stopwatch-start band.
+    if (SHOW.band && p.start_band) {
+      data.push({ yAxis: p.start_band.upper, lineStyle: { color: '#0891b2', type: 'dotted', width: 1.2 } });
+      data.push({ yAxis: p.start_band.lower, lineStyle: { color: '#0891b2', type: 'dotted', width: 1.2 } });
+    }
     if (SHOW.limit && p.limit) {
       data.push({ yAxis: p.limit.value, lineStyle: { color: '#dc2626', type: 'dashed', width: 1.2 } });
     }

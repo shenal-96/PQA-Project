@@ -819,6 +819,13 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         f_lower = event_row.get("F_rec_lower", nom_f * (1 - tol_f / 100))
         if pd.isnull(f_upper): f_upper = nom_f * (1 + tol_f / 100)
         if pd.isnull(f_lower): f_lower = nom_f * (1 - tol_f / 100)
+        # ISO 8528-5 two-band mode: the β_f start band is present only when the
+        # analysis ran in ISO mode. f_upper/f_lower above are then the α_f stop
+        # band (recovery target); the start band is drawn separately and the
+        # frequency exit marker sits on it.
+        f_start_upper = event_row.get("F_start_upper")
+        f_start_lower = event_row.get("F_start_lower")
+        _iso_two_band = pd.notnull(f_start_upper) and pd.notnull(f_start_lower)
 
         # ── Voltage panel ────────────────────────────────────────────────
         if show_tolerance_band:
@@ -966,14 +973,25 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
                             label=f"F limit upper ({f_upper:.3f} Hz)", **lkw_dbg)
             axes[2].axhline(f_lower, color=_AMBER,
                             label=f"F limit lower ({f_lower:.3f} Hz)", **lkw_dbg)
+            if _iso_two_band:
+                axes[2].axhline(f_start_upper, color=_CYAN, lw=1.2, ls=":", alpha=0.85,
+                                zorder=4, label=f"β_f start upper ({f_start_upper:.3f} Hz)")
+                axes[2].axhline(f_start_lower, color=_CYAN, lw=1.2, ls=":", alpha=0.85,
+                                zorder=4, label=f"β_f start lower ({f_start_lower:.3f} Hz)")
 
         f_band_val = f_upper if (pd.notnull(f_dev) and f_dev > nom_f) else f_lower
+        # In ISO two-band mode the stopwatch starts at the β_f crossing, so the
+        # exit marker sits on the β_f start band; recovery still sits on α_f.
+        if _iso_two_band:
+            f_exit_band_val = f_start_upper if (pd.notnull(f_dev) and f_dev > nom_f) else f_start_lower
+        else:
+            f_exit_band_val = f_band_val
 
         if show_intersections and pd.notnull(f_exit):
             fx = pd.Timestamp(f_exit)
             axes[2].axvline(fx, color=_ORANGE, **cross_kw)
-            axes[2].scatter([fx], [f_band_val], color=_ORANGE, marker="*", s=140, zorder=7)
-            axes[2].annotate("exit", xy=(fx, f_band_val), xytext=(4, -14),
+            axes[2].scatter([fx], [f_exit_band_val], color=_ORANGE, marker="*", s=140, zorder=7)
+            axes[2].annotate("exit", xy=(fx, f_exit_band_val), xytext=(4, -14),
                              textcoords="offset points",
                              fontsize=7, color=_ORANGE, fontweight="700")
             if pd.notnull(f_rec_s):
@@ -993,10 +1011,16 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
 
         f_legend = []
         if show_tolerance_band:
+            _f_rec_lbl = "α_f stop" if _iso_two_band else "Recovery"
             f_legend.extend([
-                Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"Recovery upper ({f_upper:.3f} Hz)"),
-                Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"Recovery lower ({f_lower:.3f} Hz)"),
+                Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"{_f_rec_lbl} upper ({f_upper:.3f} Hz)"),
+                Line2D([0], [0], color=_AMBER,  ls="--",   lw=1.5,      label=f"{_f_rec_lbl} lower ({f_lower:.3f} Hz)"),
             ])
+            if _iso_two_band:
+                f_legend.extend([
+                    Line2D([0], [0], color=_CYAN, ls=":", lw=1.5, label=f"β_f start upper ({f_start_upper:.3f} Hz)"),
+                    Line2D([0], [0], color=_CYAN, ls=":", lw=1.5, label=f"β_f start lower ({f_start_lower:.3f} Hz)"),
+                ])
         if show_deviation_limits:
             _f_dkw_leg = event_row.get("dKw", 0) if event_row is not None else 0
             if _f_dkw_leg <= 0:

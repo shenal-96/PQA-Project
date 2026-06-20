@@ -21,6 +21,11 @@ from core.serialize import _cell
 # density regardless of the logger's native sample rate.
 SNAPSHOT_PLOT_HZ = 5
 SNAPSHOT_PLOT_PERIOD = f"{int(1000 / SNAPSHOT_PLOT_HZ)}ms"  # 200ms = 5 points/second
+# Safety cap: never resample a pathologically wide window (e.g. a not-recovered
+# event that widened to hours) onto the 200 ms grid — that would emit hundreds of
+# thousands of points and break rendering. Above this many points we keep the raw
+# windowed samples instead (≈20 min at 5 Hz).
+_SNAPSHOT_MAX_POINTS = 6000
 
 
 def detected_events_overlay(df_events: pd.DataFrame) -> list[dict]:
@@ -84,6 +89,11 @@ def _resample_plot(win):
     num = list(win.select_dtypes(include="number").columns)
     if not num:
         return win
+    # Skip resampling when the window is so wide the 200 ms grid would explode
+    # (keep the raw samples so the line still draws — see _SNAPSHOT_MAX_POINTS).
+    span_s = (win["Timestamp"].iloc[-1] - win["Timestamp"].iloc[0]).total_seconds()
+    if span_s <= 0 or span_s * SNAPSHOT_PLOT_HZ > _SNAPSHOT_MAX_POINTS:
+        return win
     out = (
         win.set_index("Timestamp")[num]
         .resample(SNAPSHOT_PLOT_PERIOD).mean()
@@ -120,12 +130,22 @@ def _decorate(panel, get, direction, nom, maxdev_default, win, col, prefix) -> N
         pct = pct if pct is not None else maxdev_default
         panel["limit"] = {"value": nom * (1 + pct / 100.0), "side": "upper", "pct": pct}
 
+    # ISO 8528-5 dual-band: the tighter β_f start band is present (per-event)
+    # only when analysis ran in ISO mode. The recovery band above is then the
+    # α_f stop band; the exit/stopwatch-start marker sits on the start band.
+    start_upper = _num(get(f"{prefix}_start_upper"))
+    start_lower = _num(get(f"{prefix}_start_lower"))
+    has_start = start_upper is not None and start_lower is not None
+    if has_start:
+        panel["start_band"] = {"upper": start_upper, "lower": start_lower}
+
     dev = _num(get(f"{prefix}_dev"))
     ex = get(f"{prefix}_exit_ts")
     rc = _num(get(f"{prefix}_rec_s"))
     band_val = upper if (dev is not None and dev > nom) else lower
+    exit_val = (start_upper if (dev is not None and dev > nom) else start_lower) if has_start else band_val
     if ex is not None and pd.notnull(ex):
-        panel["exit"] = {"ts": _iso(ex), "value": band_val}
+        panel["exit"] = {"ts": _iso(ex), "value": exit_val}
         if rc is not None:
             panel["recovery"] = {
                 "ts": _iso(pd.Timestamp(ex) + pd.Timedelta(seconds=rc)),
