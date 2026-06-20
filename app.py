@@ -1923,6 +1923,13 @@ with st.sidebar:
         (p for p in st.session_state.get("presets", []) if p["name"] == active_preset),
         None,
     )
+    # Seed the ISO two-band toggle from the preset ONLY when the active preset
+    # selection CHANGES — re-seeding it every rerun would override the user's own
+    # clicks on the (editable) checkbox, snapping it back each time they tick it.
+    if st.session_state.get("_iso_seeded_for") != active_preset:
+        st.session_state["_iso_seeded_for"] = active_preset
+        if _active_preset_data is not None:
+            st.session_state["iso_8528_5_cb"] = bool(_active_preset_data.get("iso_8528_5", False))
     if _active_preset_data:
         v_tol         = float(_active_preset_data["v_tol"])
         v_rec         = float(_active_preset_data["v_rec"])
@@ -1946,11 +1953,8 @@ with st.sidebar:
         _ds["apply_asymmetric_volt"]     = bool(_active_preset_data.get("apply_asymmetric_volt", False))
         _ds["apply_asymmetric_volt_dev"] = bool(_active_preset_data.get("apply_asymmetric_volt_dev", True))
         _ds["apply_asymmetric_freq_dev"] = bool(_active_preset_data.get("apply_asymmetric_freq_dev", True))
-        # ISO 8528-5 two-band frequency method (seeded from the preset). The
-        # toggle is a keyed widget ("iso_8528_5_cb"), so snap it to the preset's
-        # value directly in session_state before the checkbox renders — selecting
-        # an ISO preset turns the method on.
-        st.session_state["iso_8528_5_cb"] = bool(_active_preset_data.get("iso_8528_5", False))
+        # ISO 8528-5 two-band: band_mode comes from the preset; the toggle itself
+        # (iso_8528_5_cb) is seeded on preset-change only, in the block above.
         _ds["iso_band_mode"]   = str(_active_preset_data.get("band_mode", "pct"))
         beta_f_pct    = float(_active_preset_data.get("beta_f_pct", 0.5))
         alpha_f_pct   = float(_active_preset_data.get("alpha_f_pct", 2.0))
@@ -1979,12 +1983,27 @@ with st.sidebar:
     load_thresh = st.number_input("Load Threshold (kW)", value=load_thresh, min_value=0.0, step=10.0,
         help="Minimum load step size (kW) to register as a compliance event. Changes smaller than this are ignored.")
 
-    apply_asymmetric_volt = st.checkbox("Apply asymmetric Voltage tolerance band", value=_ds.get("apply_asymmetric_volt", False),
-        help="Enable separate recovery band limits for voltage — one set for load increase events (voltage drops) and another for load decrease (voltage rises). Unlocks the Voltage Recovery Bands inputs below.")
+    # ISO two-band state, read from the keyed checkbox (already updated at the top
+    # of the rerun) so we can hide the tolerance/recovery-band controls that render
+    # BEFORE the ISO checkbox itself. In ISO mode β_f/α_f drive frequency recovery
+    # and voltage is single-band (ΔU_st), so those inputs are inert.
+    _iso_on = bool(st.session_state.get("iso_8528_5_cb", False))
+
+    if not _iso_on:
+        apply_asymmetric_volt = st.checkbox("Apply asymmetric Voltage tolerance band", value=_ds.get("apply_asymmetric_volt", False),
+            help="Enable separate recovery band limits for voltage — one set for load increase events (voltage drops) and another for load decrease (voltage rises). Unlocks the Voltage Recovery Bands inputs below.")
+    else:
+        # ISO: voltage is single-band (ΔU_st). Force off for the calc; the user's
+        # stored preference is preserved by the guarded save-back below.
+        apply_asymmetric_volt = False
     apply_asymmetric_volt_dev = st.checkbox("Apply asymmetric Voltage deviation limit", value=_ds.get("apply_asymmetric_volt_dev", False),
         help="Enable separate max deviation limits for voltage — one for load increase events (voltage drops below nominal) and another for load decrease (voltage rises above nominal). Unlocks the Voltage Max Deviation inputs below.")
-    apply_asymmetric_freq = st.checkbox("Apply asymmetric Frequency tolerance band", value=_ds.get("apply_asymmetric_freq", False),
-        help="Enable separate recovery band limits for frequency — one set for load increase events (frequency drops) and another for load decrease (frequency rises). Unlocks the Frequency Recovery Bands inputs below.")
+    if not _iso_on:
+        apply_asymmetric_freq = st.checkbox("Apply asymmetric Frequency tolerance band", value=_ds.get("apply_asymmetric_freq", False),
+            help="Enable separate recovery band limits for frequency — one set for load increase events (frequency drops) and another for load decrease (frequency rises). Unlocks the Frequency Recovery Bands inputs below.")
+    else:
+        # ISO: frequency recovery is driven by β_f/α_f, so the asymmetric band is inert.
+        apply_asymmetric_freq = False
     apply_asymmetric_freq_dev = st.checkbox("Apply asymmetric Frequency deviation limit", value=_ds.get("apply_asymmetric_freq_dev", False),
         help="Enable separate max deviation limits for frequency — one for load increase events (frequency drops below nominal) and another for load decrease (frequency rises above nominal). Unlocks the Frequency Max Deviation inputs below.")
     iso_8528_5_mode = st.checkbox("Apply ISO 8528-5 two-band frequency method", key="iso_8528_5_cb", on_change=_iso_cb,
@@ -1999,8 +2018,11 @@ with st.sidebar:
         v_max_dev = st.number_input("Max Voltage Dev (%)", value=v_max_dev, min_value=0.0, step=1.0, disabled=(_any_preset and not dev_mode) or apply_asymmetric_volt_dev,
             help="Maximum allowed voltage excursion from nominal (%). Events where the peak deviation exceeds this value fail compliance regardless of recovery time.")
     with col2:
-        f_tol = st.number_input("Frequency Tolerance (%)", value=f_tol, min_value=0.0, step=0.1, disabled=(_any_preset and not dev_mode) or apply_asymmetric_freq,
-            help="Symmetric ±% band around nominal frequency used as the recovery target. Frequency must re-enter this band and stay in for 0.3 s to be considered recovered.")
+        # Frequency Tolerance (the symmetric Δf band) is inert in ISO mode — β_f/α_f
+        # drive recovery — so hide it; f_tol keeps its seeded value for the config.
+        if not _iso_on:
+            f_tol = st.number_input("Frequency Tolerance (%)", value=f_tol, min_value=0.0, step=0.1, disabled=(_any_preset and not dev_mode) or apply_asymmetric_freq,
+                help="Symmetric ±% band around nominal frequency used as the recovery target. Frequency must re-enter this band and stay in for 0.3 s to be considered recovered.")
         f_rec = st.number_input("Frequency Recovery (s)", value=f_rec, min_value=0.0, step=0.5, disabled=_any_preset and not dev_mode,
             help="Maximum allowed recovery time for frequency after a load event. Events where frequency takes longer than this to return in-band fail compliance.")
         f_max_dev = st.number_input("Max Frequency Dev (%)", value=f_max_dev, min_value=0.0, step=1.0, disabled=(_any_preset and not dev_mode) or apply_asymmetric_freq_dev,
@@ -2011,8 +2033,11 @@ with st.sidebar:
         _ds["v_rec"] = v_rec;             _ds["v_max_dev"] = v_max_dev
         _ds["f_tol"] = f_tol;             _ds["f_rec"] = f_rec
         _ds["f_max_dev"] = f_max_dev
-    _ds["apply_asymmetric_freq"] = apply_asymmetric_freq
-    _ds["apply_asymmetric_volt"] = apply_asymmetric_volt
+    # In ISO mode the freq/volt tolerance flags are forced off for the calc; skip
+    # persisting them so the user's real preference survives toggling ISO back off.
+    if not _iso_on:
+        _ds["apply_asymmetric_freq"] = apply_asymmetric_freq
+        _ds["apply_asymmetric_volt"] = apply_asymmetric_volt
     _ds["apply_asymmetric_volt_dev"] = apply_asymmetric_volt_dev
     _ds["apply_asymmetric_freq_dev"] = apply_asymmetric_freq_dev
 
@@ -2021,7 +2046,7 @@ with st.sidebar:
     _vri_lower_def = float(st.session_state.get("vri_lower", _ds.get("vri_lower", 410.85)))
     _vrd_upper_def = float(st.session_state.get("vrd_upper", _ds.get("vrd_upper", 419.15)))
     _vrd_lower_def = float(st.session_state.get("vrd_lower", _ds.get("vrd_lower", 410.85)))
-    if apply_asymmetric_volt:
+    if apply_asymmetric_volt and not _iso_on:
         st.markdown("**Voltage Recovery Bands (V)**")
         col_vi, col_vd = st.columns(2)
         with col_vi:
@@ -2062,7 +2087,7 @@ with st.sidebar:
     _fri_lower_def = float(st.session_state.get("fri_lower", _ds.get("fri_lower", 49.75)))
     _frd_upper_def = float(st.session_state.get("frd_upper", _ds.get("frd_upper", 50.25)))
     _frd_lower_def = float(st.session_state.get("frd_lower", _ds.get("frd_lower", 49.50)))
-    if apply_asymmetric_freq:
+    if apply_asymmetric_freq and not _iso_on:
         st.markdown("**Frequency Recovery Bands (Hz)**")
         col_fi, col_fd = st.columns(2)
         with col_fi:
@@ -2101,6 +2126,9 @@ with st.sidebar:
     # ── ISO 8528-5 Frequency Bands (β_f start / α_f stop) ───────
     if iso_8528_5_mode:
         st.markdown("**ISO 8528-5 Frequency Bands**")
+        st.caption("Frequency is evaluated by the β_f / α_f bands below; voltage uses "
+                   "the single ΔU_st tolerance band. The frequency tolerance and "
+                   "asymmetric tolerance-band inputs are hidden while this is on.")
         iso_band_mode = st.radio(
             "Band input mode", ["pct", "abs"],
             index=0 if str(_ds.get("iso_band_mode", "pct")) == "pct" else 1,
