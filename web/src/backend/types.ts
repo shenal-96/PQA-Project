@@ -83,6 +83,47 @@ export interface SnapshotOpts {
   time_offset_s?: number;
 }
 
+// --- Reports (M3) --------------------------------------------------------------
+// Mirror of desktop/report_host.build_report's params + return shape.
+export interface ReportFields {
+  report_title: string;
+  pqa_serial: string;
+  gen_sn: string;
+  site_address: string;
+  custom_text: string;
+}
+export interface ReportOutputs {
+  pdf: boolean;
+  html: boolean;
+  docx: boolean;
+}
+export interface ReportRequest {
+  fields: ReportFields;
+  filename: string;
+  outputs: ReportOutputs;
+  html_template?: string;
+  docx_template_b64?: string;
+  rated_load_kw?: number | null;
+}
+export interface ReportArtifacts {
+  pdf_b64?: string | null;
+  html?: string | null;
+  docx_b64?: string | null;
+  docx_mime?: string | null;
+}
+export interface ReportResult {
+  filename: string;
+  artifacts: ReportArtifacts;
+  pdf_ok: boolean;
+  warnings: string[];
+  log: string;
+}
+/** Result of a native Save-As dialog (desktop only). */
+export interface SaveResult {
+  path: string | null;
+  error?: string;
+}
+
 // Per-event override (matches core.recalc / app.py intersection_overrides).
 export interface EventOverride {
   v_exit_offset?: number;

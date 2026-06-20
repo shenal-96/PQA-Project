@@ -16,13 +16,26 @@ ROOT = os.path.abspath(os.getcwd())
 # Bundle the built web UI at <bundle>/web/dist/ (a single self-contained index.html).
 datas = [(os.path.join(ROOT, "web", "dist"), os.path.join("web", "dist"))]
 binaries = []
-hiddenimports = ["core", "core.analysis", "core.serialize", "core.viz_dataprep"]
+# core engine + report path (report/html_report/visualizations are imported lazily
+# by string from desktop.report_host, so PyInstaller needs them declared here).
+hiddenimports = [
+    "core", "core.analysis", "core.serialize", "core.viz_dataprep", "core.recalc",
+    "desktop.report_host", "desktop.viz_report",
+    "report", "html_report", "visualizations",
+    "docx", "PIL",
+]
 
 # pywebview + its Windows EdgeChromium (WebView2) backend and pythonnet glue.
 _d, _b, _h = collect_all("webview")
 datas += _d
 binaries += _b
 hiddenimports += _h + collect_submodules("webview")
+
+# matplotlib renders the report images host-side; bundle its data (fonts, etc.).
+_md, _mb, _mh = collect_all("matplotlib")
+datas += _md
+binaries += _mb
+hiddenimports += _mh
 
 a = Analysis(
     # Absolute path: PyInstaller resolves relative script paths against the spec's
@@ -35,7 +48,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["streamlit", "tkinter", "PyQt5", "PyQt6", "PySide2", "PySide6", "matplotlib"],
+    excludes=["streamlit", "tkinter", "PyQt5", "PyQt6", "PySide2", "PySide6"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

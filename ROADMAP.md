@@ -39,8 +39,9 @@ core/      analysis.py (engine, moved) · serialize.py (JSON contract) ·
 web/       Svelte app; src/backend/ (AnalysisBackend, PyWebviewBackend, MockBackend),
            src/lib/ (charts, table, sidebar, EventCard, SnapshotChart),
            src/config/ (defaults + ISO presets); scripts/gen_sample.py
-desktop/   shell.py (PyWebview + HostBridge) · pqa.spec (PyInstaller) ·
-           requirements.txt   [report_host.py / xls_host.py / viz_report.py = TODO M3/M4]
+desktop/   shell.py (PyWebview + HostBridge) · report_host.py (build_report + Chromium PDF) ·
+           viz_report.py (matplotlib report images) · pqa.spec (PyInstaller) ·
+           requirements.txt   [xls_host.py = TODO M4]
 tests/     parity harness (golden) + snapshot/recalc/contract/hostbridge tests
 docs/      adr/0001 · run-windows-parallels.md
 .github/workflows/  tests.yml (pytest matrix + web build) · package-windows.yml (.exe artifact)
@@ -51,10 +52,16 @@ visualizations.py · report.py · html_report.py · ecu_*.py · tracking.py  (ho
 - **M0 ✅** Monorepo scaffold, engine → `core/`, backend seam + JSON contract, deps rewrite (`desktop/requirements.txt`).
 - **M1 ✅** PyWebview shell + `HostBridge` (load_csv/run_analysis/metric_series), first ECharts chart + events table, **parity harness** (golden numbers, CI).
 - **M2 ✅** Full **Compliance tab**: config sidebar (all `AnalysisConfig` fields), ISO 8528 presets, 6 metric charts, compliance table (pills/fault badge), **4-panel event snapshots**, **deferred streaming**, **per-event overrides + Recalculate** (`core/recalc.py`), Industrial-Precision design system.
-- **M3 ⏳ Reports** — editable `.docx` (python-docx) + PDF via the shell's Chromium (WebView2 `PrintToPdf` / headless `msedge --print-to-pdf`); hi-DPI matplotlib report images. Delete LibreOffice/WeasyPrint chains in `report.py`/`html_report.py`.
-  - New: `desktop/report_host.py`, `desktop/viz_report.py`; `HostBridge.generate_report/export_pdf/save_dialog`; gate UI on `caps.canReport`. Reports re-run `perform_analysis` host-side (parity). Reuse `report.get_placeholder_map/inject_images_to_word/generate_docx`, `html_report.get_default_template/inject_html_placeholders`.
+- **M3 ✅ Reports** — host-side report builder: editable `.docx` (python-docx), self-contained **HTML**, and **PDF via headless Chromium/Edge** (`--headless=new --print-to-pdf`, no LibreOffice/WeasyPrint); hi-DPI matplotlib report images.
+  - New: `desktop/viz_report.py` (wraps the validated `visualizations` renderers → `Graphs/Images/Snapshots` layout that `report.get_placeholder_map` scans) and `desktop/report_host.py` (`find_chromium`, `html_to_pdf`, `build_report`, default template, filename sanitising, leftover-placeholder cleanup).
+  - `HostBridge.generate_report` / `default_html_template` / `save_dialog` (native Save-As, Windows). PDF export is **folded into `generate_report`** (`outputs.pdf` → `report_host.html_to_pdf`) rather than a separate `export_pdf` bridge method.
+  - Reports run host-side from the **cached** `df_proc`/`df_events` (engine output — and so they honour any Recalculate overrides), never re-derived in JS. Reuses `report.get_placeholder_map`/`inject_images_to_word` and `html_report.get_default_template`/`inject_html_placeholders` (used `inject_images_to_word` + `doc.save` directly so output lands in a temp dir, not cwd).
+  - Frontend: `web/src/lib/ReportPanel.svelte` (fields form + PDF/HTML/.docx toggles + optional Word-template upload + download / native Save-As), gated on `caps.canReport`; backend seam gains `generateReport`/`defaultHtmlTemplate`/`saveFile?`. Mock backend reports `canReport:false` so the panel is discoverable-but-disabled in the browser preview.
+  - Packaging fix: `pqa.spec` no longer **excludes** matplotlib (reports need it) and now bundles it + declares the lazily-string-imported `report`/`html_report`/`visualizations`/`docx`/`PIL` as hidden imports.
+  - Tests: `tests/test_report.py` (31 total green). The Chromium subprocess wiring is covered with a fake browser; the **real Chromium/Edge render is Windows/Edge-verifiable** (confirmed locally against a Chromium build — valid multi-page PDF).
+  - **Deferred to M5:** deleting the LibreOffice/WeasyPrint/reportlab PDF chains from `report.py`/`html_report.py` — the live Streamlit `app.py` still imports them; they're removed alongside `packages.txt`/dead-dep cleanup when `app.py` is retired. The desktop path already bypasses them entirely.
 - **M4 ⏳ Other tabs (host XLS via python_calamine)** — WinScope (`.xls` → `analysis.load_winscope_xls` → `perform_analysis(skip_interpolation=True)` → reuse Compliance UI), Set Point Comparison (`ecu_parser`/`ecu_csv_parser`/`ecu_multi_comparator`/`ecu_csv_comparator`), ECU Plotting (`ecu_recording_parser` → ECharts per group). New `desktop/xls_host.py`; `caps.canXls`.
-- **M5 ⏳ Packaging & polish** — PyInstaller (`desktop/pqa.spec`, done first-cut) + **Inno Setup** installer that silently installs the **WebView2 Evergreen Runtime** AND the **.NET Desktop Runtime** (pywebview needs WinForms via .NET — see Platform notes); telemetry de-Streamlit (`tracking._get_secret` → env); remove dead deps + `packages.txt`; retire `app.py` after parity sign-off.
+- **M5 ⏳ Packaging & polish** — PyInstaller (`desktop/pqa.spec`, done first-cut) + **Inno Setup** installer that silently installs the **WebView2 Evergreen Runtime** AND the **.NET Desktop Runtime** (pywebview needs WinForms via .NET — see Platform notes); telemetry de-Streamlit (`tracking._get_secret` → env); remove dead deps + `packages.txt`; **delete the LibreOffice/WeasyPrint/reportlab PDF chains from `report.py`/`html_report.py`** (deferred from M3 — kept while the live `app.py` still uses them); retire `app.py` after parity sign-off.
 - **Deferred — iPad PWA:** `PyodideBackend` (Pyodide web worker, same JSON contract), PWA manifest/service worker, Pyodide runtime cached in IndexedDB, COOP/COEP hosting. Reuse the parity golden corpus to assert Pyodide == host.
 
 ## Build / run / test

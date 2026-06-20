@@ -122,6 +122,55 @@ class HostBridge:
             prev_event_ts=prev_ts, next_event_ts=next_ts, event_index=pos,
         )
 
+    # ---- reports ----------------------------------------------------------
+    def default_html_template(self) -> dict:
+        """The built-in editable HTML report template, for the report editor."""
+        from desktop.report_host import default_html_template
+        return {"template": default_html_template()}
+
+    def generate_report(self, params: dict | None = None) -> dict:
+        """Build report artifacts (PDF/HTML/.docx) from the last analysis.
+
+        Reports are produced host-side from the cached engine results (which
+        already reflect any Recalculate overrides), so the report numbers match
+        what the engine computed — never re-derived in JS.
+        """
+        from desktop.report_host import build_report
+
+        if self._df is None or self._df_proc is None or self._df_events is None:
+            raise RuntimeError("generate_report called before run_analysis")
+        return build_report(self._df, self._df_proc, self._df_events, self._config,
+                            params or {})
+
+    def save_dialog(self, params: dict | None = None) -> dict:
+        """Write base64 ``data_b64`` to a path chosen via the native Save dialog.
+
+        Returns ``{"path": <str>}`` on success, ``{"path": None}`` if the user
+        cancelled, or ``{"path": None, "error": ...}`` if no window is available
+        (e.g. unit tests, where ``webview`` is not running). Browser-style blob
+        downloads remain the cross-platform fallback in the frontend.
+        """
+        params = params or {}
+        data_b64 = params.get("data_b64")
+        if data_b64 is None:
+            raise ValueError("save_dialog requires data_b64")
+        filename = params.get("filename") or "PQA_Report.pdf"
+        try:
+            import webview
+            windows = getattr(webview, "windows", None) or []
+            if not windows:
+                return {"path": None, "error": "no active window"}
+            chosen = windows[0].create_file_dialog(
+                webview.SAVE_DIALOG, save_filename=filename)
+            path = chosen[0] if isinstance(chosen, (list, tuple)) else chosen
+            if not path:
+                return {"path": None}
+            with open(path, "wb") as f:
+                f.write(base64.b64decode(data_b64))
+            return {"path": str(path)}
+        except Exception as exc:  # noqa: BLE001 — never crash the bridge
+            return {"path": None, "error": str(exc)}
+
     # ---- per-event overrides + recalculate --------------------------------
     def recalc(self, params: dict | None = None) -> dict:
         """Apply per-event overrides and re-run compliance; return updated events."""

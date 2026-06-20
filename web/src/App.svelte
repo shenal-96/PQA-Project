@@ -10,6 +10,7 @@
   import TimeSeriesChart from './lib/TimeSeriesChart.svelte';
   import ComplianceTable from './lib/ComplianceTable.svelte';
   import EventCard from './lib/EventCard.svelte';
+  import ReportPanel from './lib/ReportPanel.svelte';
 
   let backend = $state<AnalysisBackend | undefined>(undefined);
   let caps = $state<Caps | undefined>(undefined);
@@ -200,6 +201,9 @@
           {/if}
         </div>
       {/if}
+
+      <div class="section-head"><span class="bar reports"></span><h2>Report</h2></div>
+      <ReportPanel {backend} {caps} />
     {:else if loading}
       <div class="empty"><div class="bolt">⚡</div><p>Analyzing…</p></div>
     {:else}
@@ -231,6 +235,7 @@
   .empty { display: grid; place-items: center; gap: 10px; padding: 80px 0; color: var(--text-sub); border: 2px dashed var(--border); border-radius: 12px; }
   .empty .bolt { font-size: 34px; opacity: 0.4; }
   .bar.snapshots { background: #9333ea; }
+  .bar.reports { background: var(--green, #16a34a); }
   .muted { color: var(--text-sub); font-size: 12px; }
   .progress { height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
   .progress .bar-fill { height: 100%; background: #9333ea; transition: width 0.2s; }

@@ -1,7 +1,8 @@
 import type { AnalysisBackend } from './AnalysisBackend';
 import type {
   AnalysisResult, Caps, CsvMeta, EventOverride, EventRecord,
-  MetricSeries, SnapshotData, SnapshotOpts,
+  MetricSeries, ReportRequest, ReportResult, SaveResult,
+  SnapshotData, SnapshotOpts,
 } from './types';
 
 declare global {
@@ -58,5 +59,18 @@ export class PyWebviewBackend implements AnalysisBackend {
 
   recalc(overrides: Record<number, EventOverride>): Promise<{ events: EventRecord[] }> {
     return this.api.recalc({ overrides }) as Promise<{ events: EventRecord[] }>;
+  }
+
+  generateReport(req: ReportRequest): Promise<ReportResult> {
+    return this.api.generate_report(req as unknown as Record<string, unknown>) as Promise<ReportResult>;
+  }
+
+  async defaultHtmlTemplate(): Promise<string> {
+    const r = (await this.api.default_html_template()) as { template: string };
+    return r.template;
+  }
+
+  saveFile(filename: string, dataB64: string): Promise<SaveResult> {
+    return this.api.save_dialog({ filename, data_b64: dataB64 }) as Promise<SaveResult>;
   }
 }

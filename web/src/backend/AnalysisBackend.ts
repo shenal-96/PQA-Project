@@ -1,6 +1,7 @@
 import type {
   AnalysisResult, Caps, CsvMeta, EventOverride, EventRecord,
-  MetricSeries, SnapshotData, SnapshotOpts,
+  MetricSeries, ReportRequest, ReportResult, SaveResult,
+  SnapshotData, SnapshotOpts,
 } from './types';
 
 /**
@@ -20,4 +21,15 @@ export interface AnalysisBackend {
   snapshot(index: number, opts?: SnapshotOpts): Promise<SnapshotData>;
   /** Apply per-event overrides and re-run compliance; returns updated events. */
   recalc(overrides: Record<number, EventOverride>): Promise<{ events: EventRecord[] }>;
+
+  // ---- reports (gated on caps.canReport) -------------------------------------
+  /** Build report artifacts (PDF/HTML/.docx) from the last analysis. */
+  generateReport(req: ReportRequest): Promise<ReportResult>;
+  /** The built-in editable HTML report template. */
+  defaultHtmlTemplate(): Promise<string>;
+  /**
+   * Optional native "Save As" (desktop only). When absent the UI falls back to a
+   * browser blob download. `dataB64` is the file's base64 bytes.
+   */
+  saveFile?(filename: string, dataB64: string): Promise<SaveResult>;
 }

@@ -1,7 +1,8 @@
 import type { AnalysisBackend } from './AnalysisBackend';
 import type {
   AnalysisResult, Caps, CsvMeta, EventOverride, EventRecord,
-  MetricSeries, SnapshotData, SnapshotOpts,
+  MetricSeries, ReportRequest, ReportResult,
+  SnapshotData, SnapshotOpts,
 } from './types';
 import sampleResult from '../dev/sample_result.json';
 import sampleMeta from '../dev/sample_meta.json';
@@ -40,5 +41,14 @@ export class MockBackend implements AnalysisBackend {
 
   async recalc(_overrides: Record<number, EventOverride>): Promise<{ events: EventRecord[] }> {
     return { events: RESULT.events };
+  }
+
+  // Reports need host Python (matplotlib + Chromium); not available in-browser.
+  async generateReport(_req: ReportRequest): Promise<ReportResult> {
+    throw new Error('Report generation runs in the desktop app.');
+  }
+
+  async defaultHtmlTemplate(): Promise<string> {
+    return '<!-- Report templates are available in the desktop app. -->';
   }
 }
