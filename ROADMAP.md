@@ -40,8 +40,8 @@ web/       Svelte app; src/backend/ (AnalysisBackend, PyWebviewBackend, MockBack
            src/lib/ (charts, table, sidebar, EventCard, SnapshotChart),
            src/config/ (defaults + ISO presets); scripts/gen_sample.py
 desktop/   shell.py (PyWebview + HostBridge) · report_host.py (build_report + Chromium PDF) ·
-           viz_report.py (matplotlib report images) · pqa.spec (PyInstaller) ·
-           requirements.txt   [xls_host.py = TODO M4]
+           viz_report.py (matplotlib report images) · xls_host.py (WinScope/SetPoint/ECU) ·
+           pqa.spec (PyInstaller) · requirements.txt
 tests/     parity harness (golden) + snapshot/recalc/contract/hostbridge tests
 docs/      adr/0001 · run-windows-parallels.md
 .github/workflows/  tests.yml (pytest matrix + web build) · package-windows.yml (.exe artifact)
@@ -60,7 +60,11 @@ visualizations.py · report.py · html_report.py · ecu_*.py · tracking.py  (ho
   - Packaging fix: `pqa.spec` no longer **excludes** matplotlib (reports need it) and now bundles it + declares the lazily-string-imported `report`/`html_report`/`visualizations`/`docx`/`PIL` as hidden imports.
   - Tests: `tests/test_report.py` (31 total green). The Chromium subprocess wiring is covered with a fake browser; the **real Chromium/Edge render is Windows/Edge-verifiable** (confirmed locally against a Chromium build — valid multi-page PDF).
   - **Deferred to M5:** deleting the LibreOffice/WeasyPrint/reportlab PDF chains from `report.py`/`html_report.py` — the live Streamlit `app.py` still imports them; they're removed alongside `packages.txt`/dead-dep cleanup when `app.py` is retired. The desktop path already bypasses them entirely.
-- **M4 ⏳ Other tabs (host XLS via python_calamine)** — WinScope (`.xls` → `analysis.load_winscope_xls` → `perform_analysis(skip_interpolation=True)` → reuse Compliance UI), Set Point Comparison (`ecu_parser`/`ecu_csv_parser`/`ecu_multi_comparator`/`ecu_csv_comparator`), ECU Plotting (`ecu_recording_parser` → ECharts per group). New `desktop/xls_host.py`; `caps.canXls`.
+- **M4 ✅ Other tabs (host XLS via python_calamine)** — top-level tab nav (Compliance / WinScope / Set Point / ECU Plotting), XLS tabs gated on `caps.canXls`.
+  - New `desktop/xls_host.py`: `load_winscope_df` (→ `analysis.load_winscope_xls`, tagged `logger_format="winscope"` so `run_analysis` sets `skip_interpolation=True`), `compare_setpoint` (XLS via `ecu_parser`+calamine / ComAp CSV via `ecu_csv_parser`, diffed by `ecu_multi_comparator`/`ecu_csv_comparator`), `load_ecu_recording_data` (`ecu_recording_parser` → grouped, humanised JSON series). `HostBridge.load_winscope`/`compare_setpoint`/`ecu_recording`.
+  - `ecu_parser.parse_file` gained an optional `engine=` (desktop passes `"calamine"` → reads .xls/.xlsx without xlrd/openpyxl; default keeps legacy behaviour).
+  - Frontend: `App.svelte` → tab shell with lazy-mount-then-hide views (state survives tab switches). `ComplianceView.svelte` (extracted, `mode='csv'|'winscope'`) so **WinScope reuses the whole Compliance UI**; `SetPointView.svelte` (toggle XLS/CSV, multi-file, filterable diff table + CSV export); `EcuPlotView.svelte` + `EcuChart.svelte` (per-group tabs + Custom Plot, channel toggle chips, multi-line ECharts with tidy labels). Backend seam + Mock samples (`sample_ecu.json`, `sample_setpoint.json`); Mock `canXls:true` so the browser preview demos all tabs.
+  - **Deferred:** the "configure parameter groups" data-editor (channel reassignment) from the Streamlit ECU tab — current build auto-groups + Custom Plot covers the core need.
 - **M5 ⏳ Packaging & polish** — PyInstaller (`desktop/pqa.spec`, done first-cut) + **Inno Setup** installer that silently installs the **WebView2 Evergreen Runtime** AND the **.NET Desktop Runtime** (pywebview needs WinForms via .NET — see Platform notes); telemetry de-Streamlit (`tracking._get_secret` → env); remove dead deps + `packages.txt`; **delete the LibreOffice/WeasyPrint/reportlab PDF chains from `report.py`/`html_report.py`** (deferred from M3 — kept while the live `app.py` still uses them); retire `app.py` after parity sign-off.
 - **Deferred — iPad PWA:** `PyodideBackend` (Pyodide web worker, same JSON contract), PWA manifest/service worker, Pyodide runtime cached in IndexedDB, COOP/COEP hosting. Reuse the parity golden corpus to assert Pyodide == host.
 
