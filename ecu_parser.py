@@ -5,33 +5,37 @@ from pathlib import Path
 from typing import Dict, Any
 
 
-def parse_file(filepath: str) -> Dict[str, Any]:
+def parse_file(filepath: str, engine: str | None = None) -> Dict[str, Any]:
     """Load and parse a single XLS/XLSX file using pandas.
 
     Returns dict with 'label' and 'sheets' (containing Parameter, Val_2D, Val_3D).
+
+    ``engine`` is forwarded to pandas. The desktop host passes ``"calamine"`` so it
+    reads both .xls and .xlsx without xlrd/openpyxl; the default ``None`` preserves
+    pandas' auto-detection for the legacy Streamlit app.
     """
     label = Path(filepath).stem
     sheets = {}
 
     try:
-        excel_file = pd.ExcelFile(filepath)
+        excel_file = pd.ExcelFile(filepath, engine=engine)
     except Exception as e:
         raise ValueError(f"Could not read file {filepath}: {str(e)}")
 
     for sheet_name in excel_file.sheet_names:
         if sheet_name == "Parameter":
-            sheets["Parameter"] = parse_parameter(filepath, sheet_name)
+            sheets["Parameter"] = parse_parameter(filepath, sheet_name, engine=engine)
         elif sheet_name == "Val_2D":
-            sheets["Val_2D"] = parse_val_2d(filepath, sheet_name)
+            sheets["Val_2D"] = parse_val_2d(filepath, sheet_name, engine=engine)
         elif sheet_name == "Val_3D":
-            sheets["Val_3D"] = parse_val_3d(filepath, sheet_name)
+            sheets["Val_3D"] = parse_val_3d(filepath, sheet_name, engine=engine)
 
     return {"label": label, "sheets": sheets}
 
 
-def parse_parameter(filepath: str, sheet_name: str) -> Dict[str, Dict[str, Any]]:
+def parse_parameter(filepath: str, sheet_name: str, engine: str | None = None) -> Dict[str, Dict[str, Any]]:
     """Parse Parameter sheet: Nr -> {name, value, unit}."""
-    df = pd.read_excel(filepath, sheet_name=sheet_name, header=None)
+    df = pd.read_excel(filepath, sheet_name=sheet_name, header=None, engine=engine)
 
     result = {}
 
@@ -62,9 +66,9 @@ def parse_parameter(filepath: str, sheet_name: str) -> Dict[str, Dict[str, Any]]
     return result
 
 
-def parse_val_2d(filepath: str, sheet_name: str) -> Dict[str, Dict[str, Any]]:
+def parse_val_2d(filepath: str, sheet_name: str, engine: str | None = None) -> Dict[str, Dict[str, Any]]:
     """Parse Val_2D sheet. Each curve = 4 rows: [id, x-axis, y-axis, blank]."""
-    df = pd.read_excel(filepath, sheet_name=sheet_name, header=None)
+    df = pd.read_excel(filepath, sheet_name=sheet_name, header=None, engine=engine)
     rows = df.values.tolist()
 
     result = {}
@@ -113,9 +117,9 @@ def parse_val_2d(filepath: str, sheet_name: str) -> Dict[str, Dict[str, Any]]:
     return result
 
 
-def parse_val_3d(filepath: str, sheet_name: str) -> Dict[str, Dict[str, Any]]:
+def parse_val_3d(filepath: str, sheet_name: str, engine: str | None = None) -> Dict[str, Dict[str, Any]]:
     """Parse Val_3D sheet. Each map = variable rows: [id+x, data rows..., blank]."""
-    df = pd.read_excel(filepath, sheet_name=sheet_name, header=None)
+    df = pd.read_excel(filepath, sheet_name=sheet_name, header=None, engine=engine)
     rows = df.values.tolist()
 
     result = {}

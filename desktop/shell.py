@@ -72,6 +72,46 @@ class HostBridge:
             "warnings": warnings,
         }
 
+    # ---- WinScope XLS ingest ---------------------------------------------
+    def load_winscope(self, params: dict | None = None) -> dict:
+        """Load a WinScope ``.xls`` export and validate it (mirrors ``load_csv``).
+
+        ``params``: ``{"b64": str, "filename": str}``. The parsed frame replaces
+        the cached CSV frame, so the entire Compliance pipeline (run_analysis,
+        snapshots, recalc, reports) is reused unchanged.
+        """
+        import core.analysis as ca
+        from desktop.xls_host import load_winscope_df
+
+        params = params or {}
+        b64 = params.get("b64")
+        if b64 is None:
+            raise ValueError("load_winscope requires b64")
+
+        self._df = load_winscope_df(b64, params.get("filename"))
+        self._df_proc = self._df_events = self._config = None
+        ok, errors, warnings = ca.validate_csv_format(self._df)
+        return {
+            "filename": params.get("filename"),
+            "logger_format": self._df.attrs.get("logger_format"),
+            "n_rows": int(len(self._df)),
+            "columns": [str(c) for c in self._df.columns],
+            "valid": bool(ok),
+            "errors": errors,
+            "warnings": warnings,
+        }
+
+    # ---- Set Point comparison + ECU recordings ---------------------------
+    def compare_setpoint(self, params: dict | None = None) -> dict:
+        """Diff 2+ ECU parameter files (XLS/XLSX or ComAp CSV)."""
+        from desktop.xls_host import compare_setpoint
+        return compare_setpoint(params or {})
+
+    def ecu_recording(self, params: dict | None = None) -> dict:
+        """Read an ECU recording XLS/XLSX into grouped, JSON-safe time series."""
+        from desktop.xls_host import load_ecu_recording_data
+        return load_ecu_recording_data(params or {})
+
     # ---- analysis ---------------------------------------------------------
     def run_analysis(self, config: dict | None = None) -> dict:
         """Run the engine on the loaded CSV and return the JSON contract."""
@@ -82,8 +122,9 @@ class HostBridge:
             raise RuntimeError("run_analysis called before load_csv")
 
         cfg = self._build_config(config)
-        # Miro logger never uses the 100 ms interpolation (see CLAUDE.md).
-        if self._df.attrs.get("logger_format") == "miro":
+        # Miro and WinScope sources skip the 100 ms interpolation (high-rate or
+        # vendor-gridded data; see CLAUDE.md / ROADMAP).
+        if self._df.attrs.get("logger_format") in ("miro", "winscope"):
             cfg.skip_interpolation = True
 
         self._df_proc, self._df_events = ca.perform_analysis(self._df, cfg)
