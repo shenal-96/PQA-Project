@@ -2,13 +2,14 @@
   import { onMount } from 'svelte';
   import { selectBackend } from './backend';
   import type { AnalysisBackend } from './backend';
-  import type { AnalysisResult, Caps } from './backend/types';
+  import type { AnalysisResult, Caps, EventOverride, SnapshotData, SnapshotOpts } from './backend/types';
   import { DEFAULT_CONFIG, loadConfig, saveConfig } from './config/defaults';
   import type { AnalysisConfigInput } from './config/defaults';
   import { metricLabel, METRIC_COLORS } from './lib/format';
   import Sidebar from './lib/Sidebar.svelte';
   import TimeSeriesChart from './lib/TimeSeriesChart.svelte';
   import ComplianceTable from './lib/ComplianceTable.svelte';
+  import EventCard from './lib/EventCard.svelte';
 
   let backend = $state<AnalysisBackend | undefined>(undefined);
   let caps = $state<Caps | undefined>(undefined);
@@ -22,26 +23,91 @@
   let fileName = $state<string | undefined>(undefined);
   let loggerFormat = $state<string | null | undefined>(undefined);
 
+  // Event snapshots (deferred streaming) + per-event overrides.
+  let snapshots = $state<(SnapshotData | null)[]>([]);
+  let snapProgress = $state(0);
+  let snapOpts: Record<number, SnapshotOpts> = {};
+  let overrides = $state<Record<number, EventOverride>>({});
+  let recalcing = $state(false);
+
   const metricKeys = $derived(result ? Object.keys(result.metrics) : []);
   const passCount = $derived(
     result ? result.events.filter((e) => String(e['Compliance_Status'] ?? '').toLowerCase() === 'pass').length : 0,
   );
   const failCount = $derived(result ? result.events.length - passCount : 0);
   const faultCount = $derived(result ? result.events.filter((e) => e['Potential_Fault'] === true).length : 0);
+  const anyOverride = $derived(
+    Object.values(overrides).some(
+      (o) =>
+        (o.v_exit_offset ?? 0) !== 0 ||
+        (o.f_exit_offset ?? 0) !== 0 ||
+        o.v_rec_override != null ||
+        o.f_rec_override != null,
+    ),
+  );
+  const streaming = $derived(snapshots.length > 0 && snapshots.some((s) => s === null));
 
   async function run() {
     if (!backend) return;
     loading = true;
     error = undefined;
+    overrides = {};
+    snapOpts = {};
+    snapshots = [];
     try {
       const r = await backend.runAnalysis({ ...config });
       if (!r.metrics[selected]) selected = Object.keys(r.metrics)[0] ?? selected;
       result = r;
       saveConfig(config);
+      void streamSnapshots(); // deferred: table + charts show now, snapshots fill in
     } catch (e) {
       error = String(e);
     } finally {
       loading = false;
+    }
+  }
+
+  async function streamSnapshots() {
+    if (!backend || !result) return;
+    const n = result.events.length;
+    snapshots = new Array(n).fill(null);
+    snapProgress = 0;
+    for (let i = 0; i < n; i++) {
+      try {
+        snapshots[i] = await backend.snapshot(i, snapOpts[i] ?? {});
+      } catch (e) {
+        console.error('snapshot', i, e);
+      }
+      snapProgress = Math.round(((i + 1) / n) * 100);
+    }
+  }
+
+  async function applySnapshot(i: number, opts: SnapshotOpts) {
+    if (!backend) return;
+    snapOpts[i] = opts;
+    snapshots[i] = null;
+    try {
+      snapshots[i] = await backend.snapshot(i, opts);
+    } catch (e) {
+      console.error('snapshot apply', i, e);
+    }
+  }
+
+  function onOverride(i: number, ov: EventOverride) {
+    overrides = { ...overrides, [i]: ov };
+  }
+
+  async function recalc() {
+    if (!backend || !result) return;
+    recalcing = true;
+    try {
+      const r = await backend.recalc(overrides);
+      result = { ...result, events: r.events };
+      await streamSnapshots(); // refresh markers after recompute
+    } catch (e) {
+      error = String(e);
+    } finally {
+      recalcing = false;
     }
   }
 
@@ -111,6 +177,29 @@
 
       <div class="section-head"><span class="bar compliance"></span><h2>Compliance</h2></div>
       <ComplianceTable events={result.events} />
+
+      {#if result.events.length}
+        <div class="section-head">
+          <span class="bar snapshots"></span><h2>Event snapshots</h2>
+          {#if streaming}<span class="muted">rendering {snapProgress}%</span>{/if}
+        </div>
+        {#if streaming}
+          <div class="progress"><div class="bar-fill" style="width:{snapProgress}%"></div></div>
+        {/if}
+        <div class="events">
+          {#each result.events as ev, i}
+            <EventCard event={ev} index={i} snap={snapshots[i] ?? null} onApply={applySnapshot} {onOverride} />
+          {/each}
+        </div>
+        <div class="recalc-row">
+          <button class="recalc" onclick={recalc} disabled={!anyOverride || recalcing}>
+            {recalcing ? 'Recalculating…' : '🔄 Recalculate Compliance'}
+          </button>
+          {#if caps?.platform === 'mock'}
+            <span class="muted">Recalculate runs in the desktop app (the in-browser preview can't recompute).</span>
+          {/if}
+        </div>
+      {/if}
     {:else if loading}
       <div class="empty"><div class="bolt">⚡</div><p>Analyzing…</p></div>
     {:else}
@@ -141,5 +230,13 @@
   .tab.active { color: var(--blue); border-bottom-color: var(--blue); font-weight: 600; }
   .empty { display: grid; place-items: center; gap: 10px; padding: 80px 0; color: var(--text-sub); border: 2px dashed var(--border); border-radius: 12px; }
   .empty .bolt { font-size: 34px; opacity: 0.4; }
+  .bar.snapshots { background: #9333ea; }
+  .muted { color: var(--text-sub); font-size: 12px; }
+  .progress { height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
+  .progress .bar-fill { height: 100%; background: #9333ea; transition: width 0.2s; }
+  .events { display: flex; flex-direction: column; gap: 10px; }
+  .recalc-row { display: flex; align-items: center; gap: 12px; margin-top: 6px; flex-wrap: wrap; }
+  .recalc { background: var(--blue); color: #fff; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; cursor: pointer; }
+  .recalc:disabled { background: #cbd5e1; cursor: not-allowed; }
   @media (max-width: 820px) { .app { flex-direction: column; } }
 </style>

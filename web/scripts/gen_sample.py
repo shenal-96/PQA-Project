@@ -29,13 +29,17 @@ def main() -> None:
         meta = bridge.load_csv({"csv_b64": base64.b64encode(f.read()).decode("ascii"),
                                 "filename": "hioki_sample.csv"})
     result = bridge.run_analysis({})
+    snapshots = [bridge.snapshot({"index": i}) for i in range(len(result["events"]))]
 
     os.makedirs(OUT_DIR, exist_ok=True)
     with open(os.path.join(OUT_DIR, "sample_result.json"), "w") as f:
         json.dump(result, f, indent=2)
     with open(os.path.join(OUT_DIR, "sample_meta.json"), "w") as f:
         json.dump(meta, f, indent=2)
-    print(f"wrote sample_result.json: {len(result['events'])} events, {result['n_rows']} rows")
+    with open(os.path.join(OUT_DIR, "sample_snapshots.json"), "w") as f:
+        json.dump(snapshots, f, indent=2)
+    print(f"wrote sample_result.json: {len(result['events'])} events, {result['n_rows']} rows; "
+          f"{len(snapshots)} snapshots")
 
 
 if __name__ == "__main__":

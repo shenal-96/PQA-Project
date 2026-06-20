@@ -1,5 +1,8 @@
 import type { AnalysisBackend } from './AnalysisBackend';
-import type { AnalysisResult, Caps, CsvMeta, MetricSeries } from './types';
+import type {
+  AnalysisResult, Caps, CsvMeta, EventOverride, EventRecord,
+  MetricSeries, SnapshotData, SnapshotOpts,
+} from './types';
 
 declare global {
   interface Window {
@@ -47,5 +50,13 @@ export class PyWebviewBackend implements AnalysisBackend {
 
   metricSeries(column: string): Promise<MetricSeries> {
     return this.api.metric_series(column) as Promise<MetricSeries>;
+  }
+
+  snapshot(index: number, opts: SnapshotOpts = {}): Promise<SnapshotData> {
+    return this.api.snapshot({ index, ...opts }) as Promise<SnapshotData>;
+  }
+
+  recalc(overrides: Record<number, EventOverride>): Promise<{ events: EventRecord[] }> {
+    return this.api.recalc({ overrides }) as Promise<{ events: EventRecord[] }>;
   }
 }

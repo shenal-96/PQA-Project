@@ -1,4 +1,7 @@
-import type { AnalysisResult, Caps, CsvMeta, MetricSeries } from './types';
+import type {
+  AnalysisResult, Caps, CsvMeta, EventOverride, EventRecord,
+  MetricSeries, SnapshotData, SnapshotOpts,
+} from './types';
 
 /**
  * The single seam between the UI and "where analysis runs".
@@ -13,4 +16,8 @@ export interface AnalysisBackend {
   loadCsv(file: File): Promise<CsvMeta>;
   runAnalysis(config?: Record<string, unknown>): Promise<AnalysisResult>;
   metricSeries(column: string): Promise<MetricSeries>;
+  /** 4-panel snapshot for one event (by positional index). */
+  snapshot(index: number, opts?: SnapshotOpts): Promise<SnapshotData>;
+  /** Apply per-event overrides and re-run compliance; returns updated events. */
+  recalc(overrides: Record<number, EventOverride>): Promise<{ events: EventRecord[] }>;
 }

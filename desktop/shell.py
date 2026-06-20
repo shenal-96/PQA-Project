@@ -87,6 +87,7 @@ class HostBridge:
             cfg.skip_interpolation = True
 
         self._df_proc, self._df_events = ca.perform_analysis(self._df, cfg)
+        self._df_events = self._df_events.reset_index(drop=True)  # positional == label for snapshot/recalc
         self._config = cfg
         return analysis_result(self._df_proc, self._df_events,
                                logger_format=self._df.attrs.get("logger_format"))
@@ -98,6 +99,42 @@ class HostBridge:
         if self._df_proc is None:
             raise RuntimeError("metric_series called before run_analysis")
         return metric_series(self._df_proc, column)
+
+    # ---- event snapshots --------------------------------------------------
+    def snapshot(self, params: dict | None = None) -> dict:
+        """Return the 4-panel snapshot data for one event (by positional index)."""
+        from core.viz_dataprep import snapshot_data
+
+        if self._df_proc is None or self._df_events is None:
+            raise RuntimeError("snapshot called before run_analysis")
+        params = params or {}
+        pos = int(params.get("index", 0))
+        n = len(self._df_events)
+        if pos < 0 or pos >= n:
+            raise IndexError(f"event index {pos} out of range (0..{n - 1})")
+        prev_ts = self._df_events.iloc[pos - 1].get("Timestamp") if pos > 0 else None
+        next_ts = self._df_events.iloc[pos + 1].get("Timestamp") if pos + 1 < n else None
+        window_s = params.get("window_s")
+        return snapshot_data(
+            self._df_proc, self._df_events.iloc[pos], self._config,
+            window_s=float(window_s) if window_s else None,
+            time_offset_s=float(params.get("time_offset_s", 0.0) or 0.0),
+            prev_event_ts=prev_ts, next_event_ts=next_ts, event_index=pos,
+        )
+
+    # ---- per-event overrides + recalculate --------------------------------
+    def recalc(self, params: dict | None = None) -> dict:
+        """Apply per-event overrides and re-run compliance; return updated events."""
+        from core.recalc import apply_overrides, recompute_df_interp
+        from core.serialize import events_to_records
+
+        if self._df_proc is None or self._df_events is None:
+            raise RuntimeError("recalc called before run_analysis")
+        overrides = (params or {}).get("overrides", {})
+        df_interp = recompute_df_interp(
+            self._df_proc, getattr(self._config, "skip_interpolation", False))
+        self._df_events = apply_overrides(self._df_events, df_interp, self._config, overrides)
+        return {"events": events_to_records(self._df_events)}
 
     # ---- helpers ----------------------------------------------------------
     def _build_config(self, config: dict | None):
