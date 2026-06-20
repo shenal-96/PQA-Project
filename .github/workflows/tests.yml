@@ -1,0 +1,26 @@
+name: tests
+
+# Runs the new desktop/web app's engine parity + contract + host-bridge tests.
+# The parity harness is the central correctness guard for the Streamlit -> desktop
+# migration (and, later, for the Pyodide/iPad path).
+
+on:
+  push:
+    branches: ["claude/**", "main"]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install runtime deps (pinned to match production)
+        run: pip install "pandas>=2.2,<3" "numpy>=1.24" pytest
+
+      - name: Run test suite (engine parity, JSON contract, host bridge)
+        run: python -m pytest tests/ -q
