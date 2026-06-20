@@ -10,15 +10,18 @@ only) is a contained add-on. The validated analysis engine is reused as-is; only
 the UI layer is rebuilt.
 
 ## Branch / PR — READ FIRST
-- **All work is on branch `claude/bold-pasteur-zoi0gk` (PR #27).**
-- **`main` is intentionally untouched** (the live Streamlit app). **Never branch
-  the migration off `main`** — it has none of this code. Always:
+- **`main` is now the DESKTOP app** (PR #27 merged). New work branches off `main`.
+- **The legacy Streamlit app lives on the `streamlit-legacy` branch** and is deployed
+  to Streamlit Cloud from there. `main` no longer contains `app.py` / `tracking.py` /
+  root `requirements.txt` / `packages.txt` — those are on `streamlit-legacy`.
   ```bash
-  git fetch origin && git checkout claude/bold-pasteur-zoi0gk && git pull
+  git fetch origin && git checkout main && git pull
   ```
-- It is **one evolving PR**, not one-PR-per-milestone. Keep pushing to this branch.
-- The legacy Streamlit app still runs (`streamlit run app.py`); root `analysis.py`
-  is now a shim re-exporting `core/analysis.py`, so it keeps working during migration.
+- **Shared engine, two branches:** both apps use the same analysis engine. On `main`
+  it's `core/analysis.py`; on `streamlit-legacy` it's reached via the `analysis.py`
+  shim. They no longer auto-sync — **port engine/feature changes between the branches
+  by hand** when needed (see *Upstream Streamlit sync* below). The shared host modules
+  (`visualizations.py`, `report.py`, `html_report.py`, `ecu_*.py`) exist on both.
 
 ## Architecture (how it runs)
 - **Web UI** (`web/` — Svelte 5 + Vite + TS + Apache ECharts) rendered inside a
@@ -93,24 +96,24 @@ python -m desktop.shell
 - `npm run check` 0 errors; `npm run build` succeeds.
 - New backend methods covered by a test; new contract fields stay JSON-serialisable.
 
-## Upstream Streamlit sync (IMPORTANT — the desktop was built from a fork point)
-The migration was ported from the live Streamlit app at commit **49580d1** (the
-branch's `app.py`/`analysis.py`/`visualizations.py` are that snapshot). The live
-app on **`main` keeps gaining features** — when matching/porting, diff against
-`origin/main`, not the branch copies:
+## Engine sync between `main` (desktop) and `streamlit-legacy`
+The two apps share the analysis engine but no longer auto-sync. When the Streamlit
+app gains an engine/feature change on `streamlit-legacy` (or vice-versa), port it by
+diffing the engine + host renderers across branches:
 ```bash
-git fetch origin main
-git log --oneline 49580d1..origin/main -- app.py analysis.py visualizations.py
+git fetch origin
+git log --oneline main..origin/streamlit-legacy -- analysis.py visualizations.py report.py html_report.py ecu_*.py
 ```
-- `core/analysis.py` and root `visualizations.py` are kept **byte-identical to the
-  fork**, so when the engine/renderer advance on `main` you can re-sync wholesale
-  (`git show origin/main:analysis.py > core/analysis.py`) and parity stays green
-  (verify with `pytest tests/`). Confirm the file is import-pure first (no `streamlit`).
-- **Synced so far:** `core/analysis.py` + `visualizations.py` → `main` (9438021).
-  Ported **ISO 8528-5 dual frequency bands** (main #26): engine `iso_8528_5_mode`
-  + β_f `freq_start_*` start band + §7 steady-state; UI toggle "Apply ISO dual
-  frequency bands"; β_f drawn on snapshots (cyan). Off by default = byte-identical.
-- **Still un-ported from `main`:** the Set Point **preset configurator** band-mode
+- On `streamlit-legacy` the engine is `analysis.py`; on `main` it's `core/analysis.py`.
+  They are content-equivalent today, so an engine change can be applied to
+  `core/analysis.py` (confirm import-pure — no `streamlit`) and parity re-checked
+  (`pytest tests/`). The host renderers (`visualizations.py`, `report.py`,
+  `html_report.py`, `ecu_*.py`) exist on both branches — keep them in step.
+- **Already in sync (ported during the migration):** **ISO 8528-5 dual frequency
+  bands** (Streamlit #26): engine `iso_8528_5_mode` + β_f `freq_start_*` start band +
+  §7 steady-state; desktop UI toggle "Apply ISO dual frequency bands"; β_f drawn on
+  snapshots (cyan). Off by default = byte-identical.
+- **Still un-ported to the desktop:** the Set Point **preset configurator** band-mode
   machinery (`band_mode`/`beta_f_pct`/`alpha_f_pct`/`f_start_*`/`f_stop_*`, presets
   auto-enabling ISO) — lands with the deferred Configure-Presets editor.
 
