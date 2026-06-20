@@ -30,6 +30,7 @@ class HostBridge:
         self._df = None          # raw loaded frame
         self._df_proc = None     # processed frame
         self._df_events = None   # detected events
+        self._df_steady = None   # steady-state dwell windows (ISO 8528-5 δ bands)
         self._config = None      # AnalysisConfig used for the last run
 
     # ---- capabilities -----------------------------------------------------
@@ -116,7 +117,7 @@ class HostBridge:
     def run_analysis(self, config: dict | None = None) -> dict:
         """Run the engine on the loaded CSV and return the JSON contract."""
         import core.analysis as ca
-        from core.serialize import analysis_result
+        from core.serialize import analysis_result, events_to_records
         from core.viz_dataprep import itic_curve
 
         if self._df is None:
@@ -131,9 +132,15 @@ class HostBridge:
         self._df_proc, self._df_events = ca.perform_analysis(self._df, cfg)
         self._df_events = self._df_events.reset_index(drop=True)  # positional == label for snapshot/recalc
         self._config = cfg
+        self._df_steady = None
         result = analysis_result(self._df_proc, self._df_events,
                                  logger_format=self._df.attrs.get("logger_format"))
         result["itic"] = itic_curve(self._df_events, cfg.nominal_voltage)
+        # Steady-state (ISO 8528-5 δ bands) is opt-in per test — only computed
+        # and surfaced when enabled, so the default contract is unchanged.
+        if getattr(cfg, "steady_state_enabled", False):
+            self._df_steady = ca.analyze_steady_state(self._df_proc, self._df_events, cfg)
+            result["steady"] = events_to_records(self._df_steady)
         return result
 
     def metric_series(self, column: str) -> dict:
@@ -232,6 +239,38 @@ class HostBridge:
             "events": events_to_records(self._df_events),
             "itic": itic_curve(self._df_events, self._config.nominal_voltage),
         }
+
+    # ---- steady-state (hybrid confirm) ------------------------------------
+    def recalc_steady(self, params: dict | None = None) -> dict:
+        """Re-evaluate steady-state for user-confirmed/edited dwell windows.
+
+        ``params``: ``{"windows": [{"start": iso, "end": iso, "label"?: str}]}``.
+        When ``windows`` is omitted the dwell windows are auto-detected afresh
+        (the "reset to auto" path). Evaluated against the cached ``df_proc`` from
+        the last run, so the source samples match the original analysis.
+        """
+        import pandas as pd
+
+        import core.analysis as ca
+        from core.serialize import events_to_records
+
+        if self._df_proc is None:
+            raise RuntimeError("recalc_steady called before run_analysis")
+        raw = (params or {}).get("windows")
+        windows = None
+        if raw is not None:
+            windows = [
+                {
+                    "start": pd.Timestamp(w["start"]),
+                    "end": pd.Timestamp(w["end"]),
+                    "label": w.get("label"),
+                    "index": w.get("index", i),
+                }
+                for i, w in enumerate(raw)
+            ]
+        self._df_steady = ca.analyze_steady_state(
+            self._df_proc, self._df_events, self._config, windows=windows)
+        return {"steady": events_to_records(self._df_steady)}
 
     # ---- helpers ----------------------------------------------------------
     def _build_config(self, config: dict | None):

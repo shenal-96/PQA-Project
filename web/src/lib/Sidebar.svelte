@@ -176,6 +176,21 @@
       </div>
     {/if}
 
+    <label class="chk"><input type="checkbox" bind:checked={config.steady_state_enabled} /> Evaluate steady-state (ISO 8528-5 δ bands)</label>
+    {#if config.steady_state_enabled}
+      <div class="cap">Checks every sample during the stable dwell periods between load steps against the tight δU / δf bands — separate from transient recovery. For staged load-bank tests only.</div>
+      <div class="two">
+        <div class="col">
+          <div class="field col-f"><span>δU band (±%)</span><input type="number" min="0" step="0.5" bind:value={config.steady_voltage_band_pct} /></div>
+          <div class="field col-f"><span>Dwell min (s)</span><input type="number" min="1" step="5" bind:value={config.steady_dwell_min_s} /></div>
+        </div>
+        <div class="col">
+          <div class="field col-f"><span>δf band (±%)</span><input type="number" min="0" step="0.5" bind:value={config.steady_freq_band_pct} /></div>
+          <div class="field col-f"><span>Exclude (s)</span><input type="number" min="0" step="1" bind:value={config.steady_exclusion_s} /></div>
+        </div>
+      </div>
+    {/if}
+
     <div class="field"><span>Rated Load (kW)</span><input type="number" min="0" step="1" placeholder="optional" bind:value={config.rated_load_kw} /></div>
     <div class="field"><span>No. Expected Load Steps</span><input type="number" min="0" step="1" placeholder="optional" bind:value={config.expected_steps} /></div>
   </section>

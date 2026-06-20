@@ -82,6 +82,21 @@ class AnalysisConfig:
     freq_start_lower_increase: float = 49.75
     freq_start_upper_decrease: float = 50.25
     freq_start_lower_decrease: float = 49.50
+    # ── Optional ISO 8528-5 steady-state (δ band) evaluation ─────────────────
+    # Independent of the transient/recovery analysis above. When enabled, the
+    # record is segmented into the stable "dwell" windows BETWEEN detected
+    # load-step events and EVERY voltage/frequency sample in each dwell is
+    # checked against the tight δU / δf bands from ISO 8528-5 Table 4 — NOT the
+    # α/β recovery bands. Only meaningful for staged load-bank tests (e.g. 25 /
+    # 50 / 75 / 100 % held for a dwell period), so it is opt-in per CSV/test.
+    steady_state_enabled: bool = False
+    steady_voltage_band_pct: float = 2.5   # δU around nominal V (L-L), ±%
+    steady_freq_band_pct: float = 2.0      # δf around nominal frequency, ±%
+    steady_dwell_min_s: float = 30.0       # ignore plateaus shorter than this
+    steady_exclusion_s: float = 10.0       # trim each side of a dwell (settling tail)
+    # Rated load (kW) for labelling each dwell as a % of rated (25/50/75/100).
+    # None → dwell load % is not computed. Also surfaced to reports elsewhere.
+    rated_load_kw: float | None = None
 
     @classmethod
     def iso_8528_defaults(cls):
@@ -742,6 +757,201 @@ def check_compliance(row, config: AnalysisConfig):
         [status, "; ".join(reasons), bool(fault), "; ".join(fault_reasons)],
         index=["Compliance_Status", "Failure_Reasons", "Potential_Fault", "Fault_Reasons"],
     )
+
+
+# ── ISO 8528-5 steady-state (δ band) analysis ───────────────────────────────
+# Evaluates whether the generator holds voltage/frequency inside the tight δ
+# tolerance bands during STABLE loaded operation (the dwell periods between load
+# steps). Distinct from transient analysis: it uses the δ bands, never the α/β
+# recovery bands, and it inspects raw measured samples (df_proc), never the
+# interpolated df_interp.
+
+# Hunting / oscillation thresholds (qualitative red flag — does NOT fail a dwell
+# on its own; even in-band sustained cyclic oscillation is worth surfacing).
+_HUNT_MIN_CYCLES = 3.0       # at least this many oscillation cycles within the dwell
+_HUNT_PTP_BAND_FRAC = 0.4    # peak-to-peak must reach this fraction of the band width
+_HUNT_DEADBAND_FRAC = 0.05   # ignore mean-crossings smaller than this fraction of band
+
+
+def detect_steady_windows(df_proc, df_events, config: AnalysisConfig):
+    """Auto-segment the record into stable dwell windows between transient events.
+
+    A dwell window is the span between the end of one load-step event and the
+    start of the next (plus the spans before the first event and after the last).
+    Each window is trimmed by ``steady_exclusion_s`` on both sides to drop the
+    AVR/governor settling tail adjacent to a load step, then discarded if shorter
+    than ``steady_dwell_min_s``. When there are no detected events the whole
+    record is one candidate window. Returns a list of ``{"start", "end"}`` dicts
+    (pandas Timestamps).
+    """
+    if df_proc is None or df_proc.empty or "Timestamp" not in df_proc.columns:
+        return []
+    ts = pd.to_datetime(df_proc["Timestamp"])
+    rec_start, rec_end = ts.iloc[0], ts.iloc[-1]
+
+    boundaries = []  # (lo, hi) pairs bracketing each candidate dwell
+    if df_events is None or df_events.empty or "Start_Timestamp" not in df_events.columns:
+        boundaries.append((rec_start, rec_end))
+    else:
+        ev = df_events.sort_values("Start_Timestamp")
+        starts = pd.to_datetime(ev["Start_Timestamp"]).tolist()
+        ends = pd.to_datetime(
+            ev["End_Timestamp"] if "End_Timestamp" in ev.columns else ev["Start_Timestamp"]
+        ).tolist()
+        boundaries.append((rec_start, starts[0]))                 # before first step
+        for i in range(len(starts) - 1):
+            boundaries.append((ends[i], starts[i + 1]))           # between steps
+        boundaries.append((ends[-1], rec_end))                    # after last step
+
+    excl = pd.Timedelta(seconds=float(config.steady_exclusion_s))
+    min_dur = float(config.steady_dwell_min_s)
+    windows = []
+    for lo, hi in boundaries:
+        a, b = lo + excl, hi - excl
+        if (b - a).total_seconds() >= min_dur:
+            windows.append({"start": a, "end": b})
+    return windows
+
+
+def _band_stats(vals, prefix, lower, upper, nom):
+    """Per-metric stats for one dwell: min/max/mean, out-of-band count and the
+    worst absolute deviation from nominal (%). ``vals`` is a cleaned numeric
+    Series."""
+    if vals.empty:
+        return {f"{prefix}_min": None, f"{prefix}_max": None, f"{prefix}_mean": None,
+                f"{prefix}_n_out": 0, f"{prefix}_pct_out": None, f"{prefix}_worst_dev_pct": None}
+    out_mask = (vals < lower) | (vals > upper)
+    n_out = int(out_mask.sum())
+    worst = float((vals - nom).abs().max()) / nom * 100.0
+    dec = 2 if nom > 100 else 3
+    return {
+        f"{prefix}_min": round(float(vals.min()), dec),
+        f"{prefix}_max": round(float(vals.max()), dec),
+        f"{prefix}_mean": round(float(vals.mean()), dec),
+        f"{prefix}_n_out": n_out,
+        f"{prefix}_pct_out": round(n_out / len(vals) * 100.0, 2),
+        f"{prefix}_worst_dev_pct": round(worst, 2),
+    }
+
+
+def _detect_hunting(vals, lower, upper):
+    """Detect sustained cyclic oscillation (governor/AVR hunting) even when every
+    sample stays in band. Counts mean-crossings (with a small deadband to ignore
+    measurement noise) and checks peak-to-peak amplitude against the band width.
+    Returns ``{"cycles", "ptp"}`` when hunting is detected, else None."""
+    if len(vals) < 6:
+        return None
+    arr = vals.to_numpy(dtype=float)
+    band_w = upper - lower
+    if band_w <= 0:
+        return None
+    ptp = float(arr.max() - arr.min())
+    if ptp < _HUNT_PTP_BAND_FRAC * band_w:
+        return None
+    centered = arr - arr.mean()
+    dead = _HUNT_DEADBAND_FRAC * band_w
+    signs = np.where(centered > dead, 1, np.where(centered < -dead, -1, 0))
+    signs = signs[signs != 0]
+    if signs.size < 2:
+        return None
+    flips = int(np.sum(signs[1:] != signs[:-1]))
+    cycles = flips / 2.0
+    if cycles < _HUNT_MIN_CYCLES:
+        return None
+    return {"cycles": cycles, "ptp": ptp}
+
+
+def evaluate_steady_window(df_proc, start_ts, end_ts, config: AnalysisConfig,
+                           index=0, label=None):
+    """Evaluate one dwell window against the δ bands. Returns a flat dict (one
+    steady-state result row). Pass/Fail is driven purely by samples leaving the
+    δ band; hunting is reported separately as a qualitative flag."""
+    start_ts, end_ts = pd.Timestamp(start_ts), pd.Timestamp(end_ts)
+    nom_v, nom_f = config.nominal_voltage, config.nominal_frequency
+    v_half = nom_v * config.steady_voltage_band_pct / 100.0
+    f_half = nom_f * config.steady_freq_band_pct / 100.0
+    v_lower, v_upper = nom_v - v_half, nom_v + v_half
+    f_lower, f_upper = nom_f - f_half, nom_f + f_half
+
+    tcol = pd.to_datetime(df_proc["Timestamp"])
+    seg = df_proc[(tcol >= start_ts) & (tcol <= end_ts)]
+    duration = (end_ts - start_ts).total_seconds()
+
+    rec = {
+        "Window_Index": int(index),
+        "Start_Timestamp": start_ts,
+        "End_Timestamp": end_ts,
+        "Duration_s": round(duration, 1),
+        "n_samples": int(len(seg)),
+        "V_band_lower": round(v_lower, 2), "V_band_upper": round(v_upper, 2),
+        "F_band_lower": round(f_lower, 3), "F_band_upper": round(f_upper, 3),
+    }
+
+    # Load level (mean kW over the dwell) and % of rated when a rating is known.
+    kw = pd.to_numeric(seg["Avg_kW"], errors="coerce").dropna() if "Avg_kW" in seg.columns else pd.Series(dtype=float)
+    mean_kw = float(kw.mean()) if not kw.empty else None
+    rec["Mean_kW"] = round(mean_kw, 1) if mean_kw is not None else None
+    rated = getattr(config, "rated_load_kw", None)
+    auto_label = None
+    if mean_kw is not None and rated:
+        load_pct = mean_kw / float(rated) * 100.0
+        rec["Load_Pct"] = round(load_pct, 1)
+        nearest = min((25, 50, 75, 100), key=lambda x: abs(x - load_pct))
+        auto_label = f"{nearest}%" if abs(nearest - load_pct) <= 7 else f"{load_pct:.0f}%"
+    else:
+        rec["Load_Pct"] = None
+    # Explicit user label wins; otherwise the auto % label (may be None).
+    rec["Load_Label"] = label if label is not None else auto_label
+
+    v = pd.to_numeric(seg["Avg_Voltage_LL"], errors="coerce").dropna() if "Avg_Voltage_LL" in seg.columns else pd.Series(dtype=float)
+    f = pd.to_numeric(seg["Avg_Frequency"], errors="coerce").dropna() if "Avg_Frequency" in seg.columns else pd.Series(dtype=float)
+    rec.update(_band_stats(v, "V", v_lower, v_upper, nom_v))
+    rec.update(_band_stats(f, "F", f_lower, f_upper, nom_f))
+
+    reasons, status = [], "Pass"
+    if rec["V_n_out"] > 0:
+        status = "Fail"
+        reasons.append(f"Voltage out of δU band on {rec['V_n_out']} sample(s) (worst {rec['V_worst_dev_pct']:.2f}%)")
+    if rec["F_n_out"] > 0:
+        status = "Fail"
+        reasons.append(f"Frequency out of δf band on {rec['F_n_out']} sample(s) (worst {rec['F_worst_dev_pct']:.2f}%)")
+
+    v_hunt = _detect_hunting(v, v_lower, v_upper)
+    f_hunt = _detect_hunting(f, f_lower, f_upper)
+    hunt_reasons = []
+    if v_hunt:
+        hunt_reasons.append(f"Voltage oscillation ~{v_hunt['cycles']:.0f} cycles, p-p {v_hunt['ptp']:.1f} V")
+    if f_hunt:
+        hunt_reasons.append(f"Frequency oscillation ~{f_hunt['cycles']:.0f} cycles, p-p {f_hunt['ptp']:.2f} Hz")
+    rec["Hunting"] = bool(v_hunt or f_hunt)
+    rec["Hunting_Reasons"] = "; ".join(hunt_reasons)
+
+    rec["Status"] = status
+    rec["Failure_Reasons"] = "; ".join(reasons)
+    return rec
+
+
+def analyze_steady_state(df_proc, df_events, config: AnalysisConfig, windows=None):
+    """Evaluate generator steady-state stability against the ISO 8528-5 δ bands.
+
+    Separate from the transient/recovery analysis: it inspects the stable dwell
+    periods (every sample, on raw ``df_proc`` — never ``df_interp``) against the
+    tight δU / δf bands, NOT the α/β recovery bands. ``windows`` lets the caller
+    pass user-confirmed/edited dwell ranges (the hybrid confirm flow) as a list
+    of ``{"start", "end", "label"?, "index"?}`` dicts; when None they are
+    auto-detected via :func:`detect_steady_windows`. Returns a DataFrame with one
+    row per dwell window (empty DataFrame when none qualify).
+    """
+    if windows is None:
+        windows = detect_steady_windows(df_proc, df_events, config)
+    rows = [
+        evaluate_steady_window(
+            df_proc, w["start"], w["end"], config,
+            index=w.get("index", i), label=w.get("label"),
+        )
+        for i, w in enumerate(windows)
+    ]
+    return pd.DataFrame(rows)
 
 
 def perform_analysis(df, config: AnalysisConfig):

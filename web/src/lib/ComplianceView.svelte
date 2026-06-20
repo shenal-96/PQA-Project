@@ -12,6 +12,7 @@
   import EventCard from './EventCard.svelte';
   import ReportPanel from './ReportPanel.svelte';
   import IticChart from './IticChart.svelte';
+  import SteadyStatePanel from './SteadyStatePanel.svelte';
 
   // mode = 'csv' (Compliance tab) or 'winscope' (WinScope tab). The only
   // difference is the file type + which backend loader runs; everything below
@@ -213,6 +214,13 @@
       <div class="section-head"><span class="bar compliance"></span><h2>Compliance</h2></div>
       <ComplianceTable events={result.events} />
 
+      {#if config.steady_state_enabled && result.steady}
+        <div class="section-head">
+          <span class="bar steady"></span><h2>Steady-state (ISO 8528-5 δ bands)</h2>
+        </div>
+        <SteadyStatePanel windows={result.steady} {backend} {caps} />
+      {/if}
+
       {#if result.events.length}
         <div class="section-head">
           <span class="bar snapshots"></span><h2>Event snapshots</h2>
@@ -266,6 +274,7 @@
   .section-head { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
   .section-head .bar { width: 4px; height: 20px; border-radius: 2px; }
   .bar.plots { background: var(--cyan, #0891b2); } .bar.compliance { background: var(--blue); }
+  .bar.steady { background: #0d9488; }
   h2 { margin: 0; font-size: 1.1rem; }
   .tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--border); }
   .tab { background: none; border: none; padding: 9px 14px; font-size: 14px; color: var(--text-sub); border-bottom: 2px solid transparent; margin-bottom: -1px; }

@@ -2,7 +2,7 @@ import type { AnalysisBackend } from './AnalysisBackend';
 import type {
   AnalysisResult, Caps, CsvMeta, EcuRecording, EventOverride, EventRecord,
   IticData, MetricSeries, ReportRequest, ReportResult, SaveResult,
-  SetpointResult, SnapshotData, SnapshotOpts,
+  SetpointResult, SnapshotData, SnapshotOpts, SteadyWindow, SteadyWindowEdit,
 } from './types';
 
 declare global {
@@ -76,6 +76,10 @@ export class PyWebviewBackend implements AnalysisBackend {
 
   recalc(overrides: Record<number, EventOverride>): Promise<{ events: EventRecord[]; itic?: IticData }> {
     return this.api.recalc({ overrides }) as Promise<{ events: EventRecord[]; itic?: IticData }>;
+  }
+
+  recalcSteady(windows?: SteadyWindowEdit[]): Promise<{ steady: SteadyWindow[] }> {
+    return this.api.recalc_steady(windows ? { windows } : {}) as Promise<{ steady: SteadyWindow[] }>;
   }
 
   generateReport(req: ReportRequest): Promise<ReportResult> {

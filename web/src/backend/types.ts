@@ -42,12 +42,44 @@ export interface IticData {
   y_max: number;
 }
 
+// One steady-state dwell window evaluated against the ISO 8528-5 δ bands
+// (core/analysis.evaluate_steady_window). Distinct from transient EventRecord.
+export interface SteadyWindow {
+  Window_Index: number;
+  Start_Timestamp: string;
+  End_Timestamp: string;
+  Duration_s: number;
+  n_samples: number;
+  Mean_kW: number | null;
+  Load_Pct: number | null;
+  Load_Label: string | null;
+  V_band_lower: number; V_band_upper: number;
+  V_min: number | null; V_max: number | null; V_mean: number | null;
+  V_n_out: number; V_pct_out: number | null; V_worst_dev_pct: number | null;
+  F_band_lower: number; F_band_upper: number;
+  F_min: number | null; F_max: number | null; F_mean: number | null;
+  F_n_out: number; F_pct_out: number | null; F_worst_dev_pct: number | null;
+  Hunting: boolean;
+  Hunting_Reasons: string;
+  Status: 'Pass' | 'Fail';
+  Failure_Reasons: string;
+}
+
+/** A user-confirmed/edited dwell window sent back to recalcSteady. */
+export interface SteadyWindowEdit {
+  start: string;
+  end: string;
+  label?: string | null;
+}
+
 export interface AnalysisResult {
   logger_format: string | null;
   n_rows: number;
   events: EventRecord[];
   metrics: Record<string, MetricSeries>;
   itic?: IticData;
+  // Present only when steady_state_enabled (ISO 8528-5 δ-band evaluation).
+  steady?: SteadyWindow[];
 }
 
 // --- Event snapshots -----------------------------------------------------------
