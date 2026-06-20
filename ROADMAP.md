@@ -93,6 +93,27 @@ python -m desktop.shell
 - `npm run check` 0 errors; `npm run build` succeeds.
 - New backend methods covered by a test; new contract fields stay JSON-serialisable.
 
+## Upstream Streamlit sync (IMPORTANT — the desktop was built from a fork point)
+The migration was ported from the live Streamlit app at commit **49580d1** (the
+branch's `app.py`/`analysis.py`/`visualizations.py` are that snapshot). The live
+app on **`main` keeps gaining features** — when matching/porting, diff against
+`origin/main`, not the branch copies:
+```bash
+git fetch origin main
+git log --oneline 49580d1..origin/main -- app.py analysis.py visualizations.py
+```
+- `core/analysis.py` and root `visualizations.py` are kept **byte-identical to the
+  fork**, so when the engine/renderer advance on `main` you can re-sync wholesale
+  (`git show origin/main:analysis.py > core/analysis.py`) and parity stays green
+  (verify with `pytest tests/`). Confirm the file is import-pure first (no `streamlit`).
+- **Synced so far:** `core/analysis.py` + `visualizations.py` → `main` (9438021).
+  Ported **ISO 8528-5 dual frequency bands** (main #26): engine `iso_8528_5_mode`
+  + β_f `freq_start_*` start band + §7 steady-state; UI toggle "Apply ISO dual
+  frequency bands"; β_f drawn on snapshots (cyan). Off by default = byte-identical.
+- **Still un-ported from `main`:** the Set Point **preset configurator** band-mode
+  machinery (`band_mode`/`beta_f_pct`/`alpha_f_pct`/`f_start_*`/`f_stop_*`, presets
+  auto-enabling ISO) — lands with the deferred Configure-Presets editor.
+
 ## Platform notes (Windows on ARM / Parallels)
 - WebView2 runtime ships with Windows 11. pywebview's WebView2 backend loads via
   **.NET + WinForms**, which is **not** installed by the pip wheels. On normal x64
