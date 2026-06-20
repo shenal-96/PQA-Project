@@ -11,6 +11,7 @@
   import ComplianceTable from './ComplianceTable.svelte';
   import EventCard from './EventCard.svelte';
   import ReportPanel from './ReportPanel.svelte';
+  import IticChart from './IticChart.svelte';
 
   // mode = 'csv' (Compliance tab) or 'winscope' (WinScope tab). The only
   // difference is the file type + which backend loader runs; everything below
@@ -132,7 +133,7 @@
     recalcing = true;
     try {
       const r = await backend.recalc(overrides);
-      result = { ...result, events: r.events };
+      result = { ...result, events: r.events, itic: r.itic ?? result.itic };
       await streamSnapshots();
     } catch (e) {
       error = String(e);
@@ -207,6 +208,11 @@
       <div class="section-head"><span class="bar compliance"></span><h2>Compliance</h2></div>
       <ComplianceTable events={result.events} />
 
+      {#if result.itic}
+        <div class="section-head"><span class="bar itic"></span><h2>ITIC (CBEMA) Curve</h2></div>
+        <IticChart itic={result.itic} />
+      {/if}
+
       {#if result.events.length}
         <div class="section-head">
           <span class="bar snapshots"></span><h2>Event snapshots</h2>
@@ -267,6 +273,7 @@
   .empty { display: grid; place-items: center; gap: 10px; padding: 80px 0; color: var(--text-sub); border: 2px dashed var(--border); border-radius: 12px; }
   .empty .bolt { font-size: 34px; opacity: 0.4; }
   .bar.snapshots { background: #9333ea; }
+  .bar.itic { background: var(--red, #dc2626); }
   .bar.reports { background: var(--green, #16a34a); }
   .muted { color: var(--text-sub); font-size: 12px; }
   .progress { height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }

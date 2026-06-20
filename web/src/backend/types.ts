@@ -27,11 +27,27 @@ export interface MetricSeries {
 
 export type EventRecord = Record<string, string | number | boolean | null>;
 
+// ITIC / CBEMA curve (from core/viz_dataprep.itic_curve).
+export interface IticEvent {
+  dur: number;
+  pct: number;
+  inside: boolean;
+}
+export interface IticData {
+  upper: number[][];   // [[duration_s, percent], ...] stepped envelope
+  lower: number[][];
+  events: IticEvent[];
+  x_min: number;
+  x_max: number;
+  y_max: number;
+}
+
 export interface AnalysisResult {
   logger_format: string | null;
   n_rows: number;
   events: EventRecord[];
   metrics: Record<string, MetricSeries>;
+  itic?: IticData;
 }
 
 // --- Event snapshots -----------------------------------------------------------

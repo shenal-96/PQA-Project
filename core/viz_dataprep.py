@@ -12,9 +12,15 @@ time-series). The snapshot window/marker math from ``visualizations.py``
 """
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from core.serialize import _cell
+
+# Snapshot plots are resampled to a fixed rate so the line has a consistent
+# density regardless of the logger's native sample rate.
+SNAPSHOT_PLOT_HZ = 5
+SNAPSHOT_PLOT_PERIOD = f"{int(1000 / SNAPSHOT_PLOT_HZ)}ms"  # 200ms = 5 points/second
 
 
 def detected_events_overlay(df_events: pd.DataFrame) -> list[dict]:
@@ -63,6 +69,28 @@ def _num(x):
     except (TypeError, ValueError):
         pass
     return float(x)
+
+
+def _resample_plot(win):
+    """Resample a snapshot window to SNAPSHOT_PLOT_HZ (5 points/second).
+
+    Bins the numeric columns onto a fixed 200 ms grid and linearly interpolates
+    (filling the leading/trailing edges) so the snapshot line is drawn at a
+    consistent density whatever the logger's native rate. Purely cosmetic — the
+    compliance numbers come from analysis, never from this resampled frame.
+    """
+    if win is None or win.empty or "Timestamp" not in win.columns:
+        return win
+    num = list(win.select_dtypes(include="number").columns)
+    if not num:
+        return win
+    out = (
+        win.set_index("Timestamp")[num]
+        .resample(SNAPSHOT_PLOT_PERIOD).mean()
+        .interpolate(method="linear", limit_direction="both")
+        .reset_index()
+    )
+    return out
 
 
 def _panel(win, col, label, color) -> dict:
@@ -156,6 +184,7 @@ def snapshot_data(df_proc, event_row, config, window_s=None, time_offset_s=0.0,
     lo = event_ts - pd.Timedelta(seconds=left_s)
     hi = event_ts + pd.Timedelta(seconds=right_s)
     win = df_proc[(df_proc["Timestamp"] >= lo) & (df_proc["Timestamp"] <= hi)]
+    win = _resample_plot(win)  # 5 data points/second
 
     dkw = _num(get("dKw")) or 0.0
     direction = "increase" if dkw > 0 else "decrease"
@@ -178,4 +207,75 @@ def snapshot_data(df_proc, event_row, config, window_s=None, time_offset_s=0.0,
         "dKw": dkw,
         "direction": direction,
         "panels": panels,
+    }
+
+
+# --- ITIC / CBEMA curve ---------------------------------------------------------
+# Standard ITIC envelope (% of nominal voltage vs event duration in seconds).
+# Each tuple = (start_s, end_s, percent); vertical steps are implicit at segment
+# boundaries. Mirrors visualizations.plot_itic_curve (kept here as pure data so
+# core stays matplotlib-free).
+_ITIC_UPPER = [
+    (1e-4, 1e-3, 500),
+    (1e-3, 3e-3, 200),
+    (3e-3, 0.5, 140),
+    (0.5, 10, 120),
+    (10, 1e3, 110),
+]
+_ITIC_LOWER = [
+    (1e-4, 0.02, 0),
+    (0.02, 0.5, 70),
+    (0.5, 10, 80),
+    (10, 1e3, 90),
+]
+
+
+def _itic_envelope_at(x_s, segments):
+    for a, b, y in segments:
+        if a <= x_s <= b:
+            return y
+    if x_s < segments[0][0]:
+        return segments[0][2]
+    return segments[-1][2]
+
+
+def _itic_polyline(segments):
+    """Stepped segment list -> [[x, y], ...] polyline (with vertical risers)."""
+    out: list[list[float]] = []
+    for i, (a, b, y) in enumerate(segments):
+        out.append([float(a), float(y)])
+        out.append([float(b), float(y)])
+        if i + 1 < len(segments):
+            out.append([float(b), float(segments[i + 1][2])])  # riser to next level
+    return out
+
+
+def itic_curve(df_events, nominal_voltage, x_min=1e-3, x_max=1e3, y_max=250.0) -> dict:
+    """JSON-serialisable ITIC (CBEMA) curve: envelopes + classified event points.
+
+    Each plottable event (one with V_exit_ts, V_rec_s and V_dev) becomes a point at
+    ``(V_rec_s, V_dev / nominal * 100)`` flagged ``inside`` when it sits within the
+    ITIC envelope. Matches visualizations.plot_itic_curve.
+    """
+    nom = float(nominal_voltage) if nominal_voltage else 415.0
+    events: list[dict] = []
+    if df_events is not None and not df_events.empty and \
+            {"V_dev", "V_rec_s", "V_exit_ts"}.issubset(df_events.columns):
+        mask = (df_events["V_exit_ts"].notna() & df_events["V_rec_s"].notna()
+                & df_events["V_dev"].notna())
+        for _, row in df_events.loc[mask].iterrows():
+            dur = float(row["V_rec_s"])
+            pct = float(row["V_dev"]) / nom * 100.0
+            if dur <= 0 or not np.isfinite(dur) or not np.isfinite(pct):
+                continue
+            upper = _itic_envelope_at(dur, _ITIC_UPPER)
+            lower = _itic_envelope_at(dur, _ITIC_LOWER)
+            events.append({"dur": dur, "pct": pct, "inside": bool(lower <= pct <= upper)})
+    return {
+        "upper": _itic_polyline(_ITIC_UPPER),
+        "lower": _itic_polyline(_ITIC_LOWER),
+        "events": events,
+        "x_min": float(x_min),
+        "x_max": float(x_max),
+        "y_max": float(y_max),
     }

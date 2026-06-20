@@ -1,7 +1,7 @@
 import type { AnalysisBackend } from './AnalysisBackend';
 import type {
   AnalysisResult, Caps, CsvMeta, EcuRecording, EventOverride, EventRecord,
-  MetricSeries, ReportRequest, ReportResult,
+  IticData, MetricSeries, ReportRequest, ReportResult,
   SetpointResult, SnapshotData, SnapshotOpts,
 } from './types';
 import sampleResult from '../dev/sample_result.json';
@@ -50,8 +50,8 @@ export class MockBackend implements AnalysisBackend {
     return SNAPSHOTS[index];
   }
 
-  async recalc(_overrides: Record<number, EventOverride>): Promise<{ events: EventRecord[] }> {
-    return { events: RESULT.events };
+  async recalc(_overrides: Record<number, EventOverride>): Promise<{ events: EventRecord[]; itic?: IticData }> {
+    return { events: RESULT.events, itic: RESULT.itic };
   }
 
   // Reports need host Python (matplotlib + Chromium); not available in-browser.

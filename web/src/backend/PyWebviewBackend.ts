@@ -1,7 +1,7 @@
 import type { AnalysisBackend } from './AnalysisBackend';
 import type {
   AnalysisResult, Caps, CsvMeta, EcuRecording, EventOverride, EventRecord,
-  MetricSeries, ReportRequest, ReportResult, SaveResult,
+  IticData, MetricSeries, ReportRequest, ReportResult, SaveResult,
   SetpointResult, SnapshotData, SnapshotOpts,
 } from './types';
 
@@ -74,8 +74,8 @@ export class PyWebviewBackend implements AnalysisBackend {
     return this.api.snapshot({ index, ...opts }) as Promise<SnapshotData>;
   }
 
-  recalc(overrides: Record<number, EventOverride>): Promise<{ events: EventRecord[] }> {
-    return this.api.recalc({ overrides }) as Promise<{ events: EventRecord[] }>;
+  recalc(overrides: Record<number, EventOverride>): Promise<{ events: EventRecord[]; itic?: IticData }> {
+    return this.api.recalc({ overrides }) as Promise<{ events: EventRecord[]; itic?: IticData }>;
   }
 
   generateReport(req: ReportRequest): Promise<ReportResult> {

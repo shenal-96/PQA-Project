@@ -7,8 +7,9 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(_HERE))
 
+import pandas as pd                                 # noqa: E402
 import core.analysis as ca                          # noqa: E402
-from core.viz_dataprep import snapshot_data         # noqa: E402
+from core.viz_dataprep import snapshot_data, itic_curve  # noqa: E402
 
 FIXTURE = os.path.join(_HERE, "fixtures", "hioki_sample.csv")
 
@@ -64,3 +65,28 @@ def test_time_offset_skips_neighbour_clamp():
     base = snapshot_data(df_proc, df_events.iloc[1], cfg, event_index=1, time_offset_s=0.0)
     shifted = snapshot_data(df_proc, df_events.iloc[1], cfg, event_index=1, time_offset_s=-3.0)
     assert shifted["left_s"] > base["left_s"] - 1e-6  # more pre-event data shown
+
+
+def test_snapshot_resampled_to_5hz():
+    df_proc, df_events, cfg = _events()
+    snap = snapshot_data(df_proc, df_events.iloc[0], cfg, event_index=0)
+    ts = pd.to_datetime(snap["panels"]["voltage"]["timestamps"], format="ISO8601")
+    diffs = ts.to_series().diff().dropna().dt.total_seconds().round(3)
+    assert set(diffs.unique()) == {0.2}  # exactly 5 data points per second
+
+
+def test_itic_curve_shape_and_classification():
+    df_proc, df_events, cfg = _events()
+    itic = itic_curve(df_events, cfg.nominal_voltage)
+    assert itic["upper"] and itic["lower"]          # envelope polylines present
+    assert all(len(pt) == 2 for pt in itic["upper"])
+    assert len(itic["events"]) == 2                 # both hioki events are plottable
+    for e in itic["events"]:
+        assert set(e) == {"dur", "pct", "inside"}
+        assert isinstance(e["inside"], bool)
+
+
+def test_itic_curve_empty_events_still_has_envelope():
+    itic = itic_curve(pd.DataFrame(), 415.0)
+    assert itic["events"] == []
+    assert itic["upper"] and itic["lower"]          # the curve is always drawable

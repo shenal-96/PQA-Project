@@ -1,6 +1,6 @@
 import type {
   AnalysisResult, Caps, CsvMeta, EcuRecording, EventOverride, EventRecord,
-  MetricSeries, ReportRequest, ReportResult, SaveResult,
+  IticData, MetricSeries, ReportRequest, ReportResult, SaveResult,
   SetpointResult, SnapshotData, SnapshotOpts,
 } from './types';
 
@@ -22,7 +22,7 @@ export interface AnalysisBackend {
   /** 4-panel snapshot for one event (by positional index). */
   snapshot(index: number, opts?: SnapshotOpts): Promise<SnapshotData>;
   /** Apply per-event overrides and re-run compliance; returns updated events. */
-  recalc(overrides: Record<number, EventOverride>): Promise<{ events: EventRecord[] }>;
+  recalc(overrides: Record<number, EventOverride>): Promise<{ events: EventRecord[]; itic?: IticData }>;
 
   // ---- reports (gated on caps.canReport) -------------------------------------
   /** Build report artifacts (PDF/HTML/.docx) from the last analysis. */

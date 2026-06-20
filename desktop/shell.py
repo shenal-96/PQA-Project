@@ -117,6 +117,7 @@ class HostBridge:
         """Run the engine on the loaded CSV and return the JSON contract."""
         import core.analysis as ca
         from core.serialize import analysis_result
+        from core.viz_dataprep import itic_curve
 
         if self._df is None:
             raise RuntimeError("run_analysis called before load_csv")
@@ -130,8 +131,10 @@ class HostBridge:
         self._df_proc, self._df_events = ca.perform_analysis(self._df, cfg)
         self._df_events = self._df_events.reset_index(drop=True)  # positional == label for snapshot/recalc
         self._config = cfg
-        return analysis_result(self._df_proc, self._df_events,
-                               logger_format=self._df.attrs.get("logger_format"))
+        result = analysis_result(self._df_proc, self._df_events,
+                                 logger_format=self._df.attrs.get("logger_format"))
+        result["itic"] = itic_curve(self._df_events, cfg.nominal_voltage)
+        return result
 
     def metric_series(self, column: str) -> dict:
         """Return one processed-metric time-series for charting."""
@@ -217,6 +220,7 @@ class HostBridge:
         """Apply per-event overrides and re-run compliance; return updated events."""
         from core.recalc import apply_overrides, recompute_df_interp
         from core.serialize import events_to_records
+        from core.viz_dataprep import itic_curve
 
         if self._df_proc is None or self._df_events is None:
             raise RuntimeError("recalc called before run_analysis")
@@ -224,7 +228,10 @@ class HostBridge:
         df_interp = recompute_df_interp(
             self._df_proc, getattr(self._config, "skip_interpolation", False))
         self._df_events = apply_overrides(self._df_events, df_interp, self._config, overrides)
-        return {"events": events_to_records(self._df_events)}
+        return {
+            "events": events_to_records(self._df_events),
+            "itic": itic_curve(self._df_events, self._config.nominal_voltage),
+        }
 
     # ---- helpers ----------------------------------------------------------
     def _build_config(self, config: dict | None):
