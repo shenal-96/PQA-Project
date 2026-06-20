@@ -6,6 +6,7 @@
   import ComplianceView from './lib/ComplianceView.svelte';
   import SetPointView from './lib/SetPointView.svelte';
   import EcuPlotView from './lib/EcuPlotView.svelte';
+  import HelpDialog from './lib/HelpDialog.svelte';
 
   let backend = $state<AnalysisBackend | undefined>(undefined);
   let caps = $state<Caps | undefined>(undefined);
@@ -20,6 +21,7 @@
   ];
 
   let tab = $state<TabKey>('compliance');
+  let helpOpen = $state(false);
   // Lazy-mount each view on first visit, then keep it mounted (hidden) so its
   // state (loaded file, analysis, plots) survives tab switches.
   let mounted = $state<Record<TabKey, boolean>>({
@@ -48,8 +50,11 @@
         <button class="tab" class:active={tab === t.key} onclick={() => go(t.key)}>{t.label}</button>
       {/each}
     </div>
+    <button class="help-btn" onclick={() => (helpOpen = true)} title="Open the user guide">❔ Help</button>
     {#if caps}<span class="env">{caps.platform}</span>{/if}
   </nav>
+
+  {#if helpOpen}<HelpDialog onClose={() => (helpOpen = false)} />{/if}
 
   {#if ready}
     <div class="view" class:hidden={tab !== 'compliance'}>
@@ -100,6 +105,8 @@
   }
   .tab:hover { color: #e2e8f0; }
   .tab.active { color: #fff; border-bottom-color: var(--blue); font-weight: 600; }
+  .help-btn { align-self: center; background: #1e293b; color: #cbd5e1; border: none; font-size: 13px; padding: 6px 12px; border-radius: 8px; cursor: pointer; margin-right: 8px; }
+  .help-btn:hover { background: #334155; color: #fff; }
   .env { align-self: center; background: #1e293b; color: #94a3b8; font-size: 11px; padding: 2px 8px; border-radius: 999px; }
   .view { flex: 1; min-height: 0; overflow: hidden; }
   .view.hidden { display: none; }
