@@ -157,12 +157,105 @@ def _file_b64(path: str) -> str:
         return base64.b64encode(f.read()).decode("ascii")
 
 
+def _esc(value) -> str:
+    """Minimal HTML-escape for cell text."""
+    import html as _html
+    return _html.escape("" if value is None else str(value))
+
+
+def _fmt(value, dp: int = 2) -> str:
+    """Format a numeric cell to ``dp`` decimals; em-dash for missing."""
+    if value is None:
+        return "—"
+    try:
+        return f"{float(value):.{dp}f}"
+    except (TypeError, ValueError):
+        return _esc(value)
+
+
+def build_steady_table_html(df_steady) -> str:
+    """Render the steady-state (ISO 8528-5 δ band) results as a self-contained
+    HTML section, or ``""`` when there is nothing to show.
+
+    Returned as inline-styled HTML so it survives in the standalone HTML report
+    and the Chromium print-to-PDF without depending on the template's CSS. This
+    feeds the ``{{Steady_State_Table}}`` text placeholder (text, not an image),
+    so the heading lives in here and disappears entirely when there are no
+    dwell windows.
+    """
+    if df_steady is None or len(df_steady) == 0:
+        return ""
+
+    rows = df_steady.to_dict("records")
+    th = ('padding:6px 9px;border:1px solid #cbd5e1;background:#f1f5f9;'
+          'font-size:11px;text-transform:uppercase;letter-spacing:.04em;'
+          'color:#475569;text-align:left;')
+    td = "padding:6px 9px;border:1px solid #e2e8f0;font-size:12px;"
+    out: list[str] = [
+        '<div class="section-title">Steady-State Compliance (ISO 8528-5 δ bands)</div>',
+        '<table style="border-collapse:collapse;width:100%;margin:6px 0 14px;">',
+        "<thead><tr>"
+        f'<th style="{th}">Load</th>'
+        f'<th style="{th}">Dwell window</th>'
+        f'<th style="{th}">Dur (s)</th>'
+        f'<th style="{th}">V min/mean/max (V)</th>'
+        f'<th style="{th}">V out</th>'
+        f'<th style="{th}">F min/mean/max (Hz)</th>'
+        f'<th style="{th}">F out</th>'
+        f'<th style="{th}">Result</th>'
+        "</tr></thead><tbody>",
+    ]
+
+    def _ts(value) -> str:
+        return _esc(value).replace("T", " ").split(".")[0]
+
+    for r in rows:
+        is_fail = str(r.get("Status")) == "Fail"
+        row_bg = "background:#fef2f2;" if is_fail else ""
+        status_css = ("background:#fee2e2;color:#b91c1c;" if is_fail
+                      else "background:#dcfce7;color:#15803d;")
+        v_out = int(r.get("V_n_out") or 0)
+        f_out = int(r.get("F_n_out") or 0)
+        v_out_txt = f"{v_out} ({_fmt(r.get('V_pct_out'))}%)" if v_out else "0"
+        f_out_txt = f"{f_out} ({_fmt(r.get('F_pct_out'))}%)" if f_out else "0"
+        badge = (f'<span style="padding:1px 8px;border-radius:999px;font-weight:600;'
+                 f'font-size:11px;{status_css}">{_esc(r.get("Status"))}</span>')
+        if r.get("Hunting"):
+            badge += ('<span style="padding:1px 8px;border-radius:999px;margin-left:4px;'
+                      'background:#fffbeb;color:#b45309;font-size:11px;">⚠ Hunting</span>')
+        notes = []
+        if r.get("Failure_Reasons"):
+            notes.append(_esc(r["Failure_Reasons"]))
+        if r.get("Hunting_Reasons"):
+            notes.append("⚠ " + _esc(r["Hunting_Reasons"]))
+        out.append(
+            f'<tr style="{row_bg}">'
+            f'<td style="{td}">{_esc(r.get("Load_Label") or "—")}</td>'
+            f'<td style="{td}font-family:monospace;font-size:11px;">{_ts(r.get("Start_Timestamp"))}<br>{_ts(r.get("End_Timestamp"))}</td>'
+            f'<td style="{td}font-family:monospace;">{_fmt(r.get("Duration_s"), 1)}</td>'
+            f'<td style="{td}font-family:monospace;">{_fmt(r.get("V_min"))} / {_fmt(r.get("V_mean"))} / {_fmt(r.get("V_max"))}</td>'
+            f'<td style="{td}font-family:monospace;">{v_out_txt}</td>'
+            f'<td style="{td}font-family:monospace;">{_fmt(r.get("F_min"), 3)} / {_fmt(r.get("F_mean"), 3)} / {_fmt(r.get("F_max"), 3)}</td>'
+            f'<td style="{td}font-family:monospace;">{f_out_txt}</td>'
+            f'<td style="{td}">{badge}</td>'
+            "</tr>"
+        )
+        if notes:
+            out.append(
+                f'<tr style="{row_bg}"><td colspan="8" '
+                f'style="{td}color:#64748b;font-size:11px;">{" · ".join(notes)}</td></tr>'
+            )
+
+    out.append("</tbody></table>")
+    return "\n".join(out)
+
+
 def _strip_unused_image_placeholders(html: str) -> str:
     """Remove leftover image ``{{...}}`` tokens that had no rendered file."""
     return _UNUSED_IMAGE_PLACEHOLDER.sub("", html)
 
 
-def build_report(df_raw, df_proc, df_events, config, params, *, work_dir=None) -> dict:
+def build_report(df_raw, df_proc, df_events, config, params, *, df_steady=None, work_dir=None) -> dict:
     """Build the requested report artifacts from a completed analysis.
 
     ``params`` (a single JSON object across the bridge)::
@@ -225,6 +318,10 @@ def build_report(df_raw, df_proc, df_events, config, params, *, work_dir=None) -
             graph_dir=img["graph_dir"], snapshot_dir=img["snapshot_dir"],
             image_dir=img["image_dir"],
         )
+        # Steady-state (ISO 8528-5 δ bands) table — a text/HTML placeholder, so
+        # it is always set (to "" when there is no steady-state data) and never
+        # leaks literal {{braces}} into the rendered report.
+        p_map["{{Steady_State_Table}}"] = build_steady_table_html(df_steady)
 
         # Warn when the template can't fit every detected event's snapshot.
         n_events = 0 if df_events is None else len(df_events)

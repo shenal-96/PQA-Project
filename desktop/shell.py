@@ -190,8 +190,10 @@ class HostBridge:
 
         if self._df is None or self._df_proc is None or self._df_events is None:
             raise RuntimeError("generate_report called before run_analysis")
+        # Pass the cached steady-state frame so the report reflects any
+        # user-confirmed/edited dwell windows (recalc_steady), not a re-detect.
         return build_report(self._df, self._df_proc, self._df_events, self._config,
-                            params or {})
+                            params or {}, df_steady=self._df_steady)
 
     def save_dialog(self, params: dict | None = None) -> dict:
         """Write base64 ``data_b64`` to a path chosen via the native Save dialog.

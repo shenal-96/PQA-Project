@@ -65,6 +65,26 @@
     intersections: config.show_intersections,
     extreme: config.show_max_deviation,
   });
+  // δ band + dwell windows to overlay on the V/F time-series when steady-state
+  // is enabled (only for the two metrics the δ bands apply to).
+  const steadyBand = $derived.by(() => {
+    if (!config.steady_state_enabled || !result?.steady) return undefined;
+    if (selected === 'Avg_Voltage_LL') {
+      const h = (config.nominal_voltage * config.steady_voltage_band_pct) / 100;
+      return { lower: config.nominal_voltage - h, upper: config.nominal_voltage + h };
+    }
+    if (selected === 'Avg_Frequency') {
+      const h = (config.nominal_frequency * config.steady_freq_band_pct) / 100;
+      return { lower: config.nominal_frequency - h, upper: config.nominal_frequency + h };
+    }
+    return undefined;
+  });
+  const steadyWindows = $derived(
+    steadyBand && result?.steady
+      ? result.steady.map((w) => ({ start: String(w.Start_Timestamp), end: String(w.End_Timestamp) }))
+      : undefined,
+  );
+
   const stepsWarning = $derived(
     result && config.expected_steps != null && result.events.length !== config.expected_steps
       ? `Detected ${result.events.length} event(s) but ${config.expected_steps} were expected.`
@@ -203,7 +223,7 @@
         {/each}
       </section>
       {#if result.metrics[selected]}
-        <TimeSeriesChart series={result.metrics[selected]} label={metricLabel(selected)} color={METRIC_COLORS[selected] ?? '#2563eb'} />
+        <TimeSeriesChart series={result.metrics[selected]} label={metricLabel(selected)} color={METRIC_COLORS[selected] ?? '#2563eb'} band={steadyBand} windows={steadyWindows} />
       {/if}
 
       {#if result.itic}

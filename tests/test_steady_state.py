@@ -151,6 +151,23 @@ def test_bridge_includes_steady_when_enabled():
         assert isinstance(w["Start_Timestamp"], str)   # JSON-safe ISO string
 
 
+def test_report_steady_table_html():
+    from desktop.report_host import build_steady_table_html
+
+    assert build_steady_table_html(None) == ""
+    assert build_steady_table_html(pd.DataFrame()) == ""
+
+    v = np.full(60, 415.0)
+    v[30] = 440.0
+    df = _frame(60, v=v)
+    steady = ca.analyze_steady_state(df, pd.DataFrame(), _cfg(rated_load_kw=500))
+    html = build_steady_table_html(steady)
+    assert "Steady-State Compliance" in html
+    assert "<table" in html and "</table>" in html
+    assert "Fail" in html                      # the out-of-band window
+    assert "50%" in html                       # rated-load label
+
+
 def test_recalc_steady_uses_supplied_windows():
     bridge = _bridge_with_csv()
     bridge.run_analysis({"steady_state_enabled": True, "steady_dwell_min_s": 5,
