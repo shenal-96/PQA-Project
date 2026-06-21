@@ -1,9 +1,10 @@
-"""Local, persistent usage logging for the PQA desktop app.
+"""Local, persistent usage + error logging for the PQA desktop app.
 
 Tracks lightweight per-user usage counters — **analyses run**, **reports
 generated**, and **time spent in the app** — in a small JSON file on the local
-machine. Nothing leaves the device; this is purely a local record the owner can
-inspect.
+machine, plus an append-only **error/crash log** (with tracebacks) in a sibling
+``error_log.jsonl``. Nothing leaves the device; this is purely a local record the
+owner can inspect.
 
 **Where it lives (and why it survives updates).** The log is written to the
 per-user *application-data* directory, **not** the install directory. On Windows
@@ -35,13 +36,20 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 from datetime import datetime, timezone
 
 log = logging.getLogger(__name__)
 
 _SCHEMA_VERSION = 1
 _LOG_FILENAME = "usage_log.json"
+_ERROR_LOG_FILENAME = "error_log.jsonl"
 _APP_DIR_NAME = "PQA"
+
+# Cap the append-only error log so it can't grow without bound. When it exceeds
+# this size we keep the most recent ``_ERROR_LOG_KEEP_LINES`` entries.
+_ERROR_LOG_MAX_BYTES = 1_000_000
+_ERROR_LOG_KEEP_LINES = 500
 
 # Serialises every read-modify-write so concurrent callers (the bridge counters
 # and the background session-time flush) never corrupt the file.
@@ -88,6 +96,11 @@ def data_dir() -> str:
 def log_path() -> str:
     """Absolute path to the usage-log JSON file."""
     return os.path.join(data_dir(), _LOG_FILENAME)
+
+
+def error_log_path() -> str:
+    """Absolute path to the append-only error/crash JSONL file."""
+    return os.path.join(data_dir(), _ERROR_LOG_FILENAME)
 
 
 def _current_user() -> str:
@@ -207,6 +220,124 @@ def read_usage() -> dict:
     except Exception as exc:  # noqa: BLE001
         log.debug("usage log read failed: %s", exc)
         return {"version": _SCHEMA_VERSION, "users": {}}
+
+
+# --- error / crash logging -------------------------------------------------
+def _append_error(entry: dict) -> None:
+    """Append one JSON entry to the error log, rotating if it grew too large."""
+    try:
+        with _LOCK:
+            path = error_log_path()
+            # Rotate: if the file is over the cap, keep only the most recent lines.
+            try:
+                if os.path.getsize(path) > _ERROR_LOG_MAX_BYTES:
+                    with open(path, "r", encoding="utf-8") as f:
+                        lines = f.readlines()
+                    kept = lines[-_ERROR_LOG_KEEP_LINES:]
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.writelines(kept)
+            except FileNotFoundError:
+                pass
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, sort_keys=True) + "\n")
+            # Keep a rolling count of errors on the user's usage record too, so
+            # usage_summary surfaces "this user has hit N errors" at a glance.
+            _bump(entry.get("user"), errors_logged=1)
+    except Exception as exc:  # noqa: BLE001 — error logging must never raise
+        log.debug("error log append failed: %s", exc)
+
+
+def log_error(category: str, message: str, user: str | None = None, **details) -> None:
+    """Record a handled error (no traceback) in the local error log.
+
+    ``category`` is a short bucket (e.g. ``"csv_format_invalid"``); ``message``
+    is human-readable; ``details`` are extra JSON-safe context fields.
+    """
+    _append_error({
+        "timestamp": _now_iso(),
+        "user": user or _current_user(),
+        "type": "error",
+        "category": str(category),
+        "message": str(message)[:2000],
+        "details": {k: str(v)[:500] for k, v in details.items()},
+    })
+
+
+def log_crash(exc: BaseException, context: str = "", user: str | None = None) -> None:
+    """Record an exception with its full traceback in the local error log."""
+    try:
+        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    except Exception:  # noqa: BLE001 — formatting a broken exc must not re-raise
+        tb = repr(exc)
+    _append_error({
+        "timestamp": _now_iso(),
+        "user": user or _current_user(),
+        "type": "crash",
+        "error_type": type(exc).__name__,
+        "message": str(exc)[:2000],
+        "context": str(context)[:500],
+        "traceback": tb[:8000],
+    })
+
+
+def read_errors(limit: int = 100) -> list[dict]:
+    """Return the most recent error/crash entries (newest last), up to ``limit``."""
+    try:
+        with _LOCK:
+            with open(error_log_path(), "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        out = []
+        for line in lines[-int(limit):]:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return out
+    except FileNotFoundError:
+        return []
+    except Exception as exc:  # noqa: BLE001
+        log.debug("error log read failed: %s", exc)
+        return []
+
+
+def install_global_handlers() -> None:
+    """Install ``sys.excepthook`` + ``threading.excepthook`` wrappers.
+
+    Uncaught exceptions on the main thread or in worker threads (e.g. the
+    session-timer daemon) are logged to the local crash log before the prior
+    hook runs, so a real crash leaves a record the owner can inspect. Re-running
+    this is safe — it chains onto whatever hook is currently installed.
+    """
+    try:
+        prev_hook = sys.excepthook
+
+        def _hook(exc_type, exc, tb):
+            try:
+                log_crash(exc if isinstance(exc, BaseException) else Exception(str(exc)),
+                          context="sys.excepthook")
+            finally:
+                prev_hook(exc_type, exc, tb)
+
+        sys.excepthook = _hook
+    except Exception as exc:  # noqa: BLE001
+        log.debug("failed to install sys.excepthook: %s", exc)
+
+    try:
+        prev_thread_hook = threading.excepthook
+
+        def _thread_hook(args):
+            try:
+                if args.exc_value is not None:
+                    log_crash(args.exc_value, context=f"thread:{args.thread.name}")
+            finally:
+                prev_thread_hook(args)
+
+        threading.excepthook = _thread_hook
+    except Exception as exc:  # noqa: BLE001
+        log.debug("failed to install threading.excepthook: %s", exc)
 
 
 # --- session timer ---------------------------------------------------------

@@ -92,6 +92,63 @@ def test_session_timer_records_session_and_time(tmp_log, monkeypatch):
     assert rec["active_seconds"] == pytest.approx(30.0)
 
 
+def test_log_error_writes_jsonl_and_counts(tmp_log):
+    usage_log.log_error("csv_format_invalid", "missing Freq column", filename="x.csv")
+    entries = usage_log.read_errors()
+    assert len(entries) == 1
+    e = entries[0]
+    assert e["type"] == "error"
+    assert e["category"] == "csv_format_invalid"
+    assert e["message"] == "missing Freq column"
+    assert e["details"]["filename"] == "x.csv"
+    # rolling error count lands on the usage record too
+    assert usage_log.read_usage()["users"]["tester"]["errors_logged"] == 1
+
+
+def test_log_crash_captures_traceback(tmp_log):
+    try:
+        raise ValueError("boom")
+    except ValueError as exc:
+        usage_log.log_crash(exc, context="unit-test")
+    entries = usage_log.read_errors()
+    assert len(entries) == 1
+    e = entries[0]
+    assert e["type"] == "crash"
+    assert e["error_type"] == "ValueError"
+    assert e["message"] == "boom"
+    assert e["context"] == "unit-test"
+    assert "ValueError: boom" in e["traceback"]
+
+
+def test_read_errors_respects_limit_and_order(tmp_log):
+    for i in range(5):
+        usage_log.log_error("cat", f"msg{i}")
+    last2 = usage_log.read_errors(limit=2)
+    assert [e["message"] for e in last2] == ["msg3", "msg4"]
+
+
+def test_error_log_rotates_when_oversized(tmp_log, monkeypatch):
+    monkeypatch.setattr(usage_log, "_ERROR_LOG_MAX_BYTES", 200)
+    monkeypatch.setattr(usage_log, "_ERROR_LOG_KEEP_LINES", 3)
+    for i in range(50):
+        usage_log.log_error("cat", f"message-number-{i}")
+    entries = usage_log.read_errors(limit=1000)
+    # rotation kept only a small tail, and the newest entry survived
+    assert len(entries) <= 4
+    assert entries[-1]["message"] == "message-number-49"
+
+
+def test_bridge_logs_crash_and_reraises(tmp_log):
+    from desktop.shell import HostBridge
+
+    bridge = HostBridge()
+    with pytest.raises(RuntimeError):
+        bridge.run_analysis({})  # no CSV loaded -> RuntimeError, logged then re-raised
+
+    errors = bridge.recent_errors()["errors"]
+    assert any(e["type"] == "crash" and e["context"] == "run_analysis" for e in errors)
+
+
 def test_bridge_increments_on_analysis_and_report(tmp_log):
     import base64
 

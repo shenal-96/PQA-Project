@@ -13,11 +13,29 @@ from __future__ import annotations
 
 import base64
 import dataclasses
+import functools
 import io
 import os
 import sys
 
 from desktop import usage_log
+
+
+def _logged(method):
+    """Wrap a bridge method so any exception is recorded in the local crash log.
+
+    The exception is re-raised unchanged so the frontend still sees the error;
+    we just leave a durable record (with traceback) in ``error_log.jsonl`` first.
+    Logging is best-effort and never masks the original failure.
+    """
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        except Exception as exc:  # noqa: BLE001 — log then re-raise
+            usage_log.log_crash(exc, context=method.__name__)
+            raise
+    return wrapper
 
 
 class HostBridge:
@@ -49,7 +67,17 @@ class HostBridge:
         """
         return usage_log.read_usage()
 
+    def recent_errors(self, params: dict | None = None) -> dict:
+        """Return the most recent local error/crash log entries (with tracebacks).
+
+        Read-only view of ``%APPDATA%\\PQA\\error_log.jsonl``. ``params`` may
+        carry ``{"limit": int}`` (default 100). Nothing leaves the machine.
+        """
+        limit = int((params or {}).get("limit", 100))
+        return {"errors": usage_log.read_errors(limit)}
+
     # ---- CSV ingest -------------------------------------------------------
+    @_logged
     def load_csv(self, params: dict | None = None) -> dict:
         """Load a CSV and validate it.
 
@@ -85,6 +113,7 @@ class HostBridge:
         }
 
     # ---- WinScope XLS ingest ---------------------------------------------
+    @_logged
     def load_winscope(self, params: dict | None = None) -> dict:
         """Load a WinScope ``.xls`` export and validate it (mirrors ``load_csv``).
 
@@ -114,17 +143,20 @@ class HostBridge:
         }
 
     # ---- Set Point comparison + ECU recordings ---------------------------
+    @_logged
     def compare_setpoint(self, params: dict | None = None) -> dict:
         """Diff 2+ ECU parameter files (XLS/XLSX or ComAp CSV)."""
         from desktop.xls_host import compare_setpoint
         return compare_setpoint(params or {})
 
+    @_logged
     def ecu_recording(self, params: dict | None = None) -> dict:
         """Read an ECU recording XLS/XLSX into grouped, JSON-safe time series."""
         from desktop.xls_host import load_ecu_recording_data
         return load_ecu_recording_data(params or {})
 
     # ---- analysis ---------------------------------------------------------
+    @_logged
     def run_analysis(self, config: dict | None = None) -> dict:
         """Run the engine on the loaded CSV and return the JSON contract."""
         import core.analysis as ca
@@ -149,6 +181,7 @@ class HostBridge:
         result["itic"] = itic_curve(self._df_events, cfg.nominal_voltage)
         return result
 
+    @_logged
     def metric_series(self, column: str) -> dict:
         """Return one processed-metric time-series for charting."""
         from core.serialize import metric_series
@@ -158,6 +191,7 @@ class HostBridge:
         return metric_series(self._df_proc, column)
 
     # ---- event snapshots --------------------------------------------------
+    @_logged
     def snapshot(self, params: dict | None = None) -> dict:
         """Return the 4-panel snapshot data for one event (by positional index)."""
         from core.viz_dataprep import snapshot_data
@@ -185,6 +219,7 @@ class HostBridge:
         from desktop.report_host import default_html_template
         return {"template": default_html_template()}
 
+    @_logged
     def generate_report(self, params: dict | None = None) -> dict:
         """Build report artifacts (PDF/HTML/.docx) from the last analysis.
 
@@ -231,6 +266,7 @@ class HostBridge:
             return {"path": None, "error": str(exc)}
 
     # ---- per-event overrides + recalculate --------------------------------
+    @_logged
     def recalc(self, params: dict | None = None) -> dict:
         """Apply per-event overrides and re-run compliance; return updated events."""
         from core.recalc import apply_overrides, recompute_df_interp
@@ -287,6 +323,10 @@ def main() -> None:
     # trying to load coreclr. Set before any pywebview/pythonnet import.
     if sys.platform == "win32":
         os.environ.setdefault("PYTHONNET_RUNTIME", "netfx")
+
+    # Record uncaught exceptions (main thread + worker threads) to the local
+    # crash log before the app goes down, so failures leave an inspectable trail.
+    usage_log.install_global_handlers()
 
     import webview  # lazy: only needed to actually open a window
 

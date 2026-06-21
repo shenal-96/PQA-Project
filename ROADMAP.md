@@ -128,28 +128,38 @@ git log --oneline main..origin/streamlit-legacy -- analysis.py visualizations.py
   `os.environ.setdefault("PYTHONNET_RUNTIME","netfx")` into `desktop/shell.py` on
   Windows, and have the M5 installer provision the .NET Desktop Runtime.
 
-## Local usage logging (`desktop/usage_log.py`)
-Lightweight, **fully local** per-user usage record — **analyses run**, **reports
-generated**, and **time spent in the app** (hours). Nothing leaves the machine.
-- **Storage that survives updates:** the log is written to the per-user app-data
-  dir (`%APPDATA%\PQA\usage_log.json` on Windows; `~/Library/Application Support/PQA`
-  on macOS; `$XDG_DATA_HOME/PQA` or `~/.local/share/PQA` on Linux), **not** the
-  install dir. `Program Files` is replaced wholesale on every Inno Setup update, so
-  anything stored there would be wiped — app-data is owned by the user and left
-  untouched by installs/uninstalls, so the tally accumulates across versions. Set
+## Local usage + error logging (`desktop/usage_log.py`)
+Lightweight, **fully local** per-user records — usage counters **and** an
+error/crash log. Nothing leaves the machine.
+- **Two files in the per-user data dir:**
+  - `usage_log.json` — per-user counters: **analyses run**, **reports generated**,
+    **time spent** (`active_seconds`/`active_hours`), `sessions`, `errors_logged`,
+    `first_seen`/`last_seen`.
+  - `error_log.jsonl` — append-only error/crash entries (handled errors via
+    `log_error`, plus uncaught exceptions with full tracebacks via `log_crash`).
+    Size-capped (≈1 MB → keeps the last 500 entries).
+- **Storage that survives updates:** both live in the per-user app-data dir
+  (`%APPDATA%\PQA` on Windows; `~/Library/Application Support/PQA` on macOS;
+  `$XDG_DATA_HOME/PQA` or `~/.local/share/PQA` on Linux), **not** the install dir.
+  `Program Files` is replaced wholesale on every Inno Setup update, so anything
+  stored there would be wiped — app-data is owned by the user and left untouched by
+  installs/uninstalls, so the history accumulates across versions. Set
   `PQA_DATA_DIR` to override (the tests do).
 - **Keyed by OS user** (`getpass.getuser()`) so a shared machine tallies per account.
 - **Wiring:** `HostBridge.run_analysis` → `record_analysis_run`,
   `HostBridge.generate_report` → `record_report_generated`; `main()` runs a
-  `SessionTimer` (daemon thread, 60 s flush + flush on window close) for app time.
-  `HostBridge.usage_summary()` exposes the tally to the UI (read-only, adds
-  `active_hours`).
+  `SessionTimer` (daemon thread, 60 s flush + flush on window close) for app time
+  and calls `install_global_handlers()` (wraps `sys.excepthook` +
+  `threading.excepthook` → `log_crash`). Every real-work bridge method is wrapped
+  with `@_logged`, which records the exception (with traceback) then re-raises it
+  unchanged. Read-only views: `HostBridge.usage_summary()` and
+  `HostBridge.recent_errors({"limit": N})`.
 - **Safety posture mirrors the old `tracking.py`:** every call swallows its own
-  exceptions and degrades to a no-op; writes are atomic (temp + `os.replace`) under
-  a process lock; a corrupt file is treated as empty rather than fatal. Logging must
-  never crash or block the app.
+  exceptions and degrades to a no-op; usage writes are atomic (temp + `os.replace`)
+  under a process lock; a corrupt file is treated as empty rather than fatal.
+  Logging must never crash or block the app.
 - A `conftest.py` autouse fixture redirects `PQA_DATA_DIR` to a tmp dir so tests
-  never touch the developer's real usage file.
+  never touch the developer's real usage/error files.
 
 ## Conventions
 - Commit messages end with the Co-Authored-By + Claude-Session trailers (see existing commits).
