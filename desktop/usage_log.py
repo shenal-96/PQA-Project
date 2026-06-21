@@ -44,7 +44,12 @@ log = logging.getLogger(__name__)
 _SCHEMA_VERSION = 1
 _LOG_FILENAME = "usage_log.json"
 _ERROR_LOG_FILENAME = "error_log.jsonl"
+_PENDING_CRASH_FILENAME = "pending_crash.json"
 _APP_DIR_NAME = "PQA"
+
+# Where crash reports are emailed. The app is fully offline, so reporting opens
+# the user's own mail client (mailto:) pre-addressed here — no SMTP, no network.
+DEVELOPER_EMAIL = "sperera@penskeanz.com"
 
 # Cap the append-only error log so it can't grow without bound. When it exceeds
 # this size we keep the most recent ``_ERROR_LOG_KEEP_LINES`` entries.
@@ -103,6 +108,11 @@ def error_log_path() -> str:
     return os.path.join(data_dir(), _ERROR_LOG_FILENAME)
 
 
+def _pending_crash_path() -> str:
+    """Absolute path to the unreported-crash marker file."""
+    return os.path.join(data_dir(), _PENDING_CRASH_FILENAME)
+
+
 def _current_user() -> str:
     try:
         return getpass.getuser() or "unknown"
@@ -139,10 +149,9 @@ def _read_raw() -> dict:
         return {"version": _SCHEMA_VERSION, "users": {}}
 
 
-def _write_atomic(data: dict) -> None:
-    """Write ``data`` to the log file atomically (temp file + replace)."""
-    path = log_path()
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".usage_", suffix=".tmp")
+def _write_json(path: str, data: dict) -> None:
+    """Write ``data`` to ``path`` atomically (temp file + replace)."""
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".pqa_", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, sort_keys=True)
@@ -153,6 +162,11 @@ def _write_atomic(data: dict) -> None:
         except OSError:
             pass
         raise
+
+
+def _write_atomic(data: dict) -> None:
+    """Write ``data`` to the usage-log file atomically."""
+    _write_json(log_path(), data)
 
 
 def _bump(user: str | None = None, **deltas) -> None:
@@ -263,8 +277,14 @@ def log_error(category: str, message: str, user: str | None = None, **details) -
     })
 
 
-def log_crash(exc: BaseException, context: str = "", user: str | None = None) -> None:
-    """Record an exception with its full traceback in the local error log."""
+def log_crash(exc: BaseException, context: str = "", user: str | None = None,
+              uncaught: bool = False) -> None:
+    """Record an exception with its full traceback in the local error log.
+
+    When ``uncaught`` is true (an app-killing exception caught by the global
+    hooks) a *pending-crash* marker is also written so the next launch can offer
+    to email the report to the developer.
+    """
     try:
         tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
     except Exception:  # noqa: BLE001 — formatting a broken exc must not re-raise
@@ -278,6 +298,101 @@ def log_crash(exc: BaseException, context: str = "", user: str | None = None) ->
         "context": str(context)[:500],
         "traceback": tb[:8000],
     })
+    if uncaught:
+        _mark_pending_crash(type(exc).__name__, str(exc), context, user)
+
+
+# --- pending-crash marker (offer to email on next launch) ------------------
+def _mark_pending_crash(error_type: str, message: str, context: str,
+                        user: str | None) -> None:
+    """Record that an unreported app crash occurred (cleared once emailed)."""
+    try:
+        with _LOCK:
+            _write_json(_pending_crash_path(), {
+                "timestamp": _now_iso(),
+                "user": user or _current_user(),
+                "error_type": str(error_type),
+                "message": str(message)[:2000],
+                "context": str(context)[:500],
+            })
+    except Exception as exc:  # noqa: BLE001 — never raise from a crash handler
+        log.debug("failed to write pending-crash marker: %s", exc)
+
+
+def has_pending_crash() -> dict | None:
+    """Return the pending-crash summary if a prior crash is unreported, else None."""
+    try:
+        with _LOCK, open(_pending_crash_path(), "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return None
+    except Exception as exc:  # noqa: BLE001
+        log.debug("pending-crash read failed: %s", exc)
+        return None
+
+
+def clear_pending_crash() -> None:
+    """Remove the pending-crash marker (after it's been emailed or dismissed)."""
+    try:
+        with _LOCK:
+            os.unlink(_pending_crash_path())
+    except FileNotFoundError:
+        pass
+    except Exception as exc:  # noqa: BLE001
+        log.debug("pending-crash clear failed: %s", exc)
+
+
+def build_crash_report(limit: int = 20, app_version: str | None = None) -> str:
+    """Assemble a plain-text crash report for emailing to the developer.
+
+    Bundles environment metadata, the current user's usage tally, and the most
+    recent error/crash entries (with tracebacks). Contains only local diagnostic
+    data — no uploaded CSVs or measurement values.
+    """
+    lines = ["PQA Desktop — Crash / Error Report", "=" * 40, ""]
+    lines.append(f"Generated:   {_now_iso()}")
+    lines.append(f"User:        {_current_user()}")
+    lines.append(f"App version: {app_version or 'unknown'}")
+    lines.append(f"Platform:    {sys.platform}")
+    lines.append(f"Python:      {sys.version.split()[0]}")
+    lines.append(f"Frozen:      {bool(getattr(sys, 'frozen', False))}")
+
+    pending = has_pending_crash()
+    if pending:
+        lines += ["", "Last unreported crash:",
+                  f"  {pending.get('timestamp')} — "
+                  f"{pending.get('error_type')}: {pending.get('message')} "
+                  f"(in {pending.get('context')})"]
+
+    try:
+        rec = read_usage().get("users", {}).get(_current_user())
+        if rec:
+            lines += ["", "Usage summary:",
+                      f"  analyses run:      {rec.get('analyses_run', 0)}",
+                      f"  reports generated: {rec.get('reports_generated', 0)}",
+                      f"  active hours:      {rec.get('active_hours', 0)}",
+                      f"  errors logged:     {rec.get('errors_logged', 0)}"]
+    except Exception:  # noqa: BLE001
+        pass
+
+    lines += ["", f"Recent log entries (newest last, up to {limit}):", "-" * 40]
+    entries = read_errors(limit)
+    if not entries:
+        lines.append("(none)")
+    for e in entries:
+        lines.append("")
+        lines.append(f"[{e.get('timestamp')}] {e.get('type', 'error').upper()}")
+        if e.get("type") == "crash":
+            lines.append(f"  {e.get('error_type')}: {e.get('message')} "
+                         f"(in {e.get('context')})")
+            tb = e.get("traceback")
+            if tb:
+                lines.append(tb.rstrip())
+        else:
+            lines.append(f"  {e.get('category')}: {e.get('message')}")
+            if e.get("details"):
+                lines.append(f"  details: {e.get('details')}")
+    return "\n".join(lines)
 
 
 def read_errors(limit: int = 100) -> list[dict]:
@@ -317,7 +432,7 @@ def install_global_handlers() -> None:
         def _hook(exc_type, exc, tb):
             try:
                 log_crash(exc if isinstance(exc, BaseException) else Exception(str(exc)),
-                          context="sys.excepthook")
+                          context="sys.excepthook", uncaught=True)
             finally:
                 prev_hook(exc_type, exc, tb)
 
@@ -331,7 +446,8 @@ def install_global_handlers() -> None:
         def _thread_hook(args):
             try:
                 if args.exc_value is not None:
-                    log_crash(args.exc_value, context=f"thread:{args.thread.name}")
+                    log_crash(args.exc_value, context=f"thread:{args.thread.name}",
+                              uncaught=True)
             finally:
                 prev_thread_hook(args)
 

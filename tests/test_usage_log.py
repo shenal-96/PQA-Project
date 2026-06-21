@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import urllib.parse
 
 import pytest
 
@@ -147,6 +148,94 @@ def test_bridge_logs_crash_and_reraises(tmp_log):
 
     errors = bridge.recent_errors()["errors"]
     assert any(e["type"] == "crash" and e["context"] == "run_analysis" for e in errors)
+
+
+def test_pending_crash_marker_lifecycle(tmp_log):
+    assert usage_log.has_pending_crash() is None
+    try:
+        raise RuntimeError("hard crash")
+    except RuntimeError as exc:
+        usage_log.log_crash(exc, context="sys.excepthook", uncaught=True)
+    pending = usage_log.has_pending_crash()
+    assert pending is not None
+    assert pending["error_type"] == "RuntimeError"
+    assert pending["message"] == "hard crash"
+    usage_log.clear_pending_crash()
+    assert usage_log.has_pending_crash() is None
+
+
+def test_caught_crash_does_not_mark_pending(tmp_log):
+    try:
+        raise ValueError("handled")
+    except ValueError as exc:
+        usage_log.log_crash(exc, context="bridge")  # uncaught defaults False
+    assert usage_log.has_pending_crash() is None
+
+
+def test_build_crash_report_contains_metadata_and_entries(tmp_log):
+    usage_log.log_error("csv_format_invalid", "bad header", filename="x.csv")
+    try:
+        raise KeyError("missing")
+    except KeyError as exc:
+        usage_log.log_crash(exc, context="run_analysis", uncaught=True)
+    report = usage_log.build_crash_report(app_version="1.2.3")
+    assert "PQA Desktop — Crash / Error Report" in report
+    assert "App version: 1.2.3" in report
+    assert "csv_format_invalid" in report
+    assert "KeyError" in report
+    assert "Last unreported crash" in report
+
+
+def test_send_crash_report_writes_file_and_clears_pending(tmp_log, monkeypatch):
+    from desktop import crash_report
+
+    # Stub the outward-facing actions so the test never opens a real mail client.
+    opened = {}
+    monkeypatch.setattr(crash_report.webbrowser, "open",
+                        lambda url: opened.setdefault("url", url) or True)
+    monkeypatch.setattr(crash_report, "reveal_in_file_manager", lambda path: True)
+
+    try:
+        raise RuntimeError("kaboom")
+    except RuntimeError as exc:
+        usage_log.log_crash(exc, context="sys.excepthook", uncaught=True)
+
+    res = crash_report.send_crash_report(reveal=True)
+    assert res["ok"] is True
+    assert res["email"] == "sperera@penskeanz.com"
+    assert res["mailto_opened"] is True
+    assert opened["url"].startswith("mailto:sperera@penskeanz.com?")
+    assert "kaboom" in urllib.parse.unquote(opened["url"])
+    assert os.path.exists(res["report_path"])
+    # pending marker cleared so the next launch won't re-prompt
+    assert usage_log.has_pending_crash() is None
+
+
+def test_bridge_crash_report_methods(tmp_log, monkeypatch):
+    from desktop import crash_report
+    from desktop.shell import HostBridge
+
+    monkeypatch.setattr(crash_report.webbrowser, "open", lambda url: True)
+    monkeypatch.setattr(crash_report, "reveal_in_file_manager", lambda path: True)
+
+    bridge = HostBridge()
+    assert bridge.pending_crash()["pending"] is None
+
+    # A failed bridge call records a (caught) crash but not a pending marker.
+    with pytest.raises(RuntimeError):
+        bridge.run_analysis({})
+    assert bridge.pending_crash()["pending"] is None
+
+    # Simulate a hard crash, then verify the email + dismiss paths.
+    try:
+        raise RuntimeError("boom")
+    except RuntimeError as exc:
+        usage_log.log_crash(exc, context="sys.excepthook", uncaught=True)
+    assert bridge.pending_crash()["pending"]["error_type"] == "RuntimeError"
+
+    out = bridge.email_crash_report({})
+    assert out["ok"] is True and out["email"] == "sperera@penskeanz.com"
+    assert bridge.pending_crash()["pending"] is None
 
 
 def test_bridge_increments_on_analysis_and_report(tmp_log):

@@ -6,6 +6,7 @@
   import ComplianceView from './lib/ComplianceView.svelte';
   import SetPointView from './lib/SetPointView.svelte';
   import EcuPlotView from './lib/EcuPlotView.svelte';
+  import CrashPrompt from './lib/CrashPrompt.svelte';
 
   let backend = $state<AnalysisBackend | undefined>(undefined);
   let caps = $state<Caps | undefined>(undefined);
@@ -69,6 +70,8 @@
   {:else}
     <div class="boot"><div class="bolt">⚡</div><p>Starting…</p></div>
   {/if}
+
+  {#if backend}<CrashPrompt {backend} />{/if}
 </div>
 
 <style>

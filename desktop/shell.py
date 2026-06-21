@@ -76,6 +76,41 @@ class HostBridge:
         limit = int((params or {}).get("limit", 100))
         return {"errors": usage_log.read_errors(limit)}
 
+    # ---- crash reporting --------------------------------------------------
+    def pending_crash(self) -> dict:
+        """Report whether a prior run crashed without the report being sent.
+
+        The frontend calls this on startup; if ``pending`` is non-null it offers
+        the user the option to email the crash logs to the developer.
+        """
+        return {"pending": usage_log.has_pending_crash(),
+                "email": usage_log.DEVELOPER_EMAIL}
+
+    def crash_report_preview(self, params: dict | None = None) -> dict:
+        """Return the assembled crash-report text (for showing before sending)."""
+        limit = int((params or {}).get("limit", 20))
+        return {"report": usage_log.build_crash_report(limit=limit),
+                "email": usage_log.DEVELOPER_EMAIL}
+
+    def email_crash_report(self, params: dict | None = None) -> dict:
+        """Open the user's mail client pre-addressed to the developer.
+
+        Writes the full report to a file (returned in ``report_path``), opens a
+        ``mailto:`` with a summary, reveals the file so the user can attach it,
+        and clears the pending-crash marker. Fully offline — no data is sent
+        anywhere automatically; the user chooses to send the email.
+        """
+        from desktop.crash_report import send_crash_report
+
+        params = params or {}
+        return send_crash_report(limit=int(params.get("limit", 20)),
+                                 reveal=bool(params.get("reveal", True)))
+
+    def dismiss_crash_report(self) -> dict:
+        """Clear the pending-crash marker without emailing (user declined)."""
+        usage_log.clear_pending_crash()
+        return {"ok": True}
+
     # ---- CSV ingest -------------------------------------------------------
     @_logged
     def load_csv(self, params: dict | None = None) -> dict:

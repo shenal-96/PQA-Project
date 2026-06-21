@@ -174,3 +174,26 @@ export interface EventOverride {
   f_exit_offset?: number;
   f_rec_override?: number | null;
 }
+
+// --- Crash reporting (desktop only) --------------------------------------------
+/** Summary of an unreported crash from a prior session. */
+export interface PendingCrash {
+  timestamp: string;
+  user: string;
+  error_type: string;
+  message: string;
+  context: string;
+}
+export interface PendingCrashStatus {
+  pending: PendingCrash | null;
+  email: string;
+}
+/** Result of opening the mail client with the crash report. */
+export interface CrashReportResult {
+  ok: boolean;
+  email: string;
+  report_path: string | null;
+  mailto_opened: boolean;
+  revealed: boolean;
+  error?: string | null;
+}

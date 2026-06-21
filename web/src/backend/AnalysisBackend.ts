@@ -1,7 +1,7 @@
 import type {
-  AnalysisResult, Caps, CsvMeta, EcuRecording, EventOverride, EventRecord,
-  IticData, MetricSeries, ReportRequest, ReportResult, SaveResult,
-  SetpointResult, SnapshotData, SnapshotOpts,
+  AnalysisResult, Caps, CrashReportResult, CsvMeta, EcuRecording, EventOverride,
+  EventRecord, IticData, MetricSeries, PendingCrashStatus, ReportRequest,
+  ReportResult, SaveResult, SetpointResult, SnapshotData, SnapshotOpts,
 } from './types';
 
 /**
@@ -40,4 +40,12 @@ export interface AnalysisBackend {
    * browser blob download. `dataB64` is the file's base64 bytes.
    */
   saveFile?(filename: string, dataB64: string): Promise<SaveResult>;
+
+  // ---- crash reporting (desktop only) ---------------------------------------
+  /** Whether a prior session crashed without the report being sent. */
+  pendingCrash?(): Promise<PendingCrashStatus>;
+  /** Open the user's mail client pre-addressed to the developer with the report. */
+  emailCrashReport?(): Promise<CrashReportResult>;
+  /** Clear the pending-crash marker without emailing (user declined). */
+  dismissCrashReport?(): Promise<void>;
 }
