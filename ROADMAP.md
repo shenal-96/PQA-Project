@@ -44,6 +44,7 @@ web/       Svelte app; src/backend/ (AnalysisBackend, PyWebviewBackend, MockBack
            src/config/ (defaults + ISO presets); scripts/gen_sample.py
 desktop/   shell.py (PyWebview + HostBridge) · report_host.py (build_report + Chromium PDF) ·
            viz_report.py (matplotlib report images) · xls_host.py (WinScope/SetPoint/ECU) ·
+           usage_log.py (local persistent usage counters) ·
            pqa.spec (PyInstaller) · requirements.txt
 tests/     parity harness (golden) + snapshot/recalc/contract/hostbridge tests
 docs/      adr/0001 · run-windows-parallels.md
@@ -126,6 +127,29 @@ git log --oneline main..origin/streamlit-legacy -- analysis.py visualizations.py
   .NET Framework 4.8.1, which includes WinForms). **TODO:** bake
   `os.environ.setdefault("PYTHONNET_RUNTIME","netfx")` into `desktop/shell.py` on
   Windows, and have the M5 installer provision the .NET Desktop Runtime.
+
+## Local usage logging (`desktop/usage_log.py`)
+Lightweight, **fully local** per-user usage record — **analyses run**, **reports
+generated**, and **time spent in the app** (hours). Nothing leaves the machine.
+- **Storage that survives updates:** the log is written to the per-user app-data
+  dir (`%APPDATA%\PQA\usage_log.json` on Windows; `~/Library/Application Support/PQA`
+  on macOS; `$XDG_DATA_HOME/PQA` or `~/.local/share/PQA` on Linux), **not** the
+  install dir. `Program Files` is replaced wholesale on every Inno Setup update, so
+  anything stored there would be wiped — app-data is owned by the user and left
+  untouched by installs/uninstalls, so the tally accumulates across versions. Set
+  `PQA_DATA_DIR` to override (the tests do).
+- **Keyed by OS user** (`getpass.getuser()`) so a shared machine tallies per account.
+- **Wiring:** `HostBridge.run_analysis` → `record_analysis_run`,
+  `HostBridge.generate_report` → `record_report_generated`; `main()` runs a
+  `SessionTimer` (daemon thread, 60 s flush + flush on window close) for app time.
+  `HostBridge.usage_summary()` exposes the tally to the UI (read-only, adds
+  `active_hours`).
+- **Safety posture mirrors the old `tracking.py`:** every call swallows its own
+  exceptions and degrades to a no-op; writes are atomic (temp + `os.replace`) under
+  a process lock; a corrupt file is treated as empty rather than fatal. Logging must
+  never crash or block the app.
+- A `conftest.py` autouse fixture redirects `PQA_DATA_DIR` to a tmp dir so tests
+  never touch the developer's real usage file.
 
 ## Conventions
 - Commit messages end with the Co-Authored-By + Claude-Session trailers (see existing commits).

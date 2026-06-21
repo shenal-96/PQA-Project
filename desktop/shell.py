@@ -17,6 +17,8 @@ import io
 import os
 import sys
 
+from desktop import usage_log
+
 
 class HostBridge:
     """Methods here are exposed to JS as ``window.pywebview.api.<name>(...)``.
@@ -36,6 +38,16 @@ class HostBridge:
     def caps(self) -> dict:
         """Platform capability flags the frontend gates features on."""
         return {"platform": "desktop", "canReport": True, "canXls": True}
+
+    # ---- usage log --------------------------------------------------------
+    def usage_summary(self) -> dict:
+        """Return local usage counters (analyses, reports, hours) per user.
+
+        Read-only view of the persistent local usage log
+        (``%APPDATA%\\PQA\\usage_log.json`` on Windows). Nothing leaves the
+        machine — this just surfaces the stored tally for display/export.
+        """
+        return usage_log.read_usage()
 
     # ---- CSV ingest -------------------------------------------------------
     def load_csv(self, params: dict | None = None) -> dict:
@@ -131,6 +143,7 @@ class HostBridge:
         self._df_proc, self._df_events = ca.perform_analysis(self._df, cfg)
         self._df_events = self._df_events.reset_index(drop=True)  # positional == label for snapshot/recalc
         self._config = cfg
+        usage_log.record_analysis_run()
         result = analysis_result(self._df_proc, self._df_events,
                                  logger_format=self._df.attrs.get("logger_format"))
         result["itic"] = itic_curve(self._df_events, cfg.nominal_voltage)
@@ -183,8 +196,10 @@ class HostBridge:
 
         if self._df is None or self._df_proc is None or self._df_events is None:
             raise RuntimeError("generate_report called before run_analysis")
-        return build_report(self._df, self._df_proc, self._df_events, self._config,
-                            params or {})
+        result = build_report(self._df, self._df_proc, self._df_events, self._config,
+                              params or {})
+        usage_log.record_report_generated()
+        return result
 
     def save_dialog(self, params: dict | None = None) -> dict:
         """Write base64 ``data_b64`` to a path chosen via the native Save dialog.
@@ -276,10 +291,22 @@ def main() -> None:
     import webview  # lazy: only needed to actually open a window
 
     bridge = HostBridge()
-    webview.create_window("PQA PROJECT", url=_index_url(),
-                          js_api=bridge, width=1400, height=900, min_size=(1024, 700))
+    window = webview.create_window("PQA PROJECT", url=_index_url(),
+                                   js_api=bridge, width=1400, height=900, min_size=(1024, 700))
+
+    # Track time spent in the app: start the timer when the window is shown and
+    # flush the remaining interval when it closes. Logging is best-effort and
+    # never blocks window lifecycle.
+    timer = usage_log.SessionTimer()
+    timer.start()
+    try:
+        window.events.closing += timer.stop
+    except Exception:  # noqa: BLE001 — event API differences must not break launch
+        pass
+
     # gui='edgechromium' forces WebView2 on Windows; harmless elsewhere.
     webview.start(gui="edgechromium")
+    timer.stop()  # belt-and-braces final flush after the event loop exits
 
 
 if __name__ == "__main__":
