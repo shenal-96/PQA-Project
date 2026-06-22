@@ -9,6 +9,7 @@
   import Sidebar from './Sidebar.svelte';
   import TimeSeriesChart from './TimeSeriesChart.svelte';
   import ComplianceTable from './ComplianceTable.svelte';
+  import ClipboardButtons from './ClipboardButtons.svelte';
   import EventCard from './EventCard.svelte';
   import ReportPanel from './ReportPanel.svelte';
   import IticChart from './IticChart.svelte';
@@ -212,6 +213,7 @@
 
       <div class="section-head"><span class="bar compliance"></span><h2>Compliance</h2></div>
       <ComplianceTable events={result.events} />
+      {#if result.events.length}<ClipboardButtons events={result.events} />{/if}
 
       {#if result.events.length}
         <div class="section-head">
