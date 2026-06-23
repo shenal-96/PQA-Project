@@ -12,6 +12,10 @@
     loading,
     accept = '.csv,text/csv',
     fileLabel = 'Logger CSV',
+    timeMin = null,
+    timeMax = null,
+    timeStart = $bindable(''),
+    timeEnd = $bindable(''),
     activePreset = $bindable('None'),
     onRun,
     onFile,
@@ -23,10 +27,24 @@
     loading: boolean;
     accept?: string;
     fileLabel?: string;
+    timeMin?: string | null;
+    timeMax?: string | null;
+    timeStart?: string;
+    timeEnd?: string;
     activePreset?: string;
     onRun: () => void;
     onFile: (ev: Event) => void;
   } = $props();
+
+  // ISO timestamps -> datetime-local input value (YYYY-MM-DDTHH:MM:SS).
+  const toLocal = (iso: string | null | undefined): string => (iso ? iso.slice(0, 19) : '');
+  const minLocal = $derived(toLocal(timeMin));
+  const maxLocal = $derived(toLocal(timeMax));
+
+  function resetWindow() {
+    timeStart = '';
+    timeEnd = '';
+  }
 
   // Nominal-voltage preset vs custom (matches the Streamlit selectbox).
   const VOLT_OPTS = ['415', '690', '11000', 'Custom'];
@@ -67,6 +85,22 @@
       {#if loggerFormat}<span class="pill">{loggerFormat}</span>{/if}
     {/if}
   </section>
+
+  <!-- ── Time Window ───────────────────────────────────────────────── -->
+  {#if minLocal && maxLocal}
+    <section>
+      <div class="sec-title">Time Window</div>
+      <div class="cap">Restrict analysis to a window within the file. Leave blank to use the whole file.</div>
+      <div class="cap">File: {minLocal.replace('T', ' ')} → {maxLocal.replace('T', ' ')}</div>
+      <label class="grp-label" for="tw-start">Start</label>
+      <input id="tw-start" type="datetime-local" step="1" min={minLocal} max={maxLocal} bind:value={timeStart} />
+      <label class="grp-label" for="tw-end">End</label>
+      <input id="tw-end" type="datetime-local" step="1" min={minLocal} max={maxLocal} bind:value={timeEnd} />
+      {#if timeStart || timeEnd}
+        <button class="reset-win" onclick={resetWindow}>↺ Reset to full file</button>
+      {/if}
+    </section>
+  {/if}
 
   <!-- ── Acceptance Criteria ───────────────────────────────────────── -->
   <section>
@@ -253,4 +287,6 @@
   .run { background: var(--blue); color: #fff; border: none; padding: 12px; border-radius: 9px; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 4px; }
   .run:disabled { background: #334155; color: #94a3b8; cursor: not-allowed; }
   .hint { font-size: 11px; color: #64748b; text-align: center; }
+  .reset-win { background: #1e293b; color: #cbd5e1; border: 1px solid #334155; border-radius: 7px; padding: 6px; font-size: 12px; cursor: pointer; margin-top: 2px; }
+  .reset-win:hover { border-color: var(--blue); color: #fff; }
 </style>

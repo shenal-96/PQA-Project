@@ -161,6 +161,24 @@ error/crash log. Nothing leaves the machine.
 - A `conftest.py` autouse fixture redirects `PQA_DATA_DIR` to a tmp dir so tests
   never touch the developer's real usage/error files.
 
+## Desktop UI additions (ported from Streamlit)
+- **Time window** — restrict analysis to a sub-window of the loaded file. `load_csv`
+  / `load_winscope` now return `time_min`/`time_max` (ISO) so the sidebar can seed a
+  "Time Window" picker (two `datetime-local` inputs + reset). `run_analysis` reads
+  `time_start`/`time_end` from the config dict (not `AnalysisConfig` fields) and
+  filters via the pure `core.analysis.filter_time_window` before `perform_analysis`.
+  The full frame stays cached in `HostBridge._df`, and the windowed frame in
+  `_df_run` (reused by reports so report snapshots match). Empty window edges = open.
+- **Detected Events plot** — first time-series tab: the kW series (`Avg_kW`) with an
+  amber dotted vertical marker + signed `±NNN kW` label per detected event. Backed by
+  the (previously unused) `core.viz_dataprep.detected_events_overlay`, now emitted on
+  the contract as `analysis_result(...)["events_overlay"]`; rendered by
+  `web/src/lib/DetectedEventsChart.svelte`. Re-run `web/scripts/gen_sample.py` after
+  contract changes (done — the browser demo shows both).
+- **Clipboard copy buttons** — `ClipboardButtons.svelte` under the compliance table
+  copies Voltage/Frequency compliance as 2-column TSV (deviation + recovery seconds),
+  matching the Streamlit format; `navigator.clipboard` with an `execCommand` fallback.
+
 ## Conventions
 - Commit messages end with the Co-Authored-By + Claude-Session trailers (see existing commits).
 - Keep the PR a **draft**; never push to `main`.

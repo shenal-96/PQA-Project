@@ -272,6 +272,34 @@ def load_and_prepare_csv(file_path_or_buffer, start_time=None, end_time=None):
     return df
 
 
+def filter_time_window(df, start=None, end=None):
+    """Restrict ``df`` to the inclusive ``[start, end]`` Timestamp window.
+
+    ``start`` / ``end`` are absolute datetimes (ISO strings or anything
+    ``pd.to_datetime`` accepts); either may be ``None`` to leave that edge open.
+    Returns a filtered copy with ``df.attrs`` (e.g. ``logger_format``) preserved.
+    Invalid bounds are ignored rather than raising, so a bad picker value can
+    never block analysis.
+    """
+    if df is None or getattr(df, "empty", True) or "Timestamp" not in getattr(df, "columns", []):
+        return df
+    if not start and not end:
+        return df
+    ts = df["Timestamp"]
+    mask = pd.Series(True, index=df.index)
+    try:
+        if start:
+            mask &= ts >= pd.to_datetime(start)
+        if end:
+            mask &= ts <= pd.to_datetime(end)
+    except Exception as exc:  # noqa: BLE001 — bad bound -> no filtering
+        print(f"Time window filtering error: {exc}")
+        return df
+    out = df[mask].reset_index(drop=True)
+    out.attrs.update(df.attrs)
+    return out
+
+
 def validate_csv_format(df):
     """
     Validate CSV format and required columns.

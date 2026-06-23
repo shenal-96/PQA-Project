@@ -14,6 +14,9 @@ export interface CsvMeta {
   logger_format: string | null;
   n_rows: number;
   columns: string[];
+  /** ISO datetimes of the first/last sample, for seeding the time-window picker. */
+  time_min?: string | null;
+  time_max?: string | null;
   valid: boolean;
   errors: string[];
   warnings: string[];
@@ -42,12 +45,21 @@ export interface IticData {
   y_max: number;
 }
 
+// One detected-event marker for the kW 'Detected Events' overlay
+// (core/viz_dataprep.detected_events_overlay).
+export interface EventOverlayMarker {
+  timestamp: string | number | null;
+  dKw: number | null;
+  label: string;
+}
+
 export interface AnalysisResult {
   logger_format: string | null;
   n_rows: number;
   events: EventRecord[];
   metrics: Record<string, MetricSeries>;
   itic?: IticData;
+  events_overlay?: EventOverlayMarker[];
 }
 
 // --- Event snapshots -----------------------------------------------------------

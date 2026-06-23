@@ -47,7 +47,8 @@ class HostBridge:
     """
 
     def __init__(self) -> None:
-        self._df = None          # raw loaded frame
+        self._df = None          # full raw loaded frame (kept so the time window can be re-applied)
+        self._df_run = None      # the (possibly time-windowed) frame the last analysis ran on
         self._df_proc = None     # processed frame
         self._df_events = None   # detected events
         self._config = None      # AnalysisConfig used for the last run
@@ -135,13 +136,16 @@ class HostBridge:
             raise ValueError("load_csv requires csv_b64 or csv_text")
 
         self._df = ca.load_and_prepare_csv(io.BytesIO(raw))
-        self._df_proc = self._df_events = self._config = None
+        self._df_run = self._df_proc = self._df_events = self._config = None
         ok, errors, warnings = ca.validate_csv_format(self._df)
+        t_min, t_max = self._time_range()
         return {
             "filename": filename,
             "logger_format": self._df.attrs.get("logger_format"),
             "n_rows": int(len(self._df)),
             "columns": [str(c) for c in self._df.columns],
+            "time_min": t_min,
+            "time_max": t_max,
             "valid": bool(ok),
             "errors": errors,
             "warnings": warnings,
@@ -165,17 +169,31 @@ class HostBridge:
             raise ValueError("load_winscope requires b64")
 
         self._df = load_winscope_df(b64, params.get("filename"))
-        self._df_proc = self._df_events = self._config = None
+        self._df_run = self._df_proc = self._df_events = self._config = None
         ok, errors, warnings = ca.validate_csv_format(self._df)
+        t_min, t_max = self._time_range()
         return {
             "filename": params.get("filename"),
             "logger_format": self._df.attrs.get("logger_format"),
             "n_rows": int(len(self._df)),
             "columns": [str(c) for c in self._df.columns],
+            "time_min": t_min,
+            "time_max": t_max,
             "valid": bool(ok),
             "errors": errors,
             "warnings": warnings,
         }
+
+    def _time_range(self) -> tuple:
+        """(min, max) Timestamp of the loaded frame as ISO strings, or (None, None)."""
+        import pandas as pd
+
+        if self._df is None or self._df.empty or "Timestamp" not in self._df.columns:
+            return None, None
+        ts = pd.to_datetime(self._df["Timestamp"], errors="coerce").dropna()
+        if ts.empty:
+            return None, None
+        return ts.min().isoformat(), ts.max().isoformat()
 
     # ---- Set Point comparison + ECU recordings ---------------------------
     @_logged
@@ -193,13 +211,27 @@ class HostBridge:
     # ---- analysis ---------------------------------------------------------
     @_logged
     def run_analysis(self, config: dict | None = None) -> dict:
-        """Run the engine on the loaded CSV and return the JSON contract."""
+        """Run the engine on the loaded CSV and return the JSON contract.
+
+        ``config`` may carry ``time_start`` / ``time_end`` (ISO datetimes) to
+        restrict the analysis to a sub-window of the loaded file; either may be
+        null/absent for an open edge. These are not ``AnalysisConfig`` fields —
+        they filter the frame before analysis and are ignored by ``_build_config``.
+        """
         import core.analysis as ca
         from core.serialize import analysis_result
-        from core.viz_dataprep import itic_curve
+        from core.viz_dataprep import detected_events_overlay, itic_curve
 
         if self._df is None:
             raise RuntimeError("run_analysis called before load_csv")
+
+        config = config or {}
+        # Restrict to the selected time window (full file kept in self._df so a
+        # later run with a different window doesn't need a re-upload).
+        self._df_run = ca.filter_time_window(
+            self._df, config.get("time_start"), config.get("time_end"))
+        if self._df_run is None or self._df_run.empty:
+            raise RuntimeError("Selected time window contains no data.")
 
         cfg = self._build_config(config)
         # Miro and WinScope sources skip the 100 ms interpolation (high-rate or
@@ -207,13 +239,14 @@ class HostBridge:
         if self._df.attrs.get("logger_format") in ("miro", "winscope"):
             cfg.skip_interpolation = True
 
-        self._df_proc, self._df_events = ca.perform_analysis(self._df, cfg)
+        self._df_proc, self._df_events = ca.perform_analysis(self._df_run, cfg)
         self._df_events = self._df_events.reset_index(drop=True)  # positional == label for snapshot/recalc
         self._config = cfg
         usage_log.record_analysis_run()
         result = analysis_result(self._df_proc, self._df_events,
                                  logger_format=self._df.attrs.get("logger_format"))
         result["itic"] = itic_curve(self._df_events, cfg.nominal_voltage)
+        result["events_overlay"] = detected_events_overlay(self._df_events)
         return result
 
     @_logged
@@ -266,7 +299,9 @@ class HostBridge:
 
         if self._df is None or self._df_proc is None or self._df_events is None:
             raise RuntimeError("generate_report called before run_analysis")
-        result = build_report(self._df, self._df_proc, self._df_events, self._config,
+        # Use the windowed frame the analysis ran on so report snapshots match.
+        df_raw = self._df_run if self._df_run is not None else self._df
+        result = build_report(df_raw, self._df_proc, self._df_events, self._config,
                               params or {})
         usage_log.record_report_generated()
         return result
