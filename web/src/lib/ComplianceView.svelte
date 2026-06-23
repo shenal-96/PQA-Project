@@ -188,11 +188,19 @@
     }
   }
 
-  onMount(() => {
+  onMount(async () => {
     config = loadConfig();
     if (caps?.platform === 'mock') {
       fileName = isWinscope ? 'winscope_sample.xls (demo)' : 'hioki_sample.csv (demo)';
       loggerFormat = isWinscope ? 'winscope' : 'hioki';
+      try {
+        // Pull the sample's time range so the demo shows the time-window slider.
+        const meta = await loadFile(new File([], 'demo'));
+        timeMin = meta.time_min ?? null;
+        timeMax = meta.time_max ?? null;
+      } catch {
+        /* ignore — demo still runs without the slider */
+      }
       void run(); // dev: render the bundled sample immediately
     }
   });

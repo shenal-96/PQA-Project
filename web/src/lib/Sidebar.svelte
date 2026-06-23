@@ -3,6 +3,7 @@
   import type { AnalysisConfigInput, Preset } from '../config/defaults';
   import { BUILTIN_PRESETS, VOLTAGE_PRESETS } from '../config/defaults';
   import type { Caps } from '../backend/types';
+  import TimeRangeSlider from './TimeRangeSlider.svelte';
 
   let {
     config,
@@ -90,12 +91,15 @@
   {#if minLocal && maxLocal}
     <section>
       <div class="sec-title">Time Window</div>
-      <div class="cap">Restrict analysis to a window within the file. Leave blank to use the whole file.</div>
-      <div class="cap">File: {minLocal.replace('T', ' ')} → {maxLocal.replace('T', ' ')}</div>
-      <label class="grp-label" for="tw-start">Start</label>
-      <input id="tw-start" type="datetime-local" step="1" min={minLocal} max={maxLocal} bind:value={timeStart} />
-      <label class="grp-label" for="tw-end">End</label>
-      <input id="tw-end" type="datetime-local" step="1" min={minLocal} max={maxLocal} bind:value={timeEnd} />
+      <div class="cap">Drag the handles to restrict analysis to a window within the file.</div>
+      <TimeRangeSlider min={minLocal} max={maxLocal} bind:start={timeStart} bind:end={timeEnd} />
+      <details class="exact">
+        <summary>Exact times</summary>
+        <label class="grp-label" for="tw-start">Start</label>
+        <input id="tw-start" type="datetime-local" step="1" min={minLocal} max={maxLocal} bind:value={timeStart} />
+        <label class="grp-label" for="tw-end">End</label>
+        <input id="tw-end" type="datetime-local" step="1" min={minLocal} max={maxLocal} bind:value={timeEnd} />
+      </details>
       {#if timeStart || timeEnd}
         <button class="reset-win" onclick={resetWindow}>↺ Reset to full file</button>
       {/if}
@@ -289,4 +293,8 @@
   .hint { font-size: 11px; color: #64748b; text-align: center; }
   .reset-win { background: #1e293b; color: #cbd5e1; border: 1px solid #334155; border-radius: 7px; padding: 6px; font-size: 12px; cursor: pointer; margin-top: 2px; }
   .reset-win:hover { border-color: var(--blue); color: #fff; }
+  .exact { margin-top: 2px; }
+  .exact summary { font-size: 11px; color: #94a3b8; cursor: pointer; user-select: none; list-style: revert; }
+  .exact summary:hover { color: #cbd5e1; }
+  .exact[open] { display: flex; flex-direction: column; gap: 8px; }
 </style>
