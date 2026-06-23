@@ -35,13 +35,21 @@ export interface AnalysisConfigInput {
 
   // ── ISO 8528-5 dual frequency bands (β_f start / α_f stop) ──
   // When on, the frequency stopwatch STARTS when freq leaves the tighter β_f
-  // start band and STOPS when it re-enters the α_f stop band (the freq recovery
-  // bands above). Also enables the §7 pre/post steady-state checks.
+  // start band and STOPS when it re-enters the α_f stop band (= freq recovery
+  // bands, overridden from the pct/abs resolver below). Also enables §7 checks.
   iso_8528_5_mode: boolean;
+  // Band resolver mode: 'pct' scales with nominal frequency; 'abs' uses Hz directly.
+  band_mode: 'pct' | 'abs';
+  beta_f_pct: number;   // β_f full-band width as % of nominal (e.g. 0.5 → ±0.25%)
+  alpha_f_pct: number;  // α_f full-band width as % of nominal (e.g. 2.0 → ±1%)
+  // β_f start band in absolute Hz (used in abs mode; pct mode recomputes these).
   freq_start_upper_increase: number;
   freq_start_lower_increase: number;
   freq_start_upper_decrease: number;
   freq_start_lower_decrease: number;
+  // α_f stop band in absolute Hz (used in abs mode; pct mode recomputes these).
+  f_stop_upper: number;
+  f_stop_lower: number;
 
   // ── Asymmetric voltage recovery bands (absolute V) ──
   volt_recovery_upper_increase: number;
@@ -95,10 +103,15 @@ export const DEFAULT_CONFIG: AnalysisConfigInput = {
   apply_asymmetric_freq_dev: false,
 
   iso_8528_5_mode: false,
-  freq_start_upper_increase: 50.25,
-  freq_start_lower_increase: 49.75,
-  freq_start_upper_decrease: 50.25,
-  freq_start_lower_decrease: 49.75,
+  band_mode: 'pct',
+  beta_f_pct: 0.5,
+  alpha_f_pct: 2.0,
+  freq_start_upper_increase: 50.125,
+  freq_start_lower_increase: 49.875,
+  freq_start_upper_decrease: 50.125,
+  freq_start_lower_decrease: 49.875,
+  f_stop_upper: 50.5,
+  f_stop_lower: 49.5,
 
   volt_recovery_upper_increase: 419.15,
   volt_recovery_lower_increase: 410.85,
@@ -140,10 +153,17 @@ export const BUILTIN_PRESETS: Preset[] = [
       voltage_max_deviation_pct: 15, volt_max_dev_pct_increase: 15, volt_max_dev_pct_decrease: 20,
       frequency_tolerance_pct: 0.5, frequency_recovery_time_s: 3.0,
       frequency_max_deviation_pct: 7, freq_max_dev_pct_increase: 7, freq_max_dev_pct_decrease: 10,
+      // Asymmetric α_f stop band used when NOT in ISO dual-band mode (fallback).
       freq_recovery_upper_increase: 50.5, freq_recovery_lower_increase: 49.75,
       freq_recovery_upper_decrease: 50.25, freq_recovery_lower_decrease: 49.5,
       apply_asymmetric_freq: true, apply_asymmetric_volt: false,
       apply_asymmetric_volt_dev: true, apply_asymmetric_freq_dev: true,
+      // ISO 8528-5 dual-band: β_f start band (±0.25% of nom) + α_f stop band (±1% of nom).
+      iso_8528_5_mode: true, band_mode: 'pct', beta_f_pct: 0.5, alpha_f_pct: 2.0,
+      // Abs values at 50 Hz nominal (resolver recomputes for other nominal frequencies).
+      freq_start_upper_increase: 50.125, freq_start_lower_increase: 49.875,
+      freq_start_upper_decrease: 50.125, freq_start_lower_decrease: 49.875,
+      f_stop_upper: 50.5, f_stop_lower: 49.5,
     },
   },
   {
@@ -157,6 +177,11 @@ export const BUILTIN_PRESETS: Preset[] = [
       freq_recovery_upper_decrease: 51.25, freq_recovery_lower_decrease: 48.5,
       apply_asymmetric_freq: true, apply_asymmetric_volt: false,
       apply_asymmetric_volt_dev: true, apply_asymmetric_freq_dev: true,
+      // ISO 8528-5 dual-band: β_f ±0.75% (1.5%), α_f ±1% (2.0%).
+      iso_8528_5_mode: true, band_mode: 'pct', beta_f_pct: 1.5, alpha_f_pct: 2.0,
+      freq_start_upper_increase: 50.375, freq_start_lower_increase: 49.625,
+      freq_start_upper_decrease: 50.375, freq_start_lower_decrease: 49.625,
+      f_stop_upper: 50.5, f_stop_lower: 49.5,
     },
   },
   {
@@ -170,9 +195,55 @@ export const BUILTIN_PRESETS: Preset[] = [
       freq_recovery_upper_decrease: 51.25, freq_recovery_lower_decrease: 48.5,
       apply_asymmetric_freq: true, apply_asymmetric_volt: false,
       apply_asymmetric_volt_dev: true, apply_asymmetric_freq_dev: true,
+      // ISO 8528-5 dual-band: β_f ±1.25% (2.5%), α_f ±1.75% (3.5%).
+      iso_8528_5_mode: true, band_mode: 'pct', beta_f_pct: 2.5, alpha_f_pct: 3.5,
+      freq_start_upper_increase: 50.625, freq_start_lower_increase: 49.375,
+      freq_start_upper_decrease: 50.625, freq_start_lower_decrease: 49.375,
+      f_stop_upper: 50.875, f_stop_lower: 49.125,
     },
   },
 ];
+
+/**
+ * Port of Streamlit's _resolve_iso_freq_bands (app.py ~166–208).
+ *
+ * Returns the resolved α_f recovery/stop band and β_f start band for the engine.
+ * In ISO mode the two bands are distinct; outside ISO mode the start band collapses
+ * to equal the recovery band so the engine sees a single-band stopwatch.
+ */
+function resolveIsoFreqBands(c: AnalysisConfigInput, fSymUp: number, fSymLo: number): {
+  recUpInc: number; recLoInc: number; recUpDec: number; recLoDec: number;
+  startUpInc: number; startLoInc: number; startUpDec: number; startLoDec: number;
+} {
+  if (!c.iso_8528_5_mode) {
+    // Non-ISO path: keep existing asymmetric/symmetric logic; start band = rec band.
+    const recUpInc = c.apply_asymmetric_freq ? c.freq_recovery_upper_increase : fSymUp;
+    const recLoInc = c.apply_asymmetric_freq ? c.freq_recovery_lower_increase : fSymLo;
+    const recUpDec = c.apply_asymmetric_freq ? c.freq_recovery_upper_decrease : fSymUp;
+    const recLoDec = c.apply_asymmetric_freq ? c.freq_recovery_lower_decrease : fSymLo;
+    return { recUpInc, recLoInc, recUpDec, recLoDec,
+             startUpInc: recUpInc, startLoInc: recLoInc, startUpDec: recUpDec, startLoDec: recLoDec };
+  }
+  // ISO mode: compute symmetric β_f and α_f bands (same for increase and decrease).
+  let startUp: number, startLo: number, stopUp: number, stopLo: number;
+  if (c.band_mode === 'pct') {
+    const bfHalf = (c.beta_f_pct / 2) / 100 * c.nominal_frequency;
+    const afHalf = (c.alpha_f_pct / 2) / 100 * c.nominal_frequency;
+    startUp = c.nominal_frequency + bfHalf;
+    startLo = c.nominal_frequency - bfHalf;
+    stopUp  = c.nominal_frequency + afHalf;
+    stopLo  = c.nominal_frequency - afHalf;
+  } else {
+    startUp = c.freq_start_upper_increase;
+    startLo = c.freq_start_lower_increase;
+    stopUp  = c.f_stop_upper;
+    stopLo  = c.f_stop_lower;
+  }
+  return {
+    recUpInc: stopUp,  recLoInc: stopLo,  recUpDec: stopUp,  recLoDec: stopLo,
+    startUpInc: startUp, startLoInc: startLo, startUpDec: startUp, startLoDec: startLo,
+  };
+}
 
 /**
  * Resolve the raw sidebar inputs into the engine's AnalysisConfig dict, applying
@@ -186,6 +257,7 @@ export function resolveConfig(c: AnalysisConfigInput): Record<string, number | s
   const vLo = c.nominal_voltage * (1 - c.voltage_tolerance_pct / 100);
   const fUp = c.nominal_frequency * (1 + c.frequency_tolerance_pct / 100);
   const fLo = c.nominal_frequency * (1 - c.frequency_tolerance_pct / 100);
+  const iso = resolveIsoFreqBands(c, fUp, fLo);
   return {
     nominal_voltage: c.nominal_voltage,
     nominal_frequency: c.nominal_frequency,
@@ -205,21 +277,22 @@ export function resolveConfig(c: AnalysisConfigInput): Record<string, number | s
     volt_recovery_lower_increase: c.apply_asymmetric_volt ? c.volt_recovery_lower_increase : vLo,
     volt_recovery_upper_decrease: c.apply_asymmetric_volt ? c.volt_recovery_upper_decrease : vUp,
     volt_recovery_lower_decrease: c.apply_asymmetric_volt ? c.volt_recovery_lower_decrease : vLo,
-    freq_recovery_upper_increase: c.apply_asymmetric_freq ? c.freq_recovery_upper_increase : fUp,
-    freq_recovery_lower_increase: c.apply_asymmetric_freq ? c.freq_recovery_lower_increase : fLo,
-    freq_recovery_upper_decrease: c.apply_asymmetric_freq ? c.freq_recovery_upper_decrease : fUp,
-    freq_recovery_lower_decrease: c.apply_asymmetric_freq ? c.freq_recovery_lower_decrease : fLo,
+    // Frequency recovery (α_f stop) band: resolved by ISO resolver so ISO mode
+    // always wins over the asymmetric toggle.
+    freq_recovery_upper_increase: iso.recUpInc,
+    freq_recovery_lower_increase: iso.recLoInc,
+    freq_recovery_upper_decrease: iso.recUpDec,
+    freq_recovery_lower_decrease: iso.recLoDec,
     volt_max_dev_pct_increase: c.apply_asymmetric_volt_dev ? c.volt_max_dev_pct_increase : c.voltage_max_deviation_pct,
     volt_max_dev_pct_decrease: c.apply_asymmetric_volt_dev ? c.volt_max_dev_pct_decrease : c.voltage_max_deviation_pct,
     freq_max_dev_pct_increase: c.apply_asymmetric_freq_dev ? c.freq_max_dev_pct_increase : c.frequency_max_deviation_pct,
     freq_max_dev_pct_decrease: c.apply_asymmetric_freq_dev ? c.freq_max_dev_pct_decrease : c.frequency_max_deviation_pct,
-    // ISO 8528-5 dual frequency bands: β_f start band (engine reads these only
-    // when iso_8528_5_mode is on; the α_f stop band is the freq recovery band).
+    // ISO 8528-5 mode flag + β_f start band (engine uses these when iso_8528_5_mode=True).
     iso_8528_5_mode: c.iso_8528_5_mode,
-    freq_start_upper_increase: c.freq_start_upper_increase,
-    freq_start_lower_increase: c.freq_start_lower_increase,
-    freq_start_upper_decrease: c.freq_start_upper_decrease,
-    freq_start_lower_decrease: c.freq_start_lower_decrease,
+    freq_start_upper_increase: iso.startUpInc,
+    freq_start_lower_increase: iso.startLoInc,
+    freq_start_upper_decrease: iso.startUpDec,
+    freq_start_lower_decrease: iso.startLoDec,
   };
 }
 

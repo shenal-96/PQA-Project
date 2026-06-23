@@ -198,20 +198,50 @@
     {/if}
 
     {#if config.iso_8528_5_mode}
-      <div class="grp-label">β_f Start Band (Hz)</div>
-      <div class="cap">Stopwatch starts when frequency leaves this tighter band; it stops on re-entry to the Frequency Recovery (α_f) band.</div>
-      <div class="two">
-        <div class="col">
-          <div class="cap">Load Increase</div>
-          <div class="field col-f"><span>Upper</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_upper_increase} /></div>
-          <div class="field col-f"><span>Lower</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_lower_increase} /></div>
-        </div>
-        <div class="col">
-          <div class="cap">Load Decrease</div>
-          <div class="field col-f"><span>Upper</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_upper_decrease} /></div>
-          <div class="field col-f"><span>Lower</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_lower_decrease} /></div>
-        </div>
+      <div class="grp-label">ISO 8528-5 Dual Frequency Bands</div>
+      <div class="cap">β_f start band: stopwatch starts when freq leaves this band. α_f stop band: stopwatch stops on re-entry (overrides the frequency recovery band above).</div>
+      <div class="chips" style="margin-bottom:4px">
+        <button class="chip" class:on={config.band_mode === 'pct'} onclick={() => (config.band_mode = 'pct')}>% of Nominal</button>
+        <button class="chip" class:on={config.band_mode === 'abs'} onclick={() => (config.band_mode = 'abs')}>Absolute Hz</button>
       </div>
+      {#if config.band_mode === 'pct'}
+        <div class="two">
+          <div class="col">
+            <div class="field col-f"><span>β_f band width (%)</span><input type="number" min="0" step="0.1" bind:value={config.beta_f_pct} /></div>
+          </div>
+          <div class="col">
+            <div class="field col-f"><span>α_f band width (%)</span><input type="number" min="0" step="0.1" bind:value={config.alpha_f_pct} /></div>
+          </div>
+        </div>
+        <div class="cap iso-hint">
+          β_f: ±{((config.beta_f_pct / 2) / 100 * config.nominal_frequency).toFixed(3)} Hz →
+          {(config.nominal_frequency - (config.beta_f_pct / 2) / 100 * config.nominal_frequency).toFixed(3)}–{(config.nominal_frequency + (config.beta_f_pct / 2) / 100 * config.nominal_frequency).toFixed(3)} Hz<br>
+          α_f: ±{((config.alpha_f_pct / 2) / 100 * config.nominal_frequency).toFixed(3)} Hz →
+          {(config.nominal_frequency - (config.alpha_f_pct / 2) / 100 * config.nominal_frequency).toFixed(3)}–{(config.nominal_frequency + (config.alpha_f_pct / 2) / 100 * config.nominal_frequency).toFixed(3)} Hz
+        </div>
+      {:else}
+        <div class="grp-label" style="font-size:11px">β_f Start Band (Hz)</div>
+        <div class="two">
+          <div class="col">
+            <div class="cap">Load Increase</div>
+            <div class="field col-f"><span>Upper</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_upper_increase} /></div>
+            <div class="field col-f"><span>Lower</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_lower_increase} /></div>
+          </div>
+          <div class="col">
+            <div class="cap">Load Decrease</div>
+            <div class="field col-f"><span>Upper</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_upper_decrease} /></div>
+            <div class="field col-f"><span>Lower</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_lower_decrease} /></div>
+          </div>
+        </div>
+        <div class="grp-label" style="font-size:11px">α_f Stop Band / Recovery Band (Hz)</div>
+        <div class="two">
+          <div class="col">
+            <div class="cap">Both Directions</div>
+            <div class="field col-f"><span>Upper</span><input type="number" min="0" step="0.05" bind:value={config.f_stop_upper} /></div>
+            <div class="field col-f"><span>Lower</span><input type="number" min="0" step="0.05" bind:value={config.f_stop_lower} /></div>
+          </div>
+        </div>
+      {/if}
     {/if}
 
     <div class="field"><span>Rated Load (kW)</span><input type="number" min="0" step="1" placeholder="optional" bind:value={config.rated_load_kw} /></div>
@@ -282,6 +312,7 @@
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .col { display: flex; flex-direction: column; gap: 6px; }
   .cap { font-size: 11px; color: #94a3b8; }
+  .iso-hint { line-height: 1.6; font-family: "JetBrains Mono", monospace; font-size: 10.5px; background: #0b1220; border: 1px solid #1e293b; border-radius: 6px; padding: 4px 8px; margin-top: 4px; }
   .chips { display: flex; gap: 6px; flex-wrap: wrap; }
   .chip { flex: 1; min-width: 56px; background: #0b1220; border: 1px solid #1e293b; color: #cbd5e1; padding: 6px; border-radius: 7px; font-size: 12px; }
   .chip.on { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
