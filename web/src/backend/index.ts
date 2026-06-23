@@ -7,6 +7,8 @@ const RELOAD_FLAG = 'pqa_bridge_reload_attempted';
 
 type PyWebviewApi = NonNullable<Window['pywebview']>['api'];
 
+const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+
 /** The bridge is only usable once its methods are actually attached. */
 function readyApi(): PyWebviewApi | null {
   const api = window.pywebview?.api;
@@ -14,43 +16,9 @@ function readyApi(): PyWebviewApi | null {
 }
 
 /**
- * Wait for the PyWebview bridge to be fully attached (object present AND its
- * methods callable). On macOS, pywebview injects `window.pywebview.api` as an
- * empty object first and attaches methods a moment later, so we must poll for a
- * real method rather than trust the object's presence.
- *
- * Resolves with the `api` once ready, or `null` after `graceMs` (a genuine
- * browser-dev session where no bridge is ever injected).
- */
-function waitForBridge(graceMs: number, pollMs: number): Promise<PyWebviewApi | null> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (api: PyWebviewApi | null) => {
-      if (settled) return;
-      settled = true;
-      window.clearInterval(poll);
-      resolve(api);
-    };
-
-    const ready = readyApi();
-    if (ready) {
-      finish(ready);
-      return;
-    }
-
-    const startedAt = performance.now();
-    const poll = window.setInterval(() => {
-      const api = readyApi();
-      if (api) finish(api);
-      else if (performance.now() - startedAt >= graceMs) finish(null);
-    }, pollMs);
-  });
-}
-
-/**
  * Probe the bridge with a real RPC round-trip. Even with methods attached, a
- * macOS cold load can leave the first call hanging until the page is reloaded,
- * so presence is not enough — we confirm a call resolves. Never throws.
+ * macOS cold load can leave the first call hanging, so presence is not enough —
+ * we confirm a call resolves within the timeout. Never throws.
  */
 function probeBridge(api: PyWebviewApi, timeoutMs: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -62,7 +30,6 @@ function probeBridge(api: PyWebviewApi, timeoutMs: number): Promise<boolean> {
       resolve(ok);
     };
     const timer = window.setTimeout(() => finish(false), timeoutMs);
-    // async wrapper so a synchronous throw (e.g. method vanished) is caught too.
     (async () => {
       try {
         await api.caps();
@@ -74,43 +41,59 @@ function probeBridge(api: PyWebviewApi, timeoutMs: number): Promise<boolean> {
   });
 }
 
+interface SelectOpts {
+  hostGraceMs?: number;    // how long to wait for the pywebview host to appear
+  bridgeDeadlineMs?: number; // how long to keep retrying the RPC on desktop
+  probeMs?: number;        // per-probe RPC timeout
+  pollMs?: number;
+}
+
 /**
  * Resolve the active backend:
- *  - PyWebview (desktop) when the bridge is attached AND responds to a call
- *  - Mock (plain browser dev) when no bridge ever appears
+ *  - Mock (plain browser dev) when no pywebview host is ever detected
+ *  - PyWebview (desktop) otherwise — we keep retrying the real bridge and never
+ *    silently fall back to demo data inside the desktop app.
  *
- * The desktop bridge can race on a macOS cold load: the api appears but its
- * first RPC hangs until the page is reloaded. We verify with a probe and, if it
- * stalls, reload once to re-init it. Every failure path falls back to the mock
- * so the UI can never hang on the "Starting…" screen.
+ * `window.pywebview` (the object) appears in the desktop shell even before its
+ * methods attach, and never appears in a plain browser — so it is the reliable
+ * desktop-vs-browser discriminator. The bridge's first RPC can race on a macOS
+ * cold load; we retry, and reload once to re-init the WKWebView channel if it
+ * stays unresponsive.
  */
-export async function selectBackend(graceMs = 6000, pollMs = 50, probeMs = 2500): Promise<AnalysisBackend> {
-  try {
-    const api = await waitForBridge(graceMs, pollMs);
+export async function selectBackend(opts: SelectOpts = {}): Promise<AnalysisBackend> {
+  const { hostGraceMs = 5000, bridgeDeadlineMs = 20000, probeMs = 4000, pollMs = 100 } = opts;
 
-    // No bridge after the grace window: genuine browser-dev session → mock.
-    if (!api) return new MockBackend();
+  // 1) Desktop vs browser.
+  const hostDeadline = performance.now() + hostGraceMs;
+  while (!window.pywebview && performance.now() < hostDeadline) {
+    await sleep(pollMs);
+  }
+  if (!window.pywebview) return new MockBackend(); // genuine browser-dev session
 
-    // Bridge attached — confirm it actually responds before trusting it.
-    if (await probeBridge(api, probeMs)) {
+  // 2) Desktop: keep trying until a real RPC succeeds.
+  const reloadedAlready = sessionStorage.getItem(RELOAD_FLAG) === '1';
+  const bridgeDeadline = performance.now() + bridgeDeadlineMs;
+  while (performance.now() < bridgeDeadline) {
+    const api = readyApi();
+    if (api && (await probeBridge(api, probeMs))) {
       sessionStorage.removeItem(RELOAD_FLAG);
       return new PyWebviewBackend();
     }
-
-    // Bridge attached but dead. A one-time reload reliably initialises the RPC
-    // channel on macOS WebKit. Guard with a flag so we never loop.
-    if (!sessionStorage.getItem(RELOAD_FLAG)) {
-      sessionStorage.setItem(RELOAD_FLAG, '1');
-      window.location.reload();
-      return new Promise<AnalysisBackend>(() => {}); // hang until reload takes over
-    }
-
-    // Already reloaded once and still unresponsive — render with the mock
-    // rather than leaving the user stuck on "Starting…".
-    return new MockBackend();
-  } catch {
-    return new MockBackend();
+    await sleep(pollMs);
   }
+
+  // 3) Bridge present but never responded — a reload reliably re-inits the
+  //    WKWebView channel on macOS. Do it at most once.
+  if (!reloadedAlready) {
+    sessionStorage.setItem(RELOAD_FLAG, '1');
+    window.location.reload();
+    return new Promise<AnalysisBackend>(() => {}); // hang until reload takes over
+  }
+
+  // 4) Even after a reload the channel won't answer. Use the real backend
+  //    anyway — inside the desktop app the user must work on their real data,
+  //    so surface real errors rather than silently showing demo data.
+  return new PyWebviewBackend();
 }
 
 export type { AnalysisBackend };
