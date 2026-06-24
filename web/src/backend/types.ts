@@ -248,3 +248,34 @@ export interface CrashReportResult {
   revealed: boolean;
   error?: string | null;
 }
+
+// --- Settings Reference (curated ComAp/D550 knowledge base) ---------------------
+/** One setpoint/parameter entry with plain-English context. */
+export interface ReferenceSetting {
+  name: string;
+  units: string;
+  range: string;
+  default: string;
+  description: string;
+  philosophy: string;
+  performance: string;
+}
+/** A named group of settings within a device. */
+export interface ReferenceGroup {
+  name: string;
+  settings: ReferenceSetting[];
+}
+/** One device (controller/AVR) with its grouped settings. */
+export interface ReferenceDevice {
+  name: string;
+  summary: string;
+  source: string;
+  /** True once the data has been verified against the official manual. */
+  verified: boolean;
+  groups: ReferenceGroup[];
+}
+/** The full curated settings reference returned over the bridge. */
+export interface SettingsReference {
+  devices: ReferenceDevice[];
+  count: number;
+}

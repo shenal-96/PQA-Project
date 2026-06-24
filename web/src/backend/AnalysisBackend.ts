@@ -2,7 +2,7 @@ import type {
   AnalysisResult, Caps, CrashReportResult, CsvMeta, EcuRecording, EventOverride,
   EventRecord, IticData, MetricSeries, PendingCrashStatus, ReportRequest,
   ReportResult, SaveResult, SetpointOptions, SetpointResult, SnapshotData, SnapshotOpts,
-  SteadyWindow, SteadyWindowEdit,
+  SettingsReference, SteadyWindow, SteadyWindowEdit,
 } from './types';
 
 /**
@@ -41,6 +41,8 @@ export interface AnalysisBackend {
   compareSetpoint?(kind: 'xls' | 'csv', files: File[], options?: SetpointOptions): Promise<SetpointResult>;
   /** Read an ECU recording XLS/XLSX into grouped time series. */
   ecuRecording?(file: File): Promise<EcuRecording>;
+  /** Curated ComAp/D550 settings knowledge base (no XLS gating — UI-free data). */
+  settingsReference?(): Promise<SettingsReference>;
   /**
    * Optional native "Save As" (desktop only). When absent the UI falls back to a
    * browser blob download. `dataB64` is the file's base64 bytes.

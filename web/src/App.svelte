@@ -6,6 +6,7 @@
   import ComplianceView from './lib/ComplianceView.svelte';
   import SetPointView from './lib/SetPointView.svelte';
   import EcuPlotView from './lib/EcuPlotView.svelte';
+  import SettingsReferenceView from './lib/SettingsReferenceView.svelte';
   import CrashPrompt from './lib/CrashPrompt.svelte';
   import HelpDialog from './lib/HelpDialog.svelte';
 
@@ -13,12 +14,13 @@
   let caps = $state<Caps | undefined>(undefined);
   let ready = $state(false);
 
-  type TabKey = 'compliance' | 'winscope' | 'setpoint' | 'ecu';
+  type TabKey = 'compliance' | 'winscope' | 'setpoint' | 'ecu' | 'settings';
   const TABS: { key: TabKey; label: string; xls: boolean }[] = [
     { key: 'compliance', label: '⚡ Compliance', xls: false },
     { key: 'winscope', label: '📊 WinScope', xls: true },
     { key: 'setpoint', label: '🔧 Set Point', xls: true },
     { key: 'ecu', label: '🔌 ECU Plotting', xls: true },
+    { key: 'settings', label: '📖 Settings Reference', xls: false },
   ];
 
   let tab = $state<TabKey>('compliance');
@@ -26,7 +28,7 @@
   // Lazy-mount each view on first visit, then keep it mounted (hidden) so its
   // state (loaded file, analysis, plots) survives tab switches.
   let mounted = $state<Record<TabKey, boolean>>({
-    compliance: true, winscope: false, setpoint: false, ecu: false,
+    compliance: true, winscope: false, setpoint: false, ecu: false, settings: false,
   });
 
   const visibleTabs = $derived(TABS.filter((t) => !t.xls || caps?.canXls));
@@ -72,6 +74,9 @@
         {#if mounted.ecu}<EcuPlotView {backend} {caps} />{/if}
       </div>
     {/if}
+    <div class="view" class:hidden={tab !== 'settings'}>
+      {#if mounted.settings}<SettingsReferenceView {backend} {caps} />{/if}
+    </div>
   {:else}
     <div class="boot"><div class="bolt">⚡</div><p>Starting…</p></div>
   {/if}

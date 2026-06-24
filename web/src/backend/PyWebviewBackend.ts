@@ -3,7 +3,7 @@ import type {
   AnalysisResult, Caps, CrashReportResult, CsvMeta, EcuRecording, EventOverride,
   EventRecord, IticData, MetricSeries, PendingCrashStatus, ReportRequest,
   ReportResult, SaveResult, SetpointOptions, SetpointResult, SnapshotData, SnapshotOpts,
-  SteadyWindow, SteadyWindowEdit,
+  SettingsReference, SteadyWindow, SteadyWindowEdit,
 } from './types';
 
 declare global {
@@ -61,6 +61,10 @@ export class PyWebviewBackend implements AnalysisBackend {
   async ecuRecording(file: File): Promise<EcuRecording> {
     const b64 = await fileToBase64(file);
     return this.api.ecu_recording({ b64, filename: file.name }) as Promise<EcuRecording>;
+  }
+
+  settingsReference(): Promise<SettingsReference> {
+    return this.api.settings_reference({}) as Promise<SettingsReference>;
   }
 
   runAnalysis(config: Record<string, unknown> = {}): Promise<AnalysisResult> {
