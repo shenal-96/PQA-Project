@@ -13,9 +13,29 @@ from __future__ import annotations
 
 import base64
 import dataclasses
+import functools
 import io
 import os
 import sys
+
+from desktop import usage_log
+
+
+def _logged(method):
+    """Wrap a bridge method so any exception is recorded in the local crash log.
+
+    The exception is re-raised unchanged so the frontend still sees the error;
+    we just leave a durable record (with traceback) in ``error_log.jsonl`` first.
+    Logging is best-effort and never masks the original failure.
+    """
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        except Exception as exc:  # noqa: BLE001 — log then re-raise
+            usage_log.log_crash(exc, context=method.__name__)
+            raise
+    return wrapper
 
 
 class HostBridge:
@@ -27,7 +47,8 @@ class HostBridge:
     """
 
     def __init__(self) -> None:
-        self._df = None          # raw loaded frame
+        self._df = None          # full raw loaded frame (kept so the time window can be re-applied)
+        self._df_run = None      # the (possibly time-windowed) frame the last analysis ran on
         self._df_proc = None     # processed frame
         self._df_events = None   # detected events
         self._df_steady = None   # steady-state dwell windows (ISO 8528-5 δ bands)
@@ -38,7 +59,62 @@ class HostBridge:
         """Platform capability flags the frontend gates features on."""
         return {"platform": "desktop", "canReport": True, "canXls": True}
 
+    # ---- usage log --------------------------------------------------------
+    def usage_summary(self) -> dict:
+        """Return local usage counters (analyses, reports, hours) per user.
+
+        Read-only view of the persistent local usage log
+        (``%APPDATA%\\PQA\\usage_log.json`` on Windows). Nothing leaves the
+        machine — this just surfaces the stored tally for display/export.
+        """
+        return usage_log.read_usage()
+
+    def recent_errors(self, params: dict | None = None) -> dict:
+        """Return the most recent local error/crash log entries (with tracebacks).
+
+        Read-only view of ``%APPDATA%\\PQA\\error_log.jsonl``. ``params`` may
+        carry ``{"limit": int}`` (default 100). Nothing leaves the machine.
+        """
+        limit = int((params or {}).get("limit", 100))
+        return {"errors": usage_log.read_errors(limit)}
+
+    # ---- crash reporting --------------------------------------------------
+    def pending_crash(self) -> dict:
+        """Report whether a prior run crashed without the report being sent.
+
+        The frontend calls this on startup; if ``pending`` is non-null it offers
+        the user the option to email the crash logs to the developer.
+        """
+        return {"pending": usage_log.has_pending_crash(),
+                "email": usage_log.DEVELOPER_EMAIL}
+
+    def crash_report_preview(self, params: dict | None = None) -> dict:
+        """Return the assembled crash-report text (for showing before sending)."""
+        limit = int((params or {}).get("limit", 20))
+        return {"report": usage_log.build_crash_report(limit=limit),
+                "email": usage_log.DEVELOPER_EMAIL}
+
+    def email_crash_report(self, params: dict | None = None) -> dict:
+        """Open the user's mail client pre-addressed to the developer.
+
+        Writes the full report to a file (returned in ``report_path``), opens a
+        ``mailto:`` with a summary, reveals the file so the user can attach it,
+        and clears the pending-crash marker. Fully offline — no data is sent
+        anywhere automatically; the user chooses to send the email.
+        """
+        from desktop.crash_report import send_crash_report
+
+        params = params or {}
+        return send_crash_report(limit=int(params.get("limit", 20)),
+                                 reveal=bool(params.get("reveal", True)))
+
+    def dismiss_crash_report(self) -> dict:
+        """Clear the pending-crash marker without emailing (user declined)."""
+        usage_log.clear_pending_crash()
+        return {"ok": True}
+
     # ---- CSV ingest -------------------------------------------------------
+    @_logged
     def load_csv(self, params: dict | None = None) -> dict:
         """Load a CSV and validate it.
 
@@ -61,19 +137,23 @@ class HostBridge:
             raise ValueError("load_csv requires csv_b64 or csv_text")
 
         self._df = ca.load_and_prepare_csv(io.BytesIO(raw))
-        self._df_proc = self._df_events = self._config = None
+        self._df_run = self._df_proc = self._df_events = self._config = None
         ok, errors, warnings = ca.validate_csv_format(self._df)
+        t_min, t_max = self._time_range()
         return {
             "filename": filename,
             "logger_format": self._df.attrs.get("logger_format"),
             "n_rows": int(len(self._df)),
             "columns": [str(c) for c in self._df.columns],
+            "time_min": t_min,
+            "time_max": t_max,
             "valid": bool(ok),
             "errors": errors,
             "warnings": warnings,
         }
 
     # ---- WinScope XLS ingest ---------------------------------------------
+    @_logged
     def load_winscope(self, params: dict | None = None) -> dict:
         """Load a WinScope ``.xls`` export and validate it (mirrors ``load_csv``).
 
@@ -90,38 +170,69 @@ class HostBridge:
             raise ValueError("load_winscope requires b64")
 
         self._df = load_winscope_df(b64, params.get("filename"))
-        self._df_proc = self._df_events = self._config = None
+        self._df_run = self._df_proc = self._df_events = self._config = None
         ok, errors, warnings = ca.validate_csv_format(self._df)
+        t_min, t_max = self._time_range()
         return {
             "filename": params.get("filename"),
             "logger_format": self._df.attrs.get("logger_format"),
             "n_rows": int(len(self._df)),
             "columns": [str(c) for c in self._df.columns],
+            "time_min": t_min,
+            "time_max": t_max,
             "valid": bool(ok),
             "errors": errors,
             "warnings": warnings,
         }
 
+    def _time_range(self) -> tuple:
+        """(min, max) Timestamp of the loaded frame as ISO strings, or (None, None)."""
+        import pandas as pd
+
+        if self._df is None or self._df.empty or "Timestamp" not in self._df.columns:
+            return None, None
+        ts = pd.to_datetime(self._df["Timestamp"], errors="coerce").dropna()
+        if ts.empty:
+            return None, None
+        return ts.min().isoformat(), ts.max().isoformat()
+
     # ---- Set Point comparison + ECU recordings ---------------------------
+    @_logged
     def compare_setpoint(self, params: dict | None = None) -> dict:
         """Diff 2+ ECU parameter files (XLS/XLSX or ComAp CSV)."""
         from desktop.xls_host import compare_setpoint
         return compare_setpoint(params or {})
 
+    @_logged
     def ecu_recording(self, params: dict | None = None) -> dict:
         """Read an ECU recording XLS/XLSX into grouped, JSON-safe time series."""
         from desktop.xls_host import load_ecu_recording_data
         return load_ecu_recording_data(params or {})
 
     # ---- analysis ---------------------------------------------------------
+    @_logged
     def run_analysis(self, config: dict | None = None) -> dict:
-        """Run the engine on the loaded CSV and return the JSON contract."""
+        """Run the engine on the loaded CSV and return the JSON contract.
+
+        ``config`` may carry ``time_start`` / ``time_end`` (ISO datetimes) to
+        restrict the analysis to a sub-window of the loaded file; either may be
+        null/absent for an open edge. These are not ``AnalysisConfig`` fields —
+        they filter the frame before analysis and are ignored by ``_build_config``.
+        """
         import core.analysis as ca
         from core.serialize import analysis_result, events_to_records
-        from core.viz_dataprep import itic_curve
+        from core.viz_dataprep import detected_events_overlay, itic_curve
 
         if self._df is None:
             raise RuntimeError("run_analysis called before load_csv")
+
+        config = config or {}
+        # Restrict to the selected time window (full file kept in self._df so a
+        # later run with a different window doesn't need a re-upload).
+        self._df_run = ca.filter_time_window(
+            self._df, config.get("time_start"), config.get("time_end"))
+        if self._df_run is None or self._df_run.empty:
+            raise RuntimeError("Selected time window contains no data.")
 
         cfg = self._build_config(config)
         # Miro and WinScope sources skip the 100 ms interpolation (high-rate or
@@ -129,13 +240,15 @@ class HostBridge:
         if self._df.attrs.get("logger_format") in ("miro", "winscope"):
             cfg.skip_interpolation = True
 
-        self._df_proc, self._df_events = ca.perform_analysis(self._df, cfg)
+        self._df_proc, self._df_events = ca.perform_analysis(self._df_run, cfg)
         self._df_events = self._df_events.reset_index(drop=True)  # positional == label for snapshot/recalc
         self._config = cfg
+        usage_log.record_analysis_run()
         self._df_steady = None
         result = analysis_result(self._df_proc, self._df_events,
                                  logger_format=self._df.attrs.get("logger_format"))
         result["itic"] = itic_curve(self._df_events, cfg.nominal_voltage)
+        result["events_overlay"] = detected_events_overlay(self._df_events)
         # Steady-state (ISO 8528-5 δ bands) is opt-in per test — only computed
         # and surfaced when enabled, so the default contract is unchanged.
         if getattr(cfg, "steady_state_enabled", False):
@@ -143,6 +256,7 @@ class HostBridge:
             result["steady"] = events_to_records(self._df_steady)
         return result
 
+    @_logged
     def metric_series(self, column: str) -> dict:
         """Return one processed-metric time-series for charting."""
         from core.serialize import metric_series
@@ -152,6 +266,7 @@ class HostBridge:
         return metric_series(self._df_proc, column)
 
     # ---- event snapshots --------------------------------------------------
+    @_logged
     def snapshot(self, params: dict | None = None) -> dict:
         """Return the 4-panel snapshot data for one event (by positional index)."""
         from core.viz_dataprep import snapshot_data
@@ -179,6 +294,7 @@ class HostBridge:
         from desktop.report_host import default_html_template
         return {"template": default_html_template()}
 
+    @_logged
     def generate_report(self, params: dict | None = None) -> dict:
         """Build report artifacts (PDF/HTML/.docx) from the last analysis.
 
@@ -190,10 +306,14 @@ class HostBridge:
 
         if self._df is None or self._df_proc is None or self._df_events is None:
             raise RuntimeError("generate_report called before run_analysis")
+        # Use the windowed frame the analysis ran on so report snapshots match.
+        df_raw = self._df_run if self._df_run is not None else self._df
         # Pass the cached steady-state frame so the report reflects any
         # user-confirmed/edited dwell windows (recalc_steady), not a re-detect.
-        return build_report(self._df, self._df_proc, self._df_events, self._config,
-                            params or {}, df_steady=self._df_steady)
+        result = build_report(df_raw, self._df_proc, self._df_events, self._config,
+                              params or {}, df_steady=self._df_steady)
+        usage_log.record_report_generated()
+        return result
 
     def save_dialog(self, params: dict | None = None) -> dict:
         """Write base64 ``data_b64`` to a path chosen via the native Save dialog.
@@ -225,6 +345,7 @@ class HostBridge:
             return {"path": None, "error": str(exc)}
 
     # ---- per-event overrides + recalculate --------------------------------
+    @_logged
     def recalc(self, params: dict | None = None) -> dict:
         """Apply per-event overrides and re-run compliance; return updated events."""
         from core.recalc import apply_overrides, recompute_df_interp
@@ -314,13 +435,29 @@ def main() -> None:
     if sys.platform == "win32":
         os.environ.setdefault("PYTHONNET_RUNTIME", "netfx")
 
+    # Record uncaught exceptions (main thread + worker threads) to the local
+    # crash log before the app goes down, so failures leave an inspectable trail.
+    usage_log.install_global_handlers()
+
     import webview  # lazy: only needed to actually open a window
 
     bridge = HostBridge()
-    webview.create_window("PQA PROJECT v4.1", url=_index_url(),
-                          js_api=bridge, width=1400, height=900, min_size=(1024, 700))
+    window = webview.create_window("PQA PROJECT v4.1", url=_index_url(),
+                                   js_api=bridge, width=1400, height=900, min_size=(1024, 700))
+
+    # Track time spent in the app: start the timer when the window is shown and
+    # flush the remaining interval when it closes. Logging is best-effort and
+    # never blocks window lifecycle.
+    timer = usage_log.SessionTimer()
+    timer.start()
+    try:
+        window.events.closing += timer.stop
+    except Exception:  # noqa: BLE001 — event API differences must not break launch
+        pass
+
     # gui='edgechromium' forces WebView2 on Windows; harmless elsewhere.
     webview.start(gui="edgechromium")
+    timer.stop()  # belt-and-braces final flush after the event loop exits
 
 
 if __name__ == "__main__":

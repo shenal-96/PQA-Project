@@ -3,6 +3,7 @@
   import type { AnalysisConfigInput, Preset } from '../config/defaults';
   import { BUILTIN_PRESETS, VOLTAGE_PRESETS } from '../config/defaults';
   import type { Caps } from '../backend/types';
+  import TimeRangeSlider from './TimeRangeSlider.svelte';
 
   let {
     config,
@@ -12,6 +13,10 @@
     loading,
     accept = '.csv,text/csv',
     fileLabel = 'Logger CSV',
+    timeMin = null,
+    timeMax = null,
+    timeStart = $bindable(''),
+    timeEnd = $bindable(''),
     activePreset = $bindable('None'),
     onRun,
     onFile,
@@ -23,10 +28,24 @@
     loading: boolean;
     accept?: string;
     fileLabel?: string;
+    timeMin?: string | null;
+    timeMax?: string | null;
+    timeStart?: string;
+    timeEnd?: string;
     activePreset?: string;
     onRun: () => void;
     onFile: (ev: Event) => void;
   } = $props();
+
+  // ISO timestamps -> datetime-local input value (YYYY-MM-DDTHH:MM:SS).
+  const toLocal = (iso: string | null | undefined): string => (iso ? iso.slice(0, 19) : '');
+  const minLocal = $derived(toLocal(timeMin));
+  const maxLocal = $derived(toLocal(timeMax));
+
+  function resetWindow() {
+    timeStart = '';
+    timeEnd = '';
+  }
 
   // Nominal-voltage preset vs custom (matches the Streamlit selectbox).
   const VOLT_OPTS = ['415', '690', '11000', 'Custom'];
@@ -67,6 +86,25 @@
       {#if loggerFormat}<span class="pill">{loggerFormat}</span>{/if}
     {/if}
   </section>
+
+  <!-- ── Time Window ───────────────────────────────────────────────── -->
+  {#if minLocal && maxLocal}
+    <section>
+      <div class="sec-title">Time Window</div>
+      <div class="cap">Drag the handles to restrict analysis to a window within the file.</div>
+      <TimeRangeSlider min={minLocal} max={maxLocal} bind:start={timeStart} bind:end={timeEnd} />
+      <details class="exact">
+        <summary>Exact times</summary>
+        <label class="grp-label" for="tw-start">Start</label>
+        <input id="tw-start" type="datetime-local" step="1" min={minLocal} max={maxLocal} bind:value={timeStart} />
+        <label class="grp-label" for="tw-end">End</label>
+        <input id="tw-end" type="datetime-local" step="1" min={minLocal} max={maxLocal} bind:value={timeEnd} />
+      </details>
+      {#if timeStart || timeEnd}
+        <button class="reset-win" onclick={resetWindow}>↺ Reset to full file</button>
+      {/if}
+    </section>
+  {/if}
 
   <!-- ── Acceptance Criteria ───────────────────────────────────────── -->
   <section>
@@ -160,20 +198,50 @@
     {/if}
 
     {#if config.iso_8528_5_mode}
-      <div class="grp-label">β_f Start Band (Hz)</div>
-      <div class="cap">Stopwatch starts when frequency leaves this tighter band; it stops on re-entry to the Frequency Recovery (α_f) band.</div>
-      <div class="two">
-        <div class="col">
-          <div class="cap">Load Increase</div>
-          <div class="field col-f"><span>Upper</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_upper_increase} /></div>
-          <div class="field col-f"><span>Lower</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_lower_increase} /></div>
-        </div>
-        <div class="col">
-          <div class="cap">Load Decrease</div>
-          <div class="field col-f"><span>Upper</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_upper_decrease} /></div>
-          <div class="field col-f"><span>Lower</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_lower_decrease} /></div>
-        </div>
+      <div class="grp-label">ISO 8528-5 Dual Frequency Bands</div>
+      <div class="cap">β_f start band: stopwatch starts when freq leaves this band. α_f stop band: stopwatch stops on re-entry (overrides the frequency recovery band above).</div>
+      <div class="chips" style="margin-bottom:4px">
+        <button class="chip" class:on={config.band_mode === 'pct'} onclick={() => (config.band_mode = 'pct')}>% of Nominal</button>
+        <button class="chip" class:on={config.band_mode === 'abs'} onclick={() => (config.band_mode = 'abs')}>Absolute Hz</button>
       </div>
+      {#if config.band_mode === 'pct'}
+        <div class="two">
+          <div class="col">
+            <div class="field col-f"><span>β_f band width (%)</span><input type="number" min="0" step="0.1" bind:value={config.beta_f_pct} /></div>
+          </div>
+          <div class="col">
+            <div class="field col-f"><span>α_f band width (%)</span><input type="number" min="0" step="0.1" bind:value={config.alpha_f_pct} /></div>
+          </div>
+        </div>
+        <div class="cap iso-hint">
+          β_f: ±{((config.beta_f_pct / 2) / 100 * config.nominal_frequency).toFixed(3)} Hz →
+          {(config.nominal_frequency - (config.beta_f_pct / 2) / 100 * config.nominal_frequency).toFixed(3)}–{(config.nominal_frequency + (config.beta_f_pct / 2) / 100 * config.nominal_frequency).toFixed(3)} Hz<br>
+          α_f: ±{((config.alpha_f_pct / 2) / 100 * config.nominal_frequency).toFixed(3)} Hz →
+          {(config.nominal_frequency - (config.alpha_f_pct / 2) / 100 * config.nominal_frequency).toFixed(3)}–{(config.nominal_frequency + (config.alpha_f_pct / 2) / 100 * config.nominal_frequency).toFixed(3)} Hz
+        </div>
+      {:else}
+        <div class="grp-label" style="font-size:11px">β_f Start Band (Hz)</div>
+        <div class="two">
+          <div class="col">
+            <div class="cap">Load Increase</div>
+            <div class="field col-f"><span>Upper</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_upper_increase} /></div>
+            <div class="field col-f"><span>Lower</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_lower_increase} /></div>
+          </div>
+          <div class="col">
+            <div class="cap">Load Decrease</div>
+            <div class="field col-f"><span>Upper</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_upper_decrease} /></div>
+            <div class="field col-f"><span>Lower</span><input type="number" min="0" step="0.05" bind:value={config.freq_start_lower_decrease} /></div>
+          </div>
+        </div>
+        <div class="grp-label" style="font-size:11px">α_f Stop Band / Recovery Band (Hz)</div>
+        <div class="two">
+          <div class="col">
+            <div class="cap">Both Directions</div>
+            <div class="field col-f"><span>Upper</span><input type="number" min="0" step="0.05" bind:value={config.f_stop_upper} /></div>
+            <div class="field col-f"><span>Lower</span><input type="number" min="0" step="0.05" bind:value={config.f_stop_lower} /></div>
+          </div>
+        </div>
+      {/if}
     {/if}
 
     <label class="chk"><input type="checkbox" bind:checked={config.steady_state_enabled} /> Evaluate steady-state (ISO 8528-5 δ bands)</label>
@@ -260,6 +328,7 @@
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .col { display: flex; flex-direction: column; gap: 6px; }
   .cap { font-size: 11px; color: #94a3b8; }
+  .iso-hint { line-height: 1.6; font-family: "JetBrains Mono", monospace; font-size: 10.5px; background: #0b1220; border: 1px solid #1e293b; border-radius: 6px; padding: 4px 8px; margin-top: 4px; }
   .chips { display: flex; gap: 6px; flex-wrap: wrap; }
   .chip { flex: 1; min-width: 56px; background: #0b1220; border: 1px solid #1e293b; color: #cbd5e1; padding: 6px; border-radius: 7px; font-size: 12px; }
   .chip.on { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
@@ -269,4 +338,10 @@
   .run { background: var(--blue); color: #fff; border: none; padding: 12px; border-radius: 9px; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 4px; }
   .run:disabled { background: #334155; color: #94a3b8; cursor: not-allowed; }
   .hint { font-size: 11px; color: #64748b; text-align: center; }
+  .reset-win { background: #1e293b; color: #cbd5e1; border: 1px solid #334155; border-radius: 7px; padding: 6px; font-size: 12px; cursor: pointer; margin-top: 2px; }
+  .reset-win:hover { border-color: var(--blue); color: #fff; }
+  .exact { margin-top: 2px; }
+  .exact summary { font-size: 11px; color: #94a3b8; cursor: pointer; user-select: none; list-style: revert; }
+  .exact summary:hover { color: #cbd5e1; }
+  .exact[open] { display: flex; flex-direction: column; gap: 8px; }
 </style>

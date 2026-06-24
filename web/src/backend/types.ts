@@ -14,6 +14,9 @@ export interface CsvMeta {
   logger_format: string | null;
   n_rows: number;
   columns: string[];
+  /** ISO datetimes of the first/last sample, for seeding the time-window picker. */
+  time_min?: string | null;
+  time_max?: string | null;
   valid: boolean;
   errors: string[];
   warnings: string[];
@@ -40,6 +43,14 @@ export interface IticData {
   x_min: number;
   x_max: number;
   y_max: number;
+}
+
+// One detected-event marker for the kW 'Detected Events' overlay
+// (core/viz_dataprep.detected_events_overlay).
+export interface EventOverlayMarker {
+  timestamp: string | number | null;
+  dKw: number | null;
+  label: string;
 }
 
 // One steady-state dwell window evaluated against the ISO 8528-5 δ bands
@@ -78,6 +89,7 @@ export interface AnalysisResult {
   events: EventRecord[];
   metrics: Record<string, MetricSeries>;
   itic?: IticData;
+  events_overlay?: EventOverlayMarker[];
   // Present only when steady_state_enabled (ISO 8528-5 δ-band evaluation).
   steady?: SteadyWindow[];
 }
@@ -205,4 +217,27 @@ export interface EventOverride {
   v_rec_override?: number | null;
   f_exit_offset?: number;
   f_rec_override?: number | null;
+}
+
+// --- Crash reporting (desktop only) --------------------------------------------
+/** Summary of an unreported crash from a prior session. */
+export interface PendingCrash {
+  timestamp: string;
+  user: string;
+  error_type: string;
+  message: string;
+  context: string;
+}
+export interface PendingCrashStatus {
+  pending: PendingCrash | null;
+  email: string;
+}
+/** Result of opening the mail client with the crash report. */
+export interface CrashReportResult {
+  ok: boolean;
+  email: string;
+  report_path: string | null;
+  mailto_opened: boolean;
+  revealed: boolean;
+  error?: string | null;
 }

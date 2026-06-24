@@ -44,6 +44,7 @@ web/       Svelte app; src/backend/ (AnalysisBackend, PyWebviewBackend, MockBack
            src/config/ (defaults + ISO presets); scripts/gen_sample.py
 desktop/   shell.py (PyWebview + HostBridge) · report_host.py (build_report + Chromium PDF) ·
            viz_report.py (matplotlib report images) · xls_host.py (WinScope/SetPoint/ECU) ·
+           usage_log.py (local persistent usage counters) ·
            pqa.spec (PyInstaller) · requirements.txt
 tests/     parity harness (golden) + snapshot/recalc/contract/hostbridge tests
 docs/      adr/0001 · run-windows-parallels.md
@@ -127,6 +128,57 @@ git log --oneline main..origin/streamlit-legacy -- analysis.py visualizations.py
   .NET Framework 4.8.1, which includes WinForms). **TODO:** bake
   `os.environ.setdefault("PYTHONNET_RUNTIME","netfx")` into `desktop/shell.py` on
   Windows, and have the M5 installer provision the .NET Desktop Runtime.
+
+## Local usage + error logging (`desktop/usage_log.py`)
+Lightweight, **fully local** per-user records — usage counters **and** an
+error/crash log. Nothing leaves the machine.
+- **Two files in the per-user data dir:**
+  - `usage_log.json` — per-user counters: **analyses run**, **reports generated**,
+    **time spent** (`active_seconds`/`active_hours`), `sessions`, `errors_logged`,
+    `first_seen`/`last_seen`.
+  - `error_log.jsonl` — append-only error/crash entries (handled errors via
+    `log_error`, plus uncaught exceptions with full tracebacks via `log_crash`).
+    Size-capped (≈1 MB → keeps the last 500 entries).
+- **Storage that survives updates:** both live in the per-user app-data dir
+  (`%APPDATA%\PQA` on Windows; `~/Library/Application Support/PQA` on macOS;
+  `$XDG_DATA_HOME/PQA` or `~/.local/share/PQA` on Linux), **not** the install dir.
+  `Program Files` is replaced wholesale on every Inno Setup update, so anything
+  stored there would be wiped — app-data is owned by the user and left untouched by
+  installs/uninstalls, so the history accumulates across versions. Set
+  `PQA_DATA_DIR` to override (the tests do).
+- **Keyed by OS user** (`getpass.getuser()`) so a shared machine tallies per account.
+- **Wiring:** `HostBridge.run_analysis` → `record_analysis_run`,
+  `HostBridge.generate_report` → `record_report_generated`; `main()` runs a
+  `SessionTimer` (daemon thread, 60 s flush + flush on window close) for app time
+  and calls `install_global_handlers()` (wraps `sys.excepthook` +
+  `threading.excepthook` → `log_crash`). Every real-work bridge method is wrapped
+  with `@_logged`, which records the exception (with traceback) then re-raises it
+  unchanged. Read-only views: `HostBridge.usage_summary()` and
+  `HostBridge.recent_errors({"limit": N})`.
+- **Safety posture mirrors the old `tracking.py`:** every call swallows its own
+  exceptions and degrades to a no-op; usage writes are atomic (temp + `os.replace`)
+  under a process lock; a corrupt file is treated as empty rather than fatal.
+  Logging must never crash or block the app.
+- A `conftest.py` autouse fixture redirects `PQA_DATA_DIR` to a tmp dir so tests
+  never touch the developer's real usage/error files.
+
+## Desktop UI additions (ported from Streamlit)
+- **Time window** — restrict analysis to a sub-window of the loaded file. `load_csv`
+  / `load_winscope` now return `time_min`/`time_max` (ISO) so the sidebar can seed a
+  "Time Window" picker (two `datetime-local` inputs + reset). `run_analysis` reads
+  `time_start`/`time_end` from the config dict (not `AnalysisConfig` fields) and
+  filters via the pure `core.analysis.filter_time_window` before `perform_analysis`.
+  The full frame stays cached in `HostBridge._df`, and the windowed frame in
+  `_df_run` (reused by reports so report snapshots match). Empty window edges = open.
+- **Detected Events plot** — first time-series tab: the kW series (`Avg_kW`) with an
+  amber dotted vertical marker + signed `±NNN kW` label per detected event. Backed by
+  the (previously unused) `core.viz_dataprep.detected_events_overlay`, now emitted on
+  the contract as `analysis_result(...)["events_overlay"]`; rendered by
+  `web/src/lib/DetectedEventsChart.svelte`. Re-run `web/scripts/gen_sample.py` after
+  contract changes (done — the browser demo shows both).
+- **Clipboard copy buttons** — `ClipboardButtons.svelte` under the compliance table
+  copies Voltage/Frequency compliance as 2-column TSV (deviation + recovery seconds),
+  matching the Streamlit format; `navigator.clipboard` with an `execCommand` fallback.
 
 ## Conventions
 - Commit messages end with the Co-Authored-By + Claude-Session trailers (see existing commits).

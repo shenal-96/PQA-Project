@@ -8,7 +8,9 @@
   import { metricLabel, METRIC_COLORS } from './format';
   import Sidebar from './Sidebar.svelte';
   import TimeSeriesChart from './TimeSeriesChart.svelte';
+  import DetectedEventsChart from './DetectedEventsChart.svelte';
   import ComplianceTable from './ComplianceTable.svelte';
+  import ClipboardButtons from './ClipboardButtons.svelte';
   import EventCard from './EventCard.svelte';
   import ReportPanel from './ReportPanel.svelte';
   import IticChart from './IticChart.svelte';
@@ -27,15 +29,24 @@
   const accept = $derived(isWinscope ? '.xls,.xlsx' : '.csv,text/csv');
   const fileLabel = $derived(isWinscope ? 'WinScope XLS' : 'Logger CSV');
 
+  // Virtual first tab: the kW time-series with detected-event markers overlaid.
+  const DETECTED = 'Detected_Events';
+
   let result = $state<AnalysisResult | undefined>(undefined);
   let loading = $state(false);
   let error = $state<string | undefined>(undefined);
-  let selected = $state('Avg_Voltage_LL');
+  let selected = $state(DETECTED);
 
   let config = $state<AnalysisConfigInput>({ ...DEFAULT_CONFIG });
   let activePreset = $state('None');
   let fileName = $state<string | undefined>(undefined);
   let loggerFormat = $state<string | null | undefined>(undefined);
+
+  // Time window (file-specific, not persisted with config). Empty = full file.
+  let timeMin = $state<string | null>(null);
+  let timeMax = $state<string | null>(null);
+  let timeStart = $state('');
+  let timeEnd = $state('');
 
   let snapshots = $state<(SnapshotData | null)[]>([]);
   let snapProgress = $state(0);
@@ -107,8 +118,14 @@
     snapOpts = {};
     snapshots = [];
     try {
-      const r = await backend.runAnalysis(resolveConfig(config));
-      if (!r.metrics[selected]) selected = Object.keys(r.metrics)[0] ?? selected;
+      const r = await backend.runAnalysis({
+        ...resolveConfig(config),
+        time_start: timeStart || null,
+        time_end: timeEnd || null,
+      });
+      if (selected !== DETECTED && !r.metrics[selected]) {
+        selected = Object.keys(r.metrics)[0] ?? selected;
+      }
       result = r;
       saveConfig(config);
       void streamSnapshots();
@@ -173,6 +190,11 @@
       const meta = await loadFile(file);
       fileName = meta.filename ?? file.name;
       loggerFormat = meta.logger_format;
+      // Seed the time-window picker from the file's range; default to the full file.
+      timeMin = meta.time_min ?? null;
+      timeMax = meta.time_max ?? null;
+      timeStart = '';
+      timeEnd = '';
       if (!meta.valid) {
         error = 'Invalid file: ' + meta.errors.join('; ');
         result = undefined;
@@ -187,18 +209,28 @@
     }
   }
 
-  onMount(() => {
+  onMount(async () => {
     config = loadConfig();
     if (caps?.platform === 'mock') {
       fileName = isWinscope ? 'winscope_sample.xls (demo)' : 'hioki_sample.csv (demo)';
       loggerFormat = isWinscope ? 'winscope' : 'hioki';
+      try {
+        // Pull the sample's time range so the demo shows the time-window slider.
+        const meta = await loadFile(new File([], 'demo'));
+        timeMin = meta.time_min ?? null;
+        timeMax = meta.time_max ?? null;
+      } catch {
+        /* ignore — demo still runs without the slider */
+      }
       void run(); // dev: render the bundled sample immediately
     }
   });
 </script>
 
 <div class="app">
-  <Sidebar {config} {caps} {fileName} {loggerFormat} {loading} {accept} {fileLabel} bind:activePreset onRun={run} {onFile} />
+  <Sidebar {config} {caps} {fileName} {loggerFormat} {loading} {accept} {fileLabel}
+    {timeMin} {timeMax} bind:timeStart bind:timeEnd
+    bind:activePreset onRun={run} {onFile} />
 
   <main class="main">
     {#if caps?.platform === 'mock'}
@@ -218,11 +250,14 @@
 
       <div class="section-head"><span class="bar plots"></span><h2>Time-series</h2></div>
       <section class="tabs">
+        <button class="tab" class:active={selected === DETECTED} onclick={() => (selected = DETECTED)}>Detected Events</button>
         {#each metricKeys as k}
           <button class="tab" class:active={k === selected} onclick={() => (selected = k)}>{metricLabel(k)}</button>
         {/each}
       </section>
-      {#if result.metrics[selected]}
+      {#if selected === DETECTED}
+        <DetectedEventsChart series={result.metrics['Avg_kW']} overlay={result.events_overlay ?? []} />
+      {:else if result.metrics[selected]}
         <TimeSeriesChart series={result.metrics[selected]} label={metricLabel(selected)} color={METRIC_COLORS[selected] ?? '#2563eb'} band={steadyBand} windows={steadyWindows} />
       {/if}
 
@@ -233,6 +268,7 @@
 
       <div class="section-head"><span class="bar compliance"></span><h2>Compliance</h2></div>
       <ComplianceTable events={result.events} />
+      {#if result.events.length}<ClipboardButtons events={result.events} />{/if}
 
       {#if config.steady_state_enabled && result.steady}
         <div class="section-head">

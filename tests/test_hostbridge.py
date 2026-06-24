@@ -60,6 +60,53 @@ def test_run_analysis_contract():
     assert res["events"] == events_to_records(df_events)
 
 
+def test_load_csv_reports_time_range():
+    meta = HostBridge().load_csv({"csv_b64": _b64_fixture()})
+    assert meta["time_min"] and meta["time_max"]
+    assert meta["time_min"] < meta["time_max"]
+
+
+def test_run_analysis_includes_events_overlay():
+    bridge = HostBridge()
+    bridge.load_csv({"csv_b64": _b64_fixture()})
+    res = bridge.run_analysis({})
+    overlay = res["events_overlay"]
+    assert len(overlay) == len(res["events"])
+    assert all({"timestamp", "dKw", "label"} <= set(m) for m in overlay)
+    # labels carry the signed kW step (e.g. "+220 kW" / "-160 kW")
+    assert all("kW" in m["label"] for m in overlay)
+
+
+def test_time_window_filters_events():
+    bridge = HostBridge()
+    meta = bridge.load_csv({"csv_b64": _b64_fixture()})
+    full = bridge.run_analysis({})
+    assert len(full["events"]) == 2
+
+    # Restrict to the first half of the file → drops the later event(s).
+    overlay_ts = [m["timestamp"] for m in full["events_overlay"]]
+    cutoff = overlay_ts[0]  # window ending at the first event's timestamp
+    windowed = bridge.run_analysis({"time_start": meta["time_min"], "time_end": cutoff})
+    assert len(windowed["events"]) < len(full["events"])
+    assert windowed["n_rows"] < full["n_rows"]
+
+    # Re-running with no window restores the full result (raw frame is retained).
+    restored = bridge.run_analysis({})
+    assert len(restored["events"]) == 2
+
+
+def test_time_window_empty_raises():
+    bridge = HostBridge()
+    bridge.load_csv({"csv_b64": _b64_fixture()})
+    try:
+        bridge.run_analysis({"time_start": "1999-01-01T00:00:00",
+                             "time_end": "1999-01-01T01:00:00"})
+    except RuntimeError:
+        pass
+    else:  # pragma: no cover
+        raise AssertionError("expected RuntimeError for an empty time window")
+
+
 def test_metric_series_requires_analysis():
     bridge = HostBridge()
     bridge.load_csv({"csv_b64": _b64_fixture()})
