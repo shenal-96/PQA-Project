@@ -42,3 +42,15 @@ export function num2(v: unknown): string {
 export function fmt2(v: unknown): string {
   return typeof v === 'number' && Number.isFinite(v) ? v.toFixed(2) : String(v ?? '');
 }
+
+/**
+ * Recovery-time formatter for the compliance table. A null/empty recovery time
+ * means the signal never left the band (no excursion to recover from), so it is
+ * shown as `0.00` rather than an em-dash — zero recovery, not "missing". The
+ * unit (s) lives in the column header. Mirrors the Streamlit behaviour.
+ */
+export function recSeconds(v: unknown): string {
+  if (v === null || v === undefined || v === '') return '0.00';
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n.toFixed(2) : '0.00';
+}
