@@ -2,7 +2,7 @@ import type { AnalysisBackend } from './AnalysisBackend';
 import type {
   AnalysisResult, Caps, CrashReportResult, CsvMeta, EcuRecording, EventOverride,
   EventRecord, IticData, MetricSeries, PendingCrashStatus, ReportRequest,
-  ReportResult, SaveResult, SetpointResult, SnapshotData, SnapshotOpts,
+  ReportResult, SaveResult, SetpointOptions, SetpointResult, SnapshotData, SnapshotOpts,
   SteadyWindow, SteadyWindowEdit,
 } from './types';
 
@@ -51,11 +51,11 @@ export class PyWebviewBackend implements AnalysisBackend {
     return this.api.load_winscope({ b64, filename: file.name }) as Promise<CsvMeta>;
   }
 
-  async compareSetpoint(kind: 'xls' | 'csv', files: File[]): Promise<SetpointResult> {
+  async compareSetpoint(kind: 'xls' | 'csv', files: File[], options?: SetpointOptions): Promise<SetpointResult> {
     const payload = await Promise.all(
       files.map(async (f) => ({ filename: f.name, b64: await fileToBase64(f) })),
     );
-    return this.api.compare_setpoint({ kind, files: payload }) as Promise<SetpointResult>;
+    return this.api.compare_setpoint({ kind, files: payload, options: options ?? {} }) as Promise<SetpointResult>;
   }
 
   async ecuRecording(file: File): Promise<EcuRecording> {

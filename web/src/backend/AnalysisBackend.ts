@@ -1,7 +1,7 @@
 import type {
   AnalysisResult, Caps, CrashReportResult, CsvMeta, EcuRecording, EventOverride,
   EventRecord, IticData, MetricSeries, PendingCrashStatus, ReportRequest,
-  ReportResult, SaveResult, SetpointResult, SnapshotData, SnapshotOpts,
+  ReportResult, SaveResult, SetpointOptions, SetpointResult, SnapshotData, SnapshotOpts,
   SteadyWindow, SteadyWindowEdit,
 } from './types';
 
@@ -38,7 +38,7 @@ export interface AnalysisBackend {
 
   // ---- XLS tabs (gated on caps.canXls) ---------------------------------------
   /** Diff 2+ ECU parameter files (XLS/XLSX or ComAp CSV). */
-  compareSetpoint?(kind: 'xls' | 'csv', files: File[]): Promise<SetpointResult>;
+  compareSetpoint?(kind: 'xls' | 'csv', files: File[], options?: SetpointOptions): Promise<SetpointResult>;
   /** Read an ECU recording XLS/XLSX into grouped time series. */
   ecuRecording?(file: File): Promise<EcuRecording>;
   /**

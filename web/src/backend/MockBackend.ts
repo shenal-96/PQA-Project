@@ -2,7 +2,7 @@ import type { AnalysisBackend } from './AnalysisBackend';
 import type {
   AnalysisResult, Caps, CsvMeta, EcuRecording, EventOverride, EventRecord,
   IticData, MetricSeries, ReportRequest, ReportResult,
-  SetpointResult, SnapshotData, SnapshotOpts, SteadyWindow, SteadyWindowEdit,
+  SetpointOptions, SetpointResult, SnapshotData, SnapshotOpts, SteadyWindow, SteadyWindowEdit,
 } from './types';
 import sampleResult from '../dev/sample_result.json';
 import sampleMeta from '../dev/sample_meta.json';
@@ -68,7 +68,7 @@ export class MockBackend implements AnalysisBackend {
     return '<!-- Report templates are available in the desktop app. -->';
   }
 
-  async compareSetpoint(_kind: 'xls' | 'csv', _files: File[]): Promise<SetpointResult> {
+  async compareSetpoint(_kind: 'xls' | 'csv', _files: File[], _options?: SetpointOptions): Promise<SetpointResult> {
     return SETPOINT;
   }
 

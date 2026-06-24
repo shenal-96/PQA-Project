@@ -192,6 +192,11 @@ export interface SetpointFile {
   filename: string;
   b64: string;
 }
+export interface SetpointOptions {
+  hide_unchanged?: boolean;
+  ignore_whitespace?: boolean;
+  ignore_case?: boolean;
+}
 export interface SetpointResult {
   kind: SetpointKind;
   columns: string[];
@@ -199,6 +204,8 @@ export interface SetpointResult {
   rows: Array<Record<string, string | number | boolean | null>>;
   n_files: number;
   n_diffs: number;
+  /** Diffchecker-style side-by-side HTML view (desktop only; absent on MockBackend). */
+  html?: string;
 }
 
 // --- ECU recording (M4) --------------------------------------------------------
