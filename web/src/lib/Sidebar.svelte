@@ -50,7 +50,7 @@
   <div class="head">
     <div class="bolt">⚡</div>
     <div>
-      <div class="title">PQA PROJECT</div>
+      <div class="title">PQA PROJECT <span class="ver">v4.1</span></div>
       <div class="sub">Configuration</div>
     </div>
     {#if caps}<span class="env">{caps.platform}</span>{/if}
@@ -176,6 +176,21 @@
       </div>
     {/if}
 
+    <label class="chk"><input type="checkbox" bind:checked={config.steady_state_enabled} /> Evaluate steady-state (ISO 8528-5 δ bands)</label>
+    {#if config.steady_state_enabled}
+      <div class="cap">Checks every sample during the stable dwell periods between load steps against the tight δU / δf bands — separate from transient recovery. For staged load-bank tests only.</div>
+      <div class="two">
+        <div class="col">
+          <div class="field col-f"><span>δU band (±%)</span><input type="number" min="0" step="0.5" bind:value={config.steady_voltage_band_pct} /></div>
+          <div class="field col-f"><span>Dwell min (s)</span><input type="number" min="1" step="5" bind:value={config.steady_dwell_min_s} /></div>
+        </div>
+        <div class="col">
+          <div class="field col-f"><span>δf band (±%)</span><input type="number" min="0" step="0.5" bind:value={config.steady_freq_band_pct} /></div>
+          <div class="field col-f"><span>Exclude (s)</span><input type="number" min="0" step="1" bind:value={config.steady_exclusion_s} /></div>
+        </div>
+      </div>
+    {/if}
+
     <div class="field"><span>Rated Load (kW)</span><input type="number" min="0" step="1" placeholder="optional" bind:value={config.rated_load_kw} /></div>
     <div class="field"><span>No. Expected Load Steps</span><input type="number" min="0" step="1" placeholder="optional" bind:value={config.expected_steps} /></div>
   </section>
@@ -227,6 +242,7 @@
   .head { display: flex; align-items: center; gap: 10px; }
   .head .bolt { width: 36px; height: 36px; display: grid; place-items: center; background: var(--blue); border-radius: 9px; font-size: 18px; }
   .head .title { font-weight: 700; color: #fff; font-size: 17px; }
+  .head .title .ver { font-weight: 600; font-size: 10px; color: #94a3b8; background: #1e293b; padding: 2px 6px; border-radius: 999px; vertical-align: middle; }
   .head .sub { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.08em; }
   .head .env { margin-left: auto; background: #1e293b; color: #94a3b8; font-size: 11px; padding: 2px 8px; border-radius: 999px; }
   section { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid #1e293b; padding-top: 14px; }
