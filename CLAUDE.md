@@ -196,6 +196,42 @@ interpolates exact re-entry crossing.
 **Recovery time = exit crossing → re-entry crossing** (not load-change → re-entry).
 Recovery is only calculated and checked when `V_exit_ts` / `F_exit_ts` is non-null.
 
+### Steady-state analysis (ISO 8528-5 δ bands) — separate from transient
+Opt-in (`AnalysisConfig.steady_state_enabled`, default False). Evaluates whether
+the generator holds voltage/frequency inside the **tight δ tolerance bands**
+(δU ±2.5%, δf ±2.0% by default — ISO 8528-5 Table 4) during **stable loaded
+operation**, i.e. the dwell periods *between* load steps. **Only meaningful for
+staged load-bank tests** (25/50/75/100% held for a dwell), so it is gated per
+test/CSV.
+
+**Do not mix bands:** steady-state uses the **δ** bands; transient analysis uses
+the wider **α** (recovery target) / **β** (departure trigger) bands. The engine
+keeps them separate — steady-state never touches the `*_recovery_*` fields.
+
+Engine (`core/analysis.py`, all UI-free):
+- `detect_steady_windows(df_proc, df_events, config)` — segments the record into
+  dwell windows = spans *between* consecutive transient events (reusing
+  `df_events` Start/End), trimmed by `steady_exclusion_s` on each side to drop
+  the AVR/governor settling tail, then dropped if shorter than
+  `steady_dwell_min_s`. No events → whole record is one window.
+- `evaluate_steady_window(...)` — checks **every** `Avg_Voltage_LL` /
+  `Avg_Frequency` sample (raw `df_proc`, **never `df_interp`**) against the δ
+  bands; emits min/mean/max, out-of-band count + %, worst deviation, mean kW →
+  `Load_Label` (snapped to 25/50/75/100% when `rated_load_kw` is set), Pass/Fail.
+- **Hunting flag** (`_detect_hunting`) — sustained cyclic oscillation
+  (governor/AVR hunting) via mean-crossing count + peak-to-peak vs band width.
+  A *qualitative red flag only* — it does **not** fail the dwell on its own.
+- `analyze_steady_state(df_proc, df_events, config, windows=None)` — orchestrates;
+  `windows` lets the caller pass user-confirmed/edited dwells (hybrid flow).
+
+Bridge/contract: `HostBridge.run_analysis` attaches `result["steady"]` (list of
+window dicts via `events_to_records`) **only when enabled**, so the default
+contract is byte-identical. `HostBridge.recalc_steady({"windows": [...]})`
+re-evaluates user-edited/labelled windows against the cached `df_proc` (omit
+`windows` to re-detect). Frontend: sidebar toggle + δ-band / dwell inputs;
+`SteadyStatePanel.svelte` renders the editable dwell table with re-evaluate /
+reset-to-auto. `MockBackend` serves the bundled `steady` sample.
+
 ### Miro logger support (2026-05-05)
 Two CSV formats are now auto-detected from the header in `analysis.py:detect_logger_format`:
 - **Hioki / generic** — default branch

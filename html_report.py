@@ -269,6 +269,10 @@ def get_default_template() -> str:
     {{Compliance_Table}}
   </div>
 
+  <!-- Steady-state (ISO 8528-5 δ bands) — section heading lives inside the
+       placeholder value, so the whole block vanishes when not evaluated. -->
+  {{Steady_State_Table}}
+
   <!-- Metric charts -->
   <div class="section-title">Metric Graphs</div>
   <div class="chart-grid">

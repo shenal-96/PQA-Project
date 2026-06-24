@@ -74,8 +74,18 @@ export interface AnalysisConfigInput {
   show_intersections: boolean;
   show_max_deviation: boolean;
 
+  // ── ISO 8528-5 steady-state (δ band) evaluation ──
+  // Opt-in, for staged load-bank tests only. Evaluates every sample during the
+  // stable dwell periods against the tight δU / δf bands (NOT the α/β recovery
+  // bands). See core/analysis.analyze_steady_state.
+  steady_state_enabled: boolean;
+  steady_voltage_band_pct: number;     // δU around nominal V (±%)
+  steady_freq_band_pct: number;        // δf around nominal frequency (±%)
+  steady_dwell_min_s: number;          // ignore plateaus shorter than this
+  steady_exclusion_s: number;          // trim each side of a dwell (settling tail)
+
   // ── Reporting helpers ──
-  rated_load_kw: number | null;        // % rated annotations when set
+  rated_load_kw: number | null;        // % rated annotations + steady dwell labels when set
   expected_steps: number | null;       // warn if detected event count differs
 }
 
@@ -131,6 +141,12 @@ export const DEFAULT_CONFIG: AnalysisConfigInput = {
   show_deviation_limits: true,
   show_intersections: false,
   show_max_deviation: false,
+
+  steady_state_enabled: false,
+  steady_voltage_band_pct: 2.5,
+  steady_freq_band_pct: 2.0,
+  steady_dwell_min_s: 30,
+  steady_exclusion_s: 10,
 
   rated_load_kw: null,
   expected_steps: null,
@@ -293,6 +309,14 @@ export function resolveConfig(c: AnalysisConfigInput): Record<string, number | s
     freq_start_lower_increase: iso.startLoInc,
     freq_start_upper_decrease: iso.startUpDec,
     freq_start_lower_decrease: iso.startLoDec,
+    // Steady-state δ-band evaluation (opt-in). rated_load_kw is only emitted
+    // when set so the engine leaves dwell load-% blank rather than dividing by 0.
+    steady_state_enabled: c.steady_state_enabled,
+    steady_voltage_band_pct: c.steady_voltage_band_pct,
+    steady_freq_band_pct: c.steady_freq_band_pct,
+    steady_dwell_min_s: c.steady_dwell_min_s,
+    steady_exclusion_s: c.steady_exclusion_s,
+    ...(c.rated_load_kw != null ? { rated_load_kw: c.rated_load_kw } : {}),
   };
 }
 

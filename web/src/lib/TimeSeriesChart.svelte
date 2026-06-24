@@ -4,14 +4,41 @@
   import type { MetricSeries } from '../backend/types';
   import { fmt2 } from './format';
 
-  let { series, label, color = '#2563eb' }:
-    { series: MetricSeries; label: string; color?: string } = $props();
+  let { series, label, color = '#2563eb', band, windows }:
+    {
+      series: MetricSeries;
+      label: string;
+      color?: string;
+      // Optional ISO 8528-5 δ band (steady-state) + dwell windows to overlay.
+      band?: { lower: number; upper: number };
+      windows?: { start: string; end: string }[];
+    } = $props();
+
+  const TEAL = '#0d9488';
 
   let el: HTMLDivElement;
   let chart: echarts.ECharts | undefined;
 
   function render() {
     if (!chart || !series) return;
+    // δ band lines (markLine) + shaded dwell windows (markArea), drawn only when
+    // steady-state context is supplied for this metric.
+    const markLine = band
+      ? {
+          symbol: 'none',
+          silent: true,
+          lineStyle: { color: TEAL, type: 'dashed', width: 1.2 },
+          label: { formatter: (p: { value: number }) => fmt2(p.value), color: TEAL, fontSize: 10 },
+          data: [{ yAxis: band.upper }, { yAxis: band.lower }],
+        }
+      : undefined;
+    const markArea = windows && windows.length
+      ? {
+          silent: true,
+          itemStyle: { color: 'rgba(13,148,136,0.08)' },
+          data: windows.map((w) => [{ xAxis: w.start }, { xAxis: w.end }]),
+        }
+      : undefined;
     chart.setOption(
       {
         grid: { left: 60, right: 24, top: 28, bottom: 56 },
@@ -40,6 +67,8 @@
             lineStyle: { width: 1.6, color },
             itemStyle: { color },
             data: series.timestamps.map((t, i) => [t, series.values[i]]),
+            ...(markLine ? { markLine } : {}),
+            ...(markArea ? { markArea } : {}),
           },
         ],
       },
@@ -63,6 +92,8 @@
     void series;
     void label;
     void color;
+    void band;
+    void windows;
     render();
   });
 </script>

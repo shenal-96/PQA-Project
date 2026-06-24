@@ -52,7 +52,15 @@ def main() -> None:
     with open(FIXTURE, "rb") as f:
         meta = bridge.load_csv({"csv_b64": base64.b64encode(f.read()).decode("ascii"),
                                 "filename": "hioki_sample.csv"})
-    result = bridge.run_analysis({})
+    # Enable steady-state (ISO 8528-5 δ bands) with relaxed dwell thresholds so
+    # the short demo fixture yields a couple of dwell windows for the browser
+    # preview of the SteadyStatePanel.
+    result = bridge.run_analysis({
+        "steady_state_enabled": True,
+        "steady_dwell_min_s": 10,
+        "steady_exclusion_s": 3,
+        "rated_load_kw": 500,
+    })
     snapshots = [bridge.snapshot({"index": i}) for i in range(len(result["events"]))]
 
     os.makedirs(OUT_DIR, exist_ok=True)

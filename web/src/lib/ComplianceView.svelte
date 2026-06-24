@@ -14,6 +14,7 @@
   import EventCard from './EventCard.svelte';
   import ReportPanel from './ReportPanel.svelte';
   import IticChart from './IticChart.svelte';
+  import SteadyStatePanel from './SteadyStatePanel.svelte';
 
   // mode = 'csv' (Compliance tab) or 'winscope' (WinScope tab). The only
   // difference is the file type + which backend loader runs; everything below
@@ -75,6 +76,26 @@
     intersections: config.show_intersections,
     extreme: config.show_max_deviation,
   });
+  // δ band + dwell windows to overlay on the V/F time-series when steady-state
+  // is enabled (only for the two metrics the δ bands apply to).
+  const steadyBand = $derived.by(() => {
+    if (!config.steady_state_enabled || !result?.steady) return undefined;
+    if (selected === 'Avg_Voltage_LL') {
+      const h = (config.nominal_voltage * config.steady_voltage_band_pct) / 100;
+      return { lower: config.nominal_voltage - h, upper: config.nominal_voltage + h };
+    }
+    if (selected === 'Avg_Frequency') {
+      const h = (config.nominal_frequency * config.steady_freq_band_pct) / 100;
+      return { lower: config.nominal_frequency - h, upper: config.nominal_frequency + h };
+    }
+    return undefined;
+  });
+  const steadyWindows = $derived(
+    steadyBand && result?.steady
+      ? result.steady.map((w) => ({ start: String(w.Start_Timestamp), end: String(w.End_Timestamp) }))
+      : undefined,
+  );
+
   const stepsWarning = $derived(
     result && config.expected_steps != null && result.events.length !== config.expected_steps
       ? `Detected ${result.events.length} event(s) but ${config.expected_steps} were expected.`
@@ -237,7 +258,7 @@
       {#if selected === DETECTED}
         <DetectedEventsChart series={result.metrics['Avg_kW']} overlay={result.events_overlay ?? []} />
       {:else if result.metrics[selected]}
-        <TimeSeriesChart series={result.metrics[selected]} label={metricLabel(selected)} color={METRIC_COLORS[selected] ?? '#2563eb'} />
+        <TimeSeriesChart series={result.metrics[selected]} label={metricLabel(selected)} color={METRIC_COLORS[selected] ?? '#2563eb'} band={steadyBand} windows={steadyWindows} />
       {/if}
 
       {#if result.itic}
@@ -248,6 +269,13 @@
       <div class="section-head"><span class="bar compliance"></span><h2>Compliance</h2></div>
       <ComplianceTable events={result.events} />
       {#if result.events.length}<ClipboardButtons events={result.events} />{/if}
+
+      {#if config.steady_state_enabled && result.steady}
+        <div class="section-head">
+          <span class="bar steady"></span><h2>Steady-state (ISO 8528-5 δ bands)</h2>
+        </div>
+        <SteadyStatePanel windows={result.steady} {backend} {caps} />
+      {/if}
 
       {#if result.events.length}
         <div class="section-head">
@@ -302,6 +330,7 @@
   .section-head { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
   .section-head .bar { width: 4px; height: 20px; border-radius: 2px; }
   .bar.plots { background: var(--cyan, #0891b2); } .bar.compliance { background: var(--blue); }
+  .bar.steady { background: #0d9488; }
   h2 { margin: 0; font-size: 1.1rem; }
   .tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--border); }
   .tab { background: none; border: none; padding: 9px 14px; font-size: 14px; color: var(--text-sub); border-bottom: 2px solid transparent; margin-bottom: -1px; }

@@ -2,7 +2,7 @@ import type { AnalysisBackend } from './AnalysisBackend';
 import type {
   AnalysisResult, Caps, CsvMeta, EcuRecording, EventOverride, EventRecord,
   IticData, MetricSeries, ReportRequest, ReportResult,
-  SetpointResult, SnapshotData, SnapshotOpts,
+  SetpointResult, SnapshotData, SnapshotOpts, SteadyWindow, SteadyWindowEdit,
 } from './types';
 import sampleResult from '../dev/sample_result.json';
 import sampleMeta from '../dev/sample_meta.json';
@@ -52,6 +52,11 @@ export class MockBackend implements AnalysisBackend {
 
   async recalc(_overrides: Record<number, EventOverride>): Promise<{ events: EventRecord[]; itic?: IticData }> {
     return { events: RESULT.events, itic: RESULT.itic };
+  }
+
+  // Mock can't recompute (no Python); returns the bundled steady-state windows.
+  async recalcSteady(_windows?: SteadyWindowEdit[]): Promise<{ steady: SteadyWindow[] }> {
+    return { steady: RESULT.steady ?? [] };
   }
 
   // Reports need host Python (matplotlib + Chromium); not available in-browser.

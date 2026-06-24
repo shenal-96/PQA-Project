@@ -51,6 +51,7 @@ class HostBridge:
         self._df_run = None      # the (possibly time-windowed) frame the last analysis ran on
         self._df_proc = None     # processed frame
         self._df_events = None   # detected events
+        self._df_steady = None   # steady-state dwell windows (ISO 8528-5 δ bands)
         self._config = None      # AnalysisConfig used for the last run
 
     # ---- capabilities -----------------------------------------------------
@@ -219,7 +220,7 @@ class HostBridge:
         they filter the frame before analysis and are ignored by ``_build_config``.
         """
         import core.analysis as ca
-        from core.serialize import analysis_result
+        from core.serialize import analysis_result, events_to_records
         from core.viz_dataprep import detected_events_overlay, itic_curve
 
         if self._df is None:
@@ -243,10 +244,16 @@ class HostBridge:
         self._df_events = self._df_events.reset_index(drop=True)  # positional == label for snapshot/recalc
         self._config = cfg
         usage_log.record_analysis_run()
+        self._df_steady = None
         result = analysis_result(self._df_proc, self._df_events,
                                  logger_format=self._df.attrs.get("logger_format"))
         result["itic"] = itic_curve(self._df_events, cfg.nominal_voltage)
         result["events_overlay"] = detected_events_overlay(self._df_events)
+        # Steady-state (ISO 8528-5 δ bands) is opt-in per test — only computed
+        # and surfaced when enabled, so the default contract is unchanged.
+        if getattr(cfg, "steady_state_enabled", False):
+            self._df_steady = ca.analyze_steady_state(self._df_proc, self._df_events, cfg)
+            result["steady"] = events_to_records(self._df_steady)
         return result
 
     @_logged
@@ -301,8 +308,10 @@ class HostBridge:
             raise RuntimeError("generate_report called before run_analysis")
         # Use the windowed frame the analysis ran on so report snapshots match.
         df_raw = self._df_run if self._df_run is not None else self._df
+        # Pass the cached steady-state frame so the report reflects any
+        # user-confirmed/edited dwell windows (recalc_steady), not a re-detect.
         result = build_report(df_raw, self._df_proc, self._df_events, self._config,
-                              params or {})
+                              params or {}, df_steady=self._df_steady)
         usage_log.record_report_generated()
         return result
 
@@ -354,6 +363,38 @@ class HostBridge:
             "itic": itic_curve(self._df_events, self._config.nominal_voltage),
         }
 
+    # ---- steady-state (hybrid confirm) ------------------------------------
+    def recalc_steady(self, params: dict | None = None) -> dict:
+        """Re-evaluate steady-state for user-confirmed/edited dwell windows.
+
+        ``params``: ``{"windows": [{"start": iso, "end": iso, "label"?: str}]}``.
+        When ``windows`` is omitted the dwell windows are auto-detected afresh
+        (the "reset to auto" path). Evaluated against the cached ``df_proc`` from
+        the last run, so the source samples match the original analysis.
+        """
+        import pandas as pd
+
+        import core.analysis as ca
+        from core.serialize import events_to_records
+
+        if self._df_proc is None:
+            raise RuntimeError("recalc_steady called before run_analysis")
+        raw = (params or {}).get("windows")
+        windows = None
+        if raw is not None:
+            windows = [
+                {
+                    "start": pd.Timestamp(w["start"]),
+                    "end": pd.Timestamp(w["end"]),
+                    "label": w.get("label"),
+                    "index": w.get("index", i),
+                }
+                for i, w in enumerate(raw)
+            ]
+        self._df_steady = ca.analyze_steady_state(
+            self._df_proc, self._df_events, self._config, windows=windows)
+        return {"steady": events_to_records(self._df_steady)}
+
     # ---- helpers ----------------------------------------------------------
     def _build_config(self, config: dict | None):
         import core.analysis as ca
@@ -401,7 +442,7 @@ def main() -> None:
     import webview  # lazy: only needed to actually open a window
 
     bridge = HostBridge()
-    window = webview.create_window("PQA PROJECT", url=_index_url(),
+    window = webview.create_window("PQA PROJECT v4.1", url=_index_url(),
                                    js_api=bridge, width=1400, height=900, min_size=(1024, 700))
 
     # Track time spent in the app: start the timer when the window is shown and
