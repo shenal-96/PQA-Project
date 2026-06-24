@@ -164,8 +164,20 @@ export interface ReportRequest {
   outputs: ReportOutputs;
   html_template?: string;
   docx_template_b64?: string;
+  /** Name of a template in the persistent library (alternative to inline b64). */
+  docx_template_name?: string;
+  /** Drop the not-recovered watermark/tint from the report snapshots. */
+  clear_not_recovered?: boolean;
   rated_load_kw?: number | null;
   image_options?: Record<string, unknown>;
+}
+/** One stored Word template in the persistent library. */
+export interface TemplateInfo {
+  name: string;
+  size: number;
+  /** Indices N of every {{Snapshot_N}} placeholder found in the template. */
+  snapshot_indices: number[];
+  snapshot_max: number;
 }
 export interface ReportArtifacts {
   pdf_b64?: string | null;

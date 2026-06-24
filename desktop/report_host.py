@@ -265,10 +265,16 @@ def build_report(df_raw, df_proc, df_events, config, params, *, df_steady=None, 
           "filename": "PQA_Report",
           "outputs": {"pdf": true, "html": false, "docx": false},
           "html_template": "<...>",          # optional; defaults to built-in
-          "docx_template_b64": "<base64>",   # optional; required for .docx output
+          "docx_template_b64": "<base64>",   # optional; inline .docx for output
+          "docx_template_name": "Acme.docx", # optional; name in the saved library
+          "clear_not_recovered": false,      # optional; drop the not-recovered flags
           "rated_load_kw": 1000,             # optional, for % annotations
           "image_options": {...}             # optional viz_report overrides
         }
+
+    A Word template may be supplied inline (``docx_template_b64``) or by the name
+    of a template saved in the persistent library (``docx_template_name``); the
+    inline form wins when both are present.
 
     Returns::
 
@@ -282,11 +288,17 @@ def build_report(df_raw, df_proc, df_events, config, params, *, df_steady=None, 
     client_name = _safe_name(fields.get("report_title") or filename, fallback=filename)
     html_template = params.get("html_template") or default_html_template()
     docx_template_b64 = params.get("docx_template_b64")
+    docx_template_name = params.get("docx_template_name")
     rated = params.get("rated_load_kw")
 
     image_options = dict(params.get("image_options") or {})
     if rated is not None:
         image_options.setdefault("rated_load_kw", rated)
+    # When the user opts to drop the not-recovered flags from the report, render
+    # the snapshots without the red watermark/tint (mirrors the Streamlit
+    # "Remove warnings from report" path, which zeroed the flags before render).
+    if params.get("clear_not_recovered"):
+        image_options["clear_not_recovered"] = True
 
     warnings: list[str] = []
     log_lines: list[str] = []
@@ -355,17 +367,29 @@ def build_report(df_raw, df_proc, df_events, config, params, *, df_steady=None, 
                 else:
                     warnings.append("PDF export failed — see report log for details.")
 
-        # 4. Editable Word .docx (only with a supplied template).
+        # 4. Editable Word .docx (only with a supplied template — inline bytes or
+        #    a name in the persistent library).
         if want_docx:
+            import io
+            template_stream = None
             if docx_template_b64:
-                import io
-                doc = report_mod.inject_images_to_word(
-                    io.BytesIO(base64.b64decode(docx_template_b64)), p_map)
+                template_stream = io.BytesIO(base64.b64decode(docx_template_b64))
+            elif docx_template_name:
+                from desktop import template_store
+                tpl_path = template_store.resolve(docx_template_name)
+                if tpl_path:
+                    template_stream = tpl_path  # python-docx accepts a path
+                else:
+                    warnings.append(
+                        f"Word template '{docx_template_name}' was not found in the "
+                        f"library — re-upload it to generate the .docx.")
+            if template_stream is not None:
+                doc = report_mod.inject_images_to_word(template_stream, p_map)
                 docx_path = os.path.join(work_dir, filename + ".docx")
                 doc.save(docx_path)
                 artifacts["docx_b64"] = _file_b64(docx_path)
                 artifacts["docx_mime"] = DOCX_MIME
-            else:
+            elif not warnings or "not found" not in warnings[-1]:
                 warnings.append("Word (.docx) output needs a Word template upload.")
     finally:
         if owns_dir:

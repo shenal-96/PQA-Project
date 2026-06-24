@@ -3,6 +3,7 @@ import type {
   AnalysisResult, Caps, CsvMeta, EcuRecording, EventOverride, EventRecord,
   IticData, MetricSeries, ReportRequest, ReportResult,
   SetpointResult, SnapshotData, SnapshotOpts, SteadyWindow, SteadyWindowEdit,
+  TemplateInfo,
 } from './types';
 import sampleResult from '../dev/sample_result.json';
 import sampleMeta from '../dev/sample_meta.json';
@@ -66,6 +67,19 @@ export class MockBackend implements AnalysisBackend {
 
   async defaultHtmlTemplate(): Promise<string> {
     return '<!-- Report templates are available in the desktop app. -->';
+  }
+
+  // The persistent template library lives host-side; the browser preview has none.
+  async listTemplates(): Promise<TemplateInfo[]> {
+    return [];
+  }
+
+  async saveTemplate(_file: File): Promise<TemplateInfo[]> {
+    throw new Error('Word template uploads are saved in the desktop app.');
+  }
+
+  async deleteTemplate(_name: string): Promise<TemplateInfo[]> {
+    return [];
   }
 
   async compareSetpoint(_kind: 'xls' | 'csv', _files: File[]): Promise<SetpointResult> {

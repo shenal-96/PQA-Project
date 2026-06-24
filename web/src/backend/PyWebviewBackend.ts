@@ -3,7 +3,7 @@ import type {
   AnalysisResult, Caps, CrashReportResult, CsvMeta, EcuRecording, EventOverride,
   EventRecord, IticData, MetricSeries, PendingCrashStatus, ReportRequest,
   ReportResult, SaveResult, SetpointResult, SnapshotData, SnapshotOpts,
-  SteadyWindow, SteadyWindowEdit,
+  SteadyWindow, SteadyWindowEdit, TemplateInfo,
 } from './types';
 
 declare global {
@@ -90,6 +90,22 @@ export class PyWebviewBackend implements AnalysisBackend {
   async defaultHtmlTemplate(): Promise<string> {
     const r = (await this.api.default_html_template()) as { template: string };
     return r.template;
+  }
+
+  async listTemplates(): Promise<TemplateInfo[]> {
+    const r = (await this.api.list_templates()) as { templates: TemplateInfo[] };
+    return r.templates ?? [];
+  }
+
+  async saveTemplate(file: File): Promise<TemplateInfo[]> {
+    const b64 = await fileToBase64(file);
+    const r = (await this.api.save_template({ filename: file.name, b64 })) as { templates: TemplateInfo[] };
+    return r.templates ?? [];
+  }
+
+  async deleteTemplate(name: string): Promise<TemplateInfo[]> {
+    const r = (await this.api.delete_template({ name })) as { templates: TemplateInfo[] };
+    return r.templates ?? [];
   }
 
   saveFile(filename: string, dataB64: string): Promise<SaveResult> {

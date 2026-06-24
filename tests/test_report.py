@@ -172,6 +172,62 @@ def test_build_report_docx_with_template(tmp_path):
     assert "Acme" in "\n".join(p.text for p in out.paragraphs)
 
 
+def test_build_report_docx_from_named_template(tmp_path, monkeypatch):
+    """A Word template saved in the library is resolved by name for output."""
+    pytest.importorskip("matplotlib")
+    docx = pytest.importorskip("docx")
+    import io
+
+    from desktop import template_store
+
+    monkeypatch.setenv("PQA_DATA_DIR", str(tmp_path))
+    doc = docx.Document()
+    doc.add_heading("PQA — {{Report_Title}}", 0)
+    doc.add_paragraph("{{Snapshot_1}}")
+    buf = io.BytesIO()
+    doc.save(buf)
+    template_store.save_template("Lib.docx", base64.b64encode(buf.getvalue()).decode("ascii"))
+
+    df_raw, df_proc, df_events, cfg = _frames()
+    res = report_host.build_report(
+        df_raw, df_proc, df_events, cfg,
+        {"fields": {"report_title": "Acme"},
+         "outputs": {"docx": True, "pdf": False},
+         "docx_template_name": "Lib.docx"},
+    )
+    assert res["artifacts"]["docx_mime"].endswith("wordprocessingml.document")
+    assert base64.b64decode(res["artifacts"]["docx_b64"])[:2] == b"PK"
+
+
+def test_build_report_named_template_missing_warns(tmp_path, monkeypatch):
+    pytest.importorskip("matplotlib")
+    pytest.importorskip("docx")
+    monkeypatch.setenv("PQA_DATA_DIR", str(tmp_path))
+    df_raw, df_proc, df_events, cfg = _frames()
+    res = report_host.build_report(
+        df_raw, df_proc, df_events, cfg,
+        {"fields": {"report_title": "Acme"},
+         "outputs": {"docx": True, "pdf": False},
+         "docx_template_name": "Ghost.docx"},
+    )
+    assert "docx_b64" not in res["artifacts"]
+    assert any("not found" in w.lower() for w in res["warnings"])
+
+
+def test_build_report_clear_not_recovered_option(tmp_path):
+    """``clear_not_recovered`` is accepted and produces a clean HTML report."""
+    pytest.importorskip("matplotlib")
+    pytest.importorskip("docx")
+    df_raw, df_proc, df_events, cfg = _frames()
+    res = report_host.build_report(
+        df_raw, df_proc, df_events, cfg,
+        {"fields": {"report_title": "Acme"},
+         "outputs": {"html": True, "pdf": False},
+         "clear_not_recovered": True},
+    )
+    assert "{{" not in res["artifacts"]["html"]
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX fake-browser shim")
 def test_generate_report_pdf_via_bridge(tmp_path):
     pytest.importorskip("matplotlib")
