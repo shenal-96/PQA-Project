@@ -18,7 +18,7 @@
     { id: 'exit', label: 'Band-exit time' },
     { id: 'recovery', label: 'Recovery time' },
     { id: 'passfail', label: 'Pass / fail rules' },
-    { id: 'steady', label: 'Steady-state (δ bands)' },
+    { id: 'steady', label: 'Steady-state (ISO 8528-5)' },
     { id: 'fault', label: 'Potential Fault flag' },
     { id: 'asymmetric', label: 'Asymmetric bands' },
     { id: 'iso', label: 'ISO 8528-5 dual bands' },
@@ -249,29 +249,106 @@
         </section>
 
         <section id="help-steady">
-          <h2>Steady-state analysis (ISO 8528-5 δ bands)</h2>
+          <h2>Steady-state analysis (ISO 8528-5)</h2>
           <p>
-            Separate from the transient checks above, steady-state analysis verifies the generator
-            holds voltage and frequency inside the tight <b>δ tolerance bands</b> (δU ±2.5 %,
-            δf ±2.0 % by default) during the <b>stable dwell periods between load steps</b> — the way
-            a staged load-bank test holds 25 / 50 / 75 / 100 % for several minutes each.
+            Separate from the transient checks above, steady-state analysis verifies how the
+            generator behaves while load is <b>held constant</b> — the dwell periods <i>between</i>
+            load steps, the way a staged load-bank test holds 25 / 50 / 75 / 100 % for several
+            minutes each. It answers a different question than the transient checks: not "how fast
+            did it recover from the step?" but "how steady is it once settled?"
           </p>
           <div class="callout warn">
-            <b>Don't confuse the bands.</b> Steady-state uses the tight <b>δ</b> bands. Transient
+            <b>Don't confuse the bands.</b> Steady-state uses the tight steady tolerances. Transient
             analysis uses the wider <b>α</b> (recovery target) and <b>β</b> (departure trigger) bands.
-            PQA keeps them separate.
+            PQA keeps them completely separate — steady-state never touches the recovery fields.
           </div>
-          <p>Enable <i>Evaluate steady-state</i> in the sidebar (it's opt-in — only meaningful for staged tests). PQA then:</p>
+
+          <h3>How the check works</h3>
+          <p><b>1. It finds the stable dwell windows.</b> PQA segments the record into the spans
+            between detected load steps, then trims a settling margin (<i>Exclude (s)</i>) off each
+            side so the post-step governor/AVR tail is left out. Spans shorter than <i>Dwell min (s)</i>
+            are discarded. With no load steps the whole record is one window. Every measured sample in
+            each window is inspected on the <b>raw logged data</b> (never the interpolated grid).</p>
+
+          <p><b>2. It grades each window — in one of two modes.</b></p>
           <ul>
-            <li>Segments the record into the dwell windows between detected load steps, trimming a settling margin off each side so the transient tail is excluded.</li>
-            <li>Checks <b>every</b> sample in each dwell against the δ bands, reporting min/mean/max, out-of-band count, worst deviation, and a Pass/Fail.</li>
-            <li>Flags governor/AVR <b>hunting</b> — sustained cyclic oscillation, even when peaks stay in band — as a qualitative red flag.</li>
+            <li><b>Free-form mode</b> (Performance class = <i>None</i>): every sample is checked
+              against the <b>δU / δf</b> bands you set in the sidebar (default ±2.5 % / ±2.0 %). A
+              window <b>fails</b> if any sample leaves the band.</li>
+            <li><b>ISO 8528-5 class mode</b> (class = <i>G1 / G2 / G3</i>): the two spec metrics drive
+              the verdict, graded against the <b>Table 4</b> limits for that class:
+              <ul>
+                <li><b>β_f — steady-state frequency band</b> (per window): the peak-to-peak frequency
+                  swing as a % of rated, <code>(f_max − f_min) / f_r × 100</code>. This is the
+                  per-window frequency Pass/Fail.</li>
+                <li><b>ΔU_st — steady-state voltage regulation</b> (across all windows): the spread of
+                  the per-window mean voltages over the whole no-load→rated sweep,
+                  <code>±(U_max − U_min) / (2·U_r) × 100</code>. Judged once, in the summary card.</li>
+              </ul>
+            </li>
           </ul>
-          <p>
-            The results appear as an editable dwell table under the compliance table, and the δ band
-            is overlaid on the Voltage and Frequency time-series. You can relabel or adjust each dwell
-            window and re-evaluate, or reset to the auto-detected windows.
+
+          <p><b>3. It always reports two extra signals.</b> <b>Hunting</b> — sustained cyclic
+            oscillation (governor/AVR), flagged even when the peaks stay in band; it's a qualitative
+            red flag and does <i>not</i> fail the dwell on its own. <b>Frequency droop</b> — a sanity
+            check, <code>(f_noload − f_rated) / f_r × 100</code>, expected ≈ 0 for an isochronous set.</p>
+
+          <p>The Table 4 limits PQA grades against (after any footnote toggles):</p>
+          <table>
+            <thead><tr><th>Metric</th><th>G1</th><th>G2</th><th>G3</th></tr></thead>
+            <tbody>
+              <tr><td>β_f — frequency band (±%)</td><td>2.5</td><td>1.5</td><td>0.5</td></tr>
+              <tr><td>ΔU_st — voltage regulation (±%)</td><td>5.0</td><td>2.5</td><td>1.0</td></tr>
+              <tr><td>α_f — frequency tolerance / re-entry (±%)</td><td>3.5</td><td>2.0</td><td>2.0</td></tr>
+              <tr><td>Voltage unbalance, no-load (%) <span class="muted">— deferred</span></td><td>1.0</td><td>1.0</td><td>1.0</td></tr>
+              <tr><td>Voltage modulation Û_mod,s (%) <span class="muted">— deferred</span></td><td>AMC</td><td>0.3</td><td>0.3</td></tr>
+              <tr><td>Droop δf_st (%), non-isochronous</td><td>8.0</td><td>5.0</td><td>3.0</td></tr>
+            </tbody>
+          </table>
+          <p class="muted">
+            Footnote toggles in the sidebar adjust these: <i>single/two-cylinder</i> raises β_f to
+            2.5 %, <i>low-power (ISO 8528-8)</i> relaxes ΔU_st to ±10 %, <i>parallel operation</i>
+            tightens unbalance to 0.5 %, and <i>isochronous</i> (on by default) sets the droop limit
+            to 0 %. Voltage <b>unbalance</b> and <b>modulation</b> are not yet computed — the summary
+            shows their gate status ("not computed") rather than a fabricated number.
           </p>
+
+          <h3>Applying it to a data set</h3>
+          <ol class="flow">
+            <li>Tick <b>Evaluate steady-state</b> in the sidebar. It's opt-in — only meaningful for
+              staged load-bank tests that hold each load level for a dwell.</li>
+            <li>Pick a <b>Performance class</b> (G1 / G2 / G3) matching the genset's specification, or
+              leave it <i>None</i> to grade against your own δU / δf bands. The chips tell you which
+              mode you're in.</li>
+            <li>Set the <b>footnote toggles</b> that apply (isochronous is on by default; tick
+              single/two-cylinder, low-power, or parallel operation as relevant).</li>
+            <li>Enter <b>Rated Load (kW)</b> so each dwell is auto-labelled 25 / 50 / 75 / 100 %.</li>
+            <li>Tune <b>Dwell min (s)</b> below your actual hold time (so real plateaus survive but
+              brief pauses don't), and <b>Exclude (s)</b> to cover the settling tail after each step —
+              raise it if a slow governor/AVR is dragging transient samples into the dwell.</li>
+            <li>Click <b>Run Analysis</b>. Review the dwell table + the ISO 8528-5 summary card below
+              the compliance table; the δ band is overlaid on the Voltage and Frequency plots.</li>
+            <li><b>Adjust if needed.</b> Relabel a dwell, edit its start/end timestamps, or remove a
+              spurious window, then <b>Re-evaluate windows</b>. <b>Reset to auto-detected</b> restores
+              the automatic segmentation.</li>
+          </ol>
+
+          <h3>Reading the results</h3>
+          <ul>
+            <li><b>Dwell table</b> — one row per window: load label, time span, duration, sample count,
+              the band in use, V and F min/mean/max, the count of samples outside band, the
+              <b>β_f %</b> (with its class limit), and the Pass/Fail badge. A <code>⚠ Hunting</code>
+              badge appears when oscillation is detected.</li>
+            <li><b>ISO 8528-5 summary card</b> — the cross-window verdicts: <b>ΔU_st</b> voltage
+              regulation (value vs limit, Pass/Fail), the <b>droop</b> sanity check, the detected
+              <b>sample rate</b>, and the deferred unbalance / modulation status.</li>
+          </ul>
+          <div class="callout tip">
+            In class mode the per-window <b>frequency</b> verdict is β_f, while <b>voltage</b>
+            regulation (ΔU_st) is judged once across the whole sweep in the summary card — so a single
+            dwell can read "Pass" on frequency yet the run still flag a voltage-regulation problem
+            overall. Read the table and the summary card together.
+          </div>
         </section>
 
         <section id="help-fault">
