@@ -274,7 +274,7 @@
         <div class="section-head">
           <span class="bar steady"></span><h2>Steady-state (ISO 8528-5 δ bands)</h2>
         </div>
-        <SteadyStatePanel windows={result.steady} {backend} {caps} />
+        <SteadyStatePanel windows={result.steady} summary={result.steady_summary} {backend} {caps} />
       {/if}
 
       {#if result.events.length}

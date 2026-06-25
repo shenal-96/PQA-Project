@@ -97,6 +97,22 @@ class AnalysisConfig:
     # Rated load (kW) for labelling each dwell as a % of rated (25/50/75/100).
     # None → dwell load % is not computed. Also surfaced to reports elsewhere.
     rated_load_kw: float | None = None
+    # ── ISO 8528-5 performance class + Table 4 limit selection ───────────────
+    # When set ("G1"/"G2"/"G3") the steady-state metrics are graded against the
+    # Table 4 limits for that class: β_f drives the per-window frequency verdict
+    # and ΔU_st drives the cross-window voltage verdict. When None (default) the
+    # legacy free-form δU/δf per-sample bands above drive pass/fail, byte-for-byte
+    # identical to the prior behaviour.
+    steady_performance_class: str | None = None   # "G1" | "G2" | "G3" | None
+    # Table 4 footnote conditions, applied to the resolved limits when True:
+    steady_single_two_cylinder: bool = False  # β_f footnote a: up to 2.5% any class
+    steady_low_power: bool = False             # ΔU_st footnotes f/g: ±10% (ISO 8528-8)
+    steady_parallel_operation: bool = False    # ΔU_2.0 footnote h: 0.5% in parallel
+    steady_isochronous: bool = True            # droop → 0% (footnote q); spec scope
+    # β_f outlier handling (spec §3.2): percentile used for the f_max/f_min extremes
+    # so a single noise spike does not inflate the peak-to-peak band. 100 = literal
+    # min/max; 99.9 = clip the top/bottom 0.1%.
+    steady_beta_f_percentile: float = 100.0
 
     @classmethod
     def iso_8528_defaults(cls):
@@ -800,6 +816,88 @@ _HUNT_MIN_CYCLES = 3.0       # at least this many oscillation cycles within the 
 _HUNT_PTP_BAND_FRAC = 0.4    # peak-to-peak must reach this fraction of the band width
 _HUNT_DEADBAND_FRAC = 0.05   # ignore mean-crossings smaller than this fraction of band
 
+# ── ISO 8528-5:2025 Table 4 — steady-state limit values per performance class ──
+# Mirrors the spec's STEADY_STATE_LIMITS. None = "by agreement"/AMC (no fixed
+# class limit). Conditional footnote adjustments are applied in ``steady_limits``.
+STEADY_STATE_LIMITS = {
+    "freq_band_pct":       {"G1": 2.5, "G2": 1.5, "G3": 0.5},   # β_f
+    "freq_tol_band_pct":   {"G1": 3.5, "G2": 2.0, "G3": 2.0},   # α_f (re-entry band)
+    "volt_dev_pct":        {"G1": 5.0, "G2": 2.5, "G3": 1.0},   # ΔU_st (±)
+    "volt_unbalance_pct":  {"G1": 1.0, "G2": 1.0, "G3": 1.0},   # ΔU_2.0 @ no-load
+    "volt_setting_range":  {"G1": 5.0, "G2": 5.0, "G3": 5.0},   # ΔU_s (±)
+    "volt_modulation_pct": {"G1": None, "G2": 0.3, "G3": 0.3},  # Û_mod,s (AMC for G1)
+    "freq_droop_pct":      {"G1": 8.0, "G2": 5.0, "G3": 3.0},   # δf_st (0 isochronous)
+}
+
+# Minimum sample rate (Hz) needed to resolve sub-fundamental voltage modulation
+# (~1–15 Hz flicker band). Below this the modulation/cyclic-irregularity metrics
+# cannot be computed and must report "insufficient sample rate" (spec §4). Used
+# by the sample-rate gate; the modulation maths itself lands in a later increment.
+_MODULATION_MIN_FS_HZ = 50.0
+
+
+def steady_limits(config: AnalysisConfig) -> dict | None:
+    """Resolve the Table 4 steady-state limits for the configured performance
+    class, applying the conditional footnote adjustments. Returns ``None`` when
+    no performance class is selected (legacy free-form δ-band mode), which keeps
+    the per-window pass/fail behaviour byte-identical to the prior release.
+    """
+    cls = getattr(config, "steady_performance_class", None)
+    if cls not in ("G1", "G2", "G3"):
+        return None
+    lim = {k: STEADY_STATE_LIMITS[k][cls] for k in STEADY_STATE_LIMITS}
+    # Footnote a — single/two-cylinder engines may reach 2.5% β_f for any class.
+    if getattr(config, "steady_single_two_cylinder", False):
+        lim["freq_band_pct"] = max(lim["freq_band_pct"], 2.5)
+    # Footnotes f/g — low-power sets (ISO 8528-8) relax ΔU_st to ±10%.
+    if getattr(config, "steady_low_power", False):
+        lim["volt_dev_pct"] = 10.0
+    # Footnote h — parallel operation tightens voltage unbalance to 0.5%.
+    if getattr(config, "steady_parallel_operation", False):
+        lim["volt_unbalance_pct"] = 0.5
+    # Footnote q — isochronous sets have zero permissible steady-state droop.
+    if getattr(config, "steady_isochronous", True):
+        lim["freq_droop_pct"] = 0.0
+    return lim
+
+
+def _beta_f(vals, nom_f, config: AnalysisConfig):
+    """Steady-state frequency band β_f = (f_max − f_min) / f_r × 100 (spec §2.1).
+
+    Honours ``steady_beta_f_percentile`` for outlier-robust extremes so a single
+    noise spike does not inflate the peak-to-peak band. Returns a percentage, or
+    ``None`` when there is nothing to measure.
+    """
+    if vals is None or len(vals) == 0 or not nom_f:
+        return None
+    arr = np.asarray(vals, dtype=float)
+    arr = arr[~np.isnan(arr)]
+    if arr.size == 0:
+        return None
+    pct = float(getattr(config, "steady_beta_f_percentile", 100.0) or 100.0)
+    if pct >= 100.0:
+        fmax, fmin = float(arr.max()), float(arr.min())
+    else:
+        fmin = float(np.percentile(arr, 100.0 - pct))
+        fmax = float(np.percentile(arr, pct))
+    return round((fmax - fmin) / nom_f * 100.0, 4)
+
+
+def detect_sample_rate_hz(df_proc):
+    """Median sample rate (Hz) of ``df_proc`` from the Timestamp spacing, or
+    ``None``. Used by the steady-state sample-rate gate (spec §4)."""
+    if df_proc is None or "Timestamp" not in getattr(df_proc, "columns", []):
+        return None
+    ts = pd.to_datetime(df_proc["Timestamp"])
+    if len(ts) < 2:
+        return None
+    diffs = np.diff(ts.to_numpy()).astype("timedelta64[ns]").astype(np.int64)
+    diffs = diffs[diffs > 0]
+    if diffs.size == 0:
+        return None
+    med_s = float(np.median(diffs)) / 1e9
+    return round(1.0 / med_s, 3) if med_s > 0 else None
+
 
 def detect_steady_windows(df_proc, df_events, config: AnalysisConfig):
     """Auto-segment the record into stable dwell windows between transient events.
@@ -891,13 +989,24 @@ def _detect_hunting(vals, lower, upper):
 
 def evaluate_steady_window(df_proc, start_ts, end_ts, config: AnalysisConfig,
                            index=0, label=None):
-    """Evaluate one dwell window against the δ bands. Returns a flat dict (one
-    steady-state result row). Pass/Fail is driven purely by samples leaving the
-    δ band; hunting is reported separately as a qualitative flag."""
+    """Evaluate one dwell window. Returns a flat dict (one steady-state result
+    row). In legacy mode (no performance class) Pass/Fail is driven by samples
+    leaving the free-form δ band, byte-identical to the prior release. In ISO
+    8528-5 class mode the per-window frequency verdict is the β_f peak-to-peak
+    band against the Table 4 limit (§2.1); the cross-window voltage regulation
+    ΔU_st is graded in :func:`summarize_steady_state`. Hunting is always a
+    separate qualitative flag."""
     start_ts, end_ts = pd.Timestamp(start_ts), pd.Timestamp(end_ts)
     nom_v, nom_f = config.nominal_voltage, config.nominal_frequency
-    v_half = nom_v * config.steady_voltage_band_pct / 100.0
-    f_half = nom_f * config.steady_freq_band_pct / 100.0
+    lim = steady_limits(config)
+    # In class mode the displayed conformance bands are the Table 4 bands
+    # (voltage: ΔU_st regulation band; frequency: the wider α_f tolerance band);
+    # in legacy mode they are the free-form δU/δf inputs. The per-window verdict
+    # itself is set below (β_f in class mode, per-sample band in legacy mode).
+    v_band_pct = lim["volt_dev_pct"] if lim else config.steady_voltage_band_pct
+    f_band_pct = lim["freq_tol_band_pct"] if lim else config.steady_freq_band_pct
+    v_half = nom_v * v_band_pct / 100.0
+    f_half = nom_f * f_band_pct / 100.0
     v_lower, v_upper = nom_v - v_half, nom_v + v_half
     f_lower, f_upper = nom_f - f_half, nom_f + f_half
 
@@ -936,13 +1045,31 @@ def evaluate_steady_window(df_proc, start_ts, end_ts, config: AnalysisConfig,
     rec.update(_band_stats(v, "V", v_lower, v_upper, nom_v))
     rec.update(_band_stats(f, "F", f_lower, f_upper, nom_f))
 
+    # β_f — steady-state frequency band (peak-to-peak / f_r), spec §2.1. Always
+    # reported; graded against the Table 4 limit only when a class is selected.
+    beta_f = _beta_f(f, nom_f, config)
+    rec["Beta_f_pct"] = beta_f
+    rec["Beta_f_limit_pct"] = lim["freq_band_pct"] if lim else None
+    rec["Beta_f_pass"] = (bool(beta_f <= lim["freq_band_pct"])
+                          if (lim is not None and beta_f is not None) else None)
+
     reasons, status = [], "Pass"
-    if rec["V_n_out"] > 0:
-        status = "Fail"
-        reasons.append(f"Voltage out of δU band on {rec['V_n_out']} sample(s) (worst {rec['V_worst_dev_pct']:.2f}%)")
-    if rec["F_n_out"] > 0:
-        status = "Fail"
-        reasons.append(f"Frequency out of δf band on {rec['F_n_out']} sample(s) (worst {rec['F_worst_dev_pct']:.2f}%)")
+    if lim is None:
+        # Legacy free-form δ-band per-sample conformance (unchanged behaviour).
+        if rec["V_n_out"] > 0:
+            status = "Fail"
+            reasons.append(f"Voltage out of δU band on {rec['V_n_out']} sample(s) (worst {rec['V_worst_dev_pct']:.2f}%)")
+        if rec["F_n_out"] > 0:
+            status = "Fail"
+            reasons.append(f"Frequency out of δf band on {rec['F_n_out']} sample(s) (worst {rec['F_worst_dev_pct']:.2f}%)")
+    else:
+        # ISO 8528-5 class mode: per-window frequency graded on β_f (§2.1).
+        # Voltage regulation ΔU_st is cross-window → graded in the summary.
+        if rec["Beta_f_pass"] is False:
+            status = "Fail"
+            reasons.append(
+                f"β_f {beta_f:.3f}% > {lim['freq_band_pct']:.2f}% steady-state "
+                f"frequency band ({config.steady_performance_class})")
 
     v_hunt = _detect_hunting(v, v_lower, v_upper)
     f_hunt = _detect_hunting(f, f_lower, f_upper)
@@ -980,6 +1107,86 @@ def analyze_steady_state(df_proc, df_events, config: AnalysisConfig, windows=Non
         for i, w in enumerate(windows)
     ]
     return pd.DataFrame(rows)
+
+
+def summarize_steady_state(df_proc, df_windows, config: AnalysisConfig) -> dict:
+    """Cross-window ISO 8528-5 steady-state metrics (spec §3.3).
+
+    Aggregates the per-window rows from :func:`analyze_steady_state` into the
+    metrics defined across the whole no-load → rated sweep rather than per dwell:
+
+    * **ΔU_st** — steady-state voltage regulation band ±(U_max−U_min)/(2·U_r)×100
+      over the per-window mean voltages (§2.3), graded against ``volt_dev_pct``.
+    * **droop sanity** — (f_noload − f_rated)/f_r × 100 (§3.3); ≈ 0 for an
+      isochronous set.
+    * **ΔU_2.0** voltage unbalance (§2.4) and **Û_mod,s** modulation (§2.5) are
+      placeholders here, computed in later increments; ``sample_rate_hz`` and
+      ``modulation_status`` carry the §4 sample-rate gate.
+
+    Returns a JSON-friendly dict; every graded ``*_pass`` is ``None`` outside
+    class mode (no Table 4 limit to grade against).
+    """
+    nom_v, nom_f = config.nominal_voltage, config.nominal_frequency
+    lim = steady_limits(config)
+    fs = detect_sample_rate_hz(df_proc)
+    summary = {
+        "performance_class": getattr(config, "steady_performance_class", None),
+        "limits": lim,
+        "n_windows": 0,
+        "sample_rate_hz": fs,
+        # Voltage regulation ΔU_st (§2.3)
+        "delta_u_st_pct": None,
+        "delta_u_st_limit_pct": (lim or {}).get("volt_dev_pct"),
+        "delta_u_st_pass": None,
+        "u_st_min_v": None, "u_st_max_v": None,
+        # Frequency droop sanity (§3.3)
+        "freq_droop_pct": None,
+        "freq_droop_limit_pct": (lim or {}).get("freq_droop_pct"),
+        "freq_droop_pass": None,
+        # Voltage unbalance ΔU_2.0 @ no-load (§2.4) — computed in a later increment.
+        "volt_unbalance_pct": None,
+        "volt_unbalance_limit_pct": (lim or {}).get("volt_unbalance_pct"),
+        "volt_unbalance_pass": None,
+        "volt_unbalance_status": "not computed",
+        # Voltage modulation Û_mod,s (§2.5) — gated on sample rate (§4).
+        "modulation_pct": None,
+        "modulation_limit_pct": (lim or {}).get("volt_modulation_pct"),
+        "modulation_pass": None,
+        "modulation_status": "not computed",
+    }
+    rows = (df_windows.to_dict("records")
+            if df_windows is not None and len(df_windows) else [])
+    summary["n_windows"] = len(rows)
+    if not rows:
+        return summary
+
+    # ── ΔU_st — regulation band across all dwell windows (§2.3) ──────────────
+    means = [r["V_mean"] for r in rows if r.get("V_mean") is not None]
+    if means and nom_v:
+        u_max, u_min = max(means), min(means)
+        d = (u_max - u_min) / (2.0 * nom_v) * 100.0
+        summary["u_st_min_v"] = round(float(u_min), 2)
+        summary["u_st_max_v"] = round(float(u_max), 2)
+        summary["delta_u_st_pct"] = round(d, 3)
+        if lim is not None:
+            summary["delta_u_st_pass"] = bool(d <= lim["volt_dev_pct"])
+
+    # ── Droop sanity — no-load vs rated mean frequency (§3.3) ────────────────
+    kw_rows = [r for r in rows
+               if r.get("Mean_kW") is not None and r.get("F_mean") is not None]
+    if len(kw_rows) >= 2 and nom_f:
+        noload = min(kw_rows, key=lambda r: r["Mean_kW"])
+        rated = max(kw_rows, key=lambda r: r["Mean_kW"])
+        droop = (noload["F_mean"] - rated["F_mean"]) / nom_f * 100.0
+        summary["freq_droop_pct"] = round(droop, 3)
+        if lim is not None:
+            if getattr(config, "steady_isochronous", True):
+                # Isochronous: droop ≈ 0 expected. Allow the inherent β_f jitter
+                # floor as tolerance rather than demanding an exact zero.
+                summary["freq_droop_pass"] = bool(abs(droop) <= lim["freq_band_pct"])
+            else:
+                summary["freq_droop_pass"] = bool(droop <= lim["freq_droop_pct"] + 1e-9)
+    return summary
 
 
 def perform_analysis(df, config: AnalysisConfig):

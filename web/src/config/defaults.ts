@@ -83,6 +83,14 @@ export interface AnalysisConfigInput {
   steady_freq_band_pct: number;        // δf around nominal frequency (±%)
   steady_dwell_min_s: number;          // ignore plateaus shorter than this
   steady_exclusion_s: number;          // trim each side of a dwell (settling tail)
+  // ISO 8528-5 performance class for Table 4 grading (null = legacy free-form δ
+  // bands). When set, β_f drives the per-window frequency verdict and ΔU_st the
+  // cross-window voltage verdict. The flags below are Table 4 footnote toggles.
+  steady_performance_class: 'G1' | 'G2' | 'G3' | null;
+  steady_single_two_cylinder: boolean; // footnote a — β_f up to 2.5% any class
+  steady_low_power: boolean;           // footnotes f/g — ΔU_st ±10% (ISO 8528-8)
+  steady_parallel_operation: boolean;  // footnote h — unbalance 0.5% in parallel
+  steady_isochronous: boolean;         // footnote q — droop → 0%
 
   // ── Reporting helpers ──
   rated_load_kw: number | null;        // % rated annotations + steady dwell labels when set
@@ -147,6 +155,11 @@ export const DEFAULT_CONFIG: AnalysisConfigInput = {
   steady_freq_band_pct: 2.0,
   steady_dwell_min_s: 30,
   steady_exclusion_s: 10,
+  steady_performance_class: null,
+  steady_single_two_cylinder: false,
+  steady_low_power: false,
+  steady_parallel_operation: false,
+  steady_isochronous: true,
 
   rated_load_kw: null,
   expected_steps: null,
@@ -316,6 +329,14 @@ export function resolveConfig(c: AnalysisConfigInput): Record<string, number | s
     steady_freq_band_pct: c.steady_freq_band_pct,
     steady_dwell_min_s: c.steady_dwell_min_s,
     steady_exclusion_s: c.steady_exclusion_s,
+    // ISO 8528-5 Table 4 grading. The class is only emitted when set so the
+    // engine falls back to legacy δ-band mode (null is dropped host-side).
+    steady_isochronous: c.steady_isochronous,
+    steady_single_two_cylinder: c.steady_single_two_cylinder,
+    steady_low_power: c.steady_low_power,
+    steady_parallel_operation: c.steady_parallel_operation,
+    ...(c.steady_performance_class != null
+      ? { steady_performance_class: c.steady_performance_class } : {}),
     ...(c.rated_load_kw != null ? { rated_load_kw: c.rated_load_kw } : {}),
   };
 }

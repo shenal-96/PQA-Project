@@ -166,6 +166,23 @@ def test_report_steady_table_html():
     assert "<table" in html and "</table>" in html
     assert "Fail" in html                      # the out-of-band window
     assert "50%" in html                       # rated-load label
+    assert "β_f" in html                       # new peak-to-peak frequency column
+
+
+def test_report_steady_summary_html():
+    from desktop.report_host import build_steady_summary_html
+
+    assert build_steady_summary_html(None) == ""
+    assert build_steady_summary_html({"n_windows": 0}) == ""
+
+    df = _two_load_frame()
+    cfg = _cfg(steady_performance_class="G2")
+    steady = ca.analyze_steady_state(df, pd.DataFrame(), cfg, windows=_two_windows(df))
+    html = build_steady_summary_html(ca.summarize_steady_state(df, steady, cfg))
+    assert "Steady-State Summary" in html
+    assert "ΔU_st" in html
+    assert "Performance class G2" in html
+    assert "not computed" in html              # unbalance + modulation gate status
 
 
 def test_recalc_steady_uses_supplied_windows():
@@ -179,3 +196,141 @@ def test_recalc_steady_uses_supplied_windows():
     ]})
     assert len(out["steady"]) == 1
     assert out["steady"][0]["Load_Label"] == "Custom 50%"
+
+
+# ── ISO 8528-5 performance class + Table 4 limits ────────────────────────────
+
+def test_steady_limits_none_without_class():
+    assert ca.steady_limits(_cfg()) is None
+
+
+def test_steady_limits_resolves_class():
+    lim = ca.steady_limits(_cfg(steady_performance_class="G3"))
+    assert lim["freq_band_pct"] == 0.5       # β_f
+    assert lim["volt_dev_pct"] == 1.0        # ΔU_st
+    assert lim["freq_tol_band_pct"] == 2.0   # α_f
+    assert lim["volt_modulation_pct"] == 0.3
+    assert lim["freq_droop_pct"] == 0.0      # isochronous default → 0
+
+
+def test_steady_limits_footnotes():
+    # footnote a: single/two-cylinder raises β_f to 2.5 for any class
+    lim = ca.steady_limits(_cfg(steady_performance_class="G3",
+                                steady_single_two_cylinder=True))
+    assert lim["freq_band_pct"] == 2.5
+    # footnotes f/g: low-power relaxes ΔU_st to ±10
+    lim = ca.steady_limits(_cfg(steady_performance_class="G3", steady_low_power=True))
+    assert lim["volt_dev_pct"] == 10.0
+    # footnote h: parallel operation tightens unbalance to 0.5
+    lim = ca.steady_limits(_cfg(steady_performance_class="G2",
+                                steady_parallel_operation=True))
+    assert lim["volt_unbalance_pct"] == 0.5
+    # footnote q: non-isochronous keeps the Table 4 droop figure
+    lim = ca.steady_limits(_cfg(steady_performance_class="G2", steady_isochronous=False))
+    assert lim["freq_droop_pct"] == 5.0
+
+
+# ── β_f (steady-state frequency band, spec §2.1) ─────────────────────────────
+
+def test_beta_f_value_informational_in_legacy_mode():
+    f = np.full(60, 50.0); f[10] = 50.1; f[20] = 49.9   # p-p 0.2 Hz → β_f 0.4%
+    df = _frame(60, f=f)
+    row = ca.analyze_steady_state(df, pd.DataFrame(), _cfg()).iloc[0]
+    assert row["Beta_f_pct"] == 0.4
+    assert row["Beta_f_pass"] is None        # no class → informational only
+    assert row["Status"] == "Pass"
+
+
+def test_beta_f_graded_pass_fail_by_class():
+    f = np.full(60, 50.0); f[10] = 50.2; f[20] = 49.8   # p-p 0.4 Hz → β_f 0.8%
+    df = _frame(60, f=f)
+    g3 = ca.analyze_steady_state(df, pd.DataFrame(), _cfg(steady_performance_class="G3")).iloc[0]
+    assert g3["Beta_f_limit_pct"] == 0.5
+    assert bool(g3["Beta_f_pass"]) is False  # 0.8 > 0.5
+    assert g3["Status"] == "Fail"
+    assert "β_f" in g3["Failure_Reasons"]
+    g2 = ca.analyze_steady_state(df, pd.DataFrame(), _cfg(steady_performance_class="G2")).iloc[0]
+    assert bool(g2["Beta_f_pass"]) is True   # 0.8 <= 1.5
+    assert g2["Status"] == "Pass"
+
+
+def test_class_mode_voltage_not_failed_per_window():
+    # A per-sample voltage excursion fails legacy δU, but in class mode the
+    # window verdict is β_f only (ΔU_st is cross-window) — so the window passes.
+    v = np.full(60, 415.0); v[30] = 440.0
+    df = _frame(60, v=v)
+    assert ca.analyze_steady_state(df, pd.DataFrame(), _cfg()).iloc[0]["Status"] == "Fail"
+    g2 = ca.analyze_steady_state(df, pd.DataFrame(), _cfg(steady_performance_class="G2")).iloc[0]
+    assert g2["V_n_out"] == 1                 # still counted (informational)
+    assert g2["Status"] == "Pass"             # β_f drives the class-mode verdict
+
+
+# ── cross-window summary (ΔU_st, droop, gate, placeholders) ──────────────────
+
+def _two_load_frame(n=121):
+    """0..59 s at 415 V / 250 kW, 60.. s at 417 V / 500 kW (a step at 60 s)."""
+    v = np.where(np.arange(n) < 60, 415.0, 417.0)
+    df = _frame(n, v=v)
+    df["Avg_kW"] = np.where(np.arange(n) < 60, 250.0, 500.0)
+    return df
+
+
+def _two_windows(df):
+    ts = df["Timestamp"]
+    return [{"start": ts.iloc[2], "end": ts.iloc[55]},
+            {"start": ts.iloc[62], "end": ts.iloc[118]}]
+
+
+def test_summary_delta_u_st():
+    df = _two_load_frame()
+    cfg = _cfg(steady_performance_class="G2")
+    steady = ca.analyze_steady_state(df, pd.DataFrame(), cfg, windows=_two_windows(df))
+    summ = ca.summarize_steady_state(df, steady, cfg)
+    assert summ["delta_u_st_pct"] == round((417 - 415) / (2 * 415) * 100, 3)
+    assert summ["delta_u_st_limit_pct"] == 2.5    # G2
+    assert summ["delta_u_st_pass"] is True
+    assert summ["n_windows"] == 2
+
+
+def test_summary_droop_isochronous():
+    df = _two_load_frame()                    # frequency flat at 50 across both loads
+    cfg = _cfg(steady_performance_class="G3")
+    steady = ca.analyze_steady_state(df, pd.DataFrame(), cfg, windows=_two_windows(df))
+    summ = ca.summarize_steady_state(df, steady, cfg)
+    assert summ["freq_droop_pct"] == 0.0
+    assert summ["freq_droop_pass"] is True     # 0 within the isochronous tolerance
+
+
+def test_summary_keys_and_sample_rate_gate():
+    df = _frame(60)
+    cfg = _cfg(steady_performance_class="G2")
+    steady = ca.analyze_steady_state(df, pd.DataFrame(), cfg)
+    summ = ca.summarize_steady_state(df, steady, cfg)
+    for k in ("delta_u_st_pct", "freq_droop_pct", "volt_unbalance_status",
+              "modulation_status", "sample_rate_hz", "performance_class", "limits"):
+        assert k in summ
+    assert summ["performance_class"] == "G2"
+    assert summ["sample_rate_hz"] == 1.0       # _frame is 1 s spacing
+    assert summ["volt_unbalance_status"] == "not computed"
+    assert summ["modulation_status"] == "not computed"
+
+
+def test_summary_empty_when_no_windows():
+    summ = ca.summarize_steady_state(_frame(60), pd.DataFrame(),
+                                     _cfg(steady_performance_class="G2"))
+    assert summ["n_windows"] == 0
+    assert summ["delta_u_st_pct"] is None
+
+
+def test_bridge_includes_steady_summary_when_enabled():
+    res = _bridge_with_csv().run_analysis(
+        {"steady_state_enabled": True, "steady_dwell_min_s": 5, "steady_exclusion_s": 1,
+         "steady_performance_class": "G2"})
+    assert "steady_summary" in res
+    s = res["steady_summary"]
+    assert s["performance_class"] == "G2"
+    assert "delta_u_st_pct" in s and "sample_rate_hz" in s
+
+
+def test_bridge_omits_steady_summary_by_default():
+    assert "steady_summary" not in _bridge_with_csv().run_analysis({})

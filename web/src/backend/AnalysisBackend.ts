@@ -2,7 +2,7 @@ import type {
   AnalysisResult, Caps, CrashReportResult, CsvMeta, EcuRecording, EventOverride,
   EventRecord, IticData, MetricSeries, PendingCrashStatus, ReportRequest,
   ReportResult, SaveResult, SetpointOptions, SetpointResult, SnapshotData, SnapshotOpts,
-  SettingsReference, SteadyWindow, SteadyWindowEdit,
+  SettingsReference, SteadyResult, SteadyWindowEdit,
 } from './types';
 
 /**
@@ -28,7 +28,7 @@ export interface AnalysisBackend {
    * Re-evaluate steady-state (ISO 8528-5 δ bands) for user-confirmed/edited
    * dwell windows. Omit `windows` to re-detect them automatically.
    */
-  recalcSteady?(windows?: SteadyWindowEdit[]): Promise<{ steady: SteadyWindow[] }>;
+  recalcSteady?(windows?: SteadyWindowEdit[]): Promise<SteadyResult>;
 
   // ---- reports (gated on caps.canReport) -------------------------------------
   /** Build report artifacts (PDF/HTML/.docx) from the last analysis. */

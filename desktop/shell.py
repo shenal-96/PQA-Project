@@ -279,6 +279,8 @@ class HostBridge:
         if getattr(cfg, "steady_state_enabled", False):
             self._df_steady = ca.analyze_steady_state(self._df_proc, self._df_events, cfg)
             result["steady"] = events_to_records(self._df_steady)
+            result["steady_summary"] = ca.summarize_steady_state(
+                self._df_proc, self._df_steady, cfg)
         return result
 
     @_logged
@@ -418,7 +420,11 @@ class HostBridge:
             ]
         self._df_steady = ca.analyze_steady_state(
             self._df_proc, self._df_events, self._config, windows=windows)
-        return {"steady": events_to_records(self._df_steady)}
+        return {
+            "steady": events_to_records(self._df_steady),
+            "steady_summary": ca.summarize_steady_state(
+                self._df_proc, self._df_steady, self._config),
+        }
 
     # ---- helpers ----------------------------------------------------------
     def _build_config(self, config: dict | None):

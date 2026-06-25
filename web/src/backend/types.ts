@@ -70,10 +70,44 @@ export interface SteadyWindow {
   F_band_lower: number; F_band_upper: number;
   F_min: number | null; F_max: number | null; F_mean: number | null;
   F_n_out: number; F_pct_out: number | null; F_worst_dev_pct: number | null;
+  // β_f — steady-state frequency band (peak-to-peak / f_r, spec §2.1). Always
+  // reported; limit/pass populated only when a performance class is selected.
+  Beta_f_pct: number | null;
+  Beta_f_limit_pct: number | null;
+  Beta_f_pass: boolean | null;
   Hunting: boolean;
   Hunting_Reasons: string;
   Status: 'Pass' | 'Fail';
   Failure_Reasons: string;
+}
+
+/** Cross-window ISO 8528-5 steady-state metrics (core.analysis.summarize_steady_state).
+ * Aggregates the per-window dwell rows into the no-load → rated sweep metrics. */
+export interface SteadySummary {
+  performance_class: 'G1' | 'G2' | 'G3' | null;
+  limits: Record<string, number | null> | null;
+  n_windows: number;
+  sample_rate_hz: number | null;
+  // ΔU_st — voltage regulation band (§2.3)
+  delta_u_st_pct: number | null;
+  delta_u_st_limit_pct: number | null;
+  delta_u_st_pass: boolean | null;
+  u_st_min_v: number | null;
+  u_st_max_v: number | null;
+  // Frequency droop sanity (§3.3) — ≈ 0 for an isochronous set
+  freq_droop_pct: number | null;
+  freq_droop_limit_pct: number | null;
+  freq_droop_pass: boolean | null;
+  // ΔU_2.0 voltage unbalance @ no-load (§2.4) — deferred; carries gate status
+  volt_unbalance_pct: number | null;
+  volt_unbalance_limit_pct: number | null;
+  volt_unbalance_pass: boolean | null;
+  volt_unbalance_status: string;
+  // Û_mod,s voltage modulation (§2.5) — gated on sample rate (§4)
+  modulation_pct: number | null;
+  modulation_limit_pct: number | null;
+  modulation_pass: boolean | null;
+  modulation_status: string;
 }
 
 /** A user-confirmed/edited dwell window sent back to recalcSteady. */
@@ -81,6 +115,12 @@ export interface SteadyWindowEdit {
   start: string;
   end: string;
   label?: string | null;
+}
+
+/** recalcSteady return shape: per-window rows + the cross-window summary. */
+export interface SteadyResult {
+  steady: SteadyWindow[];
+  steady_summary?: SteadySummary;
 }
 
 export interface AnalysisResult {
@@ -92,6 +132,8 @@ export interface AnalysisResult {
   events_overlay?: EventOverlayMarker[];
   // Present only when steady_state_enabled (ISO 8528-5 δ-band evaluation).
   steady?: SteadyWindow[];
+  // Cross-window steady-state summary (ΔU_st, droop, sample-rate gate, class).
+  steady_summary?: SteadySummary;
 }
 
 // --- Event snapshots -----------------------------------------------------------
