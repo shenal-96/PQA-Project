@@ -242,10 +242,18 @@ Engine (`core/analysis.py`, all UI-free):
     plus the **droop sanity** check (`(f_noload−f_rated)/f_r×100`) and the §4
     **sample-rate gate** (`detect_sample_rate_hz`). Returns a JSON dict with graded
     `*_pass` fields (None outside class mode).
-  - **Deferred (placeholders in the summary):** ΔU_2.0 voltage **unbalance** (§2.4,
-    blocked on per-phase voltage — `df_proc` collapses U1/U2/U3 to `Avg_Voltage_LL`)
-    and **Û_mod,s modulation** (§2.5, gated on sample rate). Both carry a
-    `*_status` string ("not computed") until implemented.
+  - **ΔU_2.0 voltage unbalance** (§2.4) — `summarize_steady_state` computes the IEC
+    line-voltage unbalance factor (`_voltage_unbalance_pct`) at the no-load window
+    from per-phase magnitudes carried on `df_proc.attrs["v_phase"]`
+    (`_extract_per_phase`). **On attrs, NOT columns** — columns would slice into
+    `df_events` and leak into the JSON contract + break the parity signature.
+    Exact from L-L magnitudes; flagged "approx" from L-N (zero-sequence). Graded
+    vs `volt_unbalance_pct`.
+  - **§4 sample-rate gate** (`detect_sample_rate_hz` + `_modulation_gate`) sets
+    `modulation_status` ("insufficient sample rate" / "AMC (G1)" / "pending") so a
+    modulation number is never fabricated from undersampled data (`_MODULATION_MIN_FS_HZ`
+    = 50). The **Û_mod,s modulation maths** itself (§2.5) is the only remaining
+    deferred metric.
 
 Bridge/contract: `HostBridge.run_analysis` attaches `result["steady"]` (list of
 window dicts via `events_to_records`) **and** `result["steady_summary"]` (the

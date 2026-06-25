@@ -142,9 +142,14 @@
           <span class="sv">{metricText(summaryData.freq_droop_pct, summaryData.freq_droop_limit_pct)}</span>
           {@render verdict(summaryData.freq_droop_pass)}
         </div>
-        <div class="sm">
+        <div class="sm" title={summaryData.volt_unbalance_status}>
           <span class="sk">ΔU_2.0 — voltage unbalance @ no-load</span>
-          <span class="sv dim">{summaryData.volt_unbalance_status}</span>
+          {#if summaryData.volt_unbalance_pct != null}
+            <span class="sv">{metricText(summaryData.volt_unbalance_pct, summaryData.volt_unbalance_limit_pct)}</span>
+            {@render verdict(summaryData.volt_unbalance_pass)}
+          {:else}
+            <span class="sv dim">{summaryData.volt_unbalance_status}</span>
+          {/if}
         </div>
         <div class="sm">
           <span class="sk">Û_mod,s — voltage modulation</span>

@@ -2170,13 +2170,13 @@
     "freq_droop_pct": 0.0,
     "freq_droop_limit_pct": 0.0,
     "freq_droop_pass": true,
-    "volt_unbalance_pct": null,
+    "volt_unbalance_pct": 0.0,
     "volt_unbalance_limit_pct": 1.0,
-    "volt_unbalance_pass": null,
-    "volt_unbalance_status": "not computed",
+    "volt_unbalance_pass": true,
+    "volt_unbalance_status": "at no-load, from L-L magnitudes",
     "modulation_pct": null,
     "modulation_limit_pct": 0.3,
     "modulation_pass": null,
-    "modulation_status": "not computed"
+    "modulation_status": "insufficient sample rate (1 Hz < 50 Hz needed)"
   }
 }

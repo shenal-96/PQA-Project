@@ -203,6 +203,23 @@ def build_steady_summary_html(summary) -> str:
     head = f"Performance class {_esc(cls)}" if cls else "No performance class (free-form δ bands)"
     if fs is not None:
         head += f" · sample rate {_fmt(fs, 3)} Hz"
+
+    # Voltage unbalance — value + verdict when computed, else the gate status.
+    ub_val = summary.get("volt_unbalance_pct")
+    if ub_val is None:
+        ub_row = (f'<tr><td style="{td}">ΔU_2.0 — voltage unbalance @ no-load</td>'
+                  f'<td style="{td}" colspan="2"><span style="color:#64748b;">'
+                  f'{_esc(summary.get("volt_unbalance_status"))}</span></td></tr>')
+    else:
+        ub_lim = summary.get("volt_unbalance_limit_pct")
+        ub_v = f"{_fmt(ub_val, 3)}%" + ("" if ub_lim is None else
+               f' <span style="color:#64748b;">(limit {_fmt(ub_lim, 2)}%)</span>')
+        ub_note = (f'<div style="color:#64748b;font-size:10.5px;">'
+                   f'{_esc(summary.get("volt_unbalance_status"))}</div>')
+        ub_row = (f'<tr><td style="{td}">ΔU_2.0 — voltage unbalance @ no-load</td>'
+                  f'<td style="{td}font-family:monospace;">{ub_v}{ub_note}</td>'
+                  f'<td style="{td}">{_pill(summary.get("volt_unbalance_pass"))}</td></tr>')
+
     out = [
         '<div class="section-title">Steady-State Summary (ISO 8528-5)</div>',
         f'<div style="font-size:12px;color:#475569;margin:2px 0 6px;">{head}</div>',
@@ -211,10 +228,8 @@ def build_steady_summary_html(summary) -> str:
              summary.get("delta_u_st_limit_pct"), summary.get("delta_u_st_pass")),
         _row("Frequency droop (sanity)", summary.get("freq_droop_pct"),
              summary.get("freq_droop_limit_pct"), summary.get("freq_droop_pass")),
-        # Deferred metrics — surface the gate status honestly rather than a number.
-        f'<tr><td style="{td}">ΔU_2.0 — voltage unbalance @ no-load</td>'
-        f'<td style="{td}" colspan="2"><span style="color:#64748b;">'
-        f'{_esc(summary.get("volt_unbalance_status"))}</span></td></tr>',
+        ub_row,
+        # Modulation — deferred maths; surface the §4 sample-rate gate status.
         f'<tr><td style="{td}">Û_mod,s — voltage modulation</td>'
         f'<td style="{td}" colspan="2"><span style="color:#64748b;">'
         f'{_esc(summary.get("modulation_status"))}</span></td></tr>',

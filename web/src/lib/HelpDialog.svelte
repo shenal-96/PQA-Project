@@ -300,8 +300,8 @@
               <tr><td>β_f — frequency band (±%)</td><td>2.5</td><td>1.5</td><td>0.5</td></tr>
               <tr><td>ΔU_st — voltage regulation (±%)</td><td>5.0</td><td>2.5</td><td>1.0</td></tr>
               <tr><td>α_f — frequency tolerance / re-entry (±%)</td><td>3.5</td><td>2.0</td><td>2.0</td></tr>
-              <tr><td>Voltage unbalance, no-load (%) <span class="muted">— deferred</span></td><td>1.0</td><td>1.0</td><td>1.0</td></tr>
-              <tr><td>Voltage modulation Û_mod,s (%) <span class="muted">— deferred</span></td><td>AMC</td><td>0.3</td><td>0.3</td></tr>
+              <tr><td>Voltage unbalance, no-load (%)</td><td>1.0</td><td>1.0</td><td>1.0</td></tr>
+              <tr><td>Voltage modulation Û_mod,s (%) <span class="muted">— gated</span></td><td>AMC</td><td>0.3</td><td>0.3</td></tr>
               <tr><td>Droop δf_st (%), non-isochronous</td><td>8.0</td><td>5.0</td><td>3.0</td></tr>
             </tbody>
           </table>
@@ -309,8 +309,12 @@
             Footnote toggles in the sidebar adjust these: <i>single/two-cylinder</i> raises β_f to
             2.5 %, <i>low-power (ISO 8528-8)</i> relaxes ΔU_st to ±10 %, <i>parallel operation</i>
             tightens unbalance to 0.5 %, and <i>isochronous</i> (on by default) sets the droop limit
-            to 0 %. Voltage <b>unbalance</b> and <b>modulation</b> are not yet computed — the summary
-            shows their gate status ("not computed") rather than a fabricated number.
+            to 0 %. <b>Voltage unbalance</b> (ΔU_2.0) is computed at the no-load window as the IEC
+            line-voltage unbalance factor from the per-phase magnitudes — exact from L-L data, an
+            approximation from L-N (no logged phase angles). <b>Voltage modulation</b> (Û_mod,s) needs
+            a high sample rate to resolve the 1–15 Hz flicker band: PQA gates it on the detected rate
+            and reports "insufficient sample rate" for ~1 Hz SCADA logs rather than a fabricated
+            number — the modulation maths itself is still to come.
           </p>
 
           <h3>Applying it to a data set</h3>

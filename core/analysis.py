@@ -899,6 +899,86 @@ def detect_sample_rate_hz(df_proc):
     return round(1.0 / med_s, 3) if med_s > 0 else None
 
 
+def _voltage_unbalance_pct(v1, v2, v3):
+    """IEC line-voltage unbalance factor (negative-/positive-sequence ratio) from
+    three voltage magnitudes — the standard estimator when phase angles are not
+    logged (RMS loggers record magnitudes only). Exact for line-to-line
+    magnitudes; an approximation for line-to-neutral (which can carry a
+    zero-sequence component). Returns a % or ``None`` when degenerate.
+    """
+    try:
+        a, b, c = float(v1), float(v2), float(v3)
+    except (TypeError, ValueError):
+        return None
+    if not np.all(np.isfinite([a, b, c])) or min(a, b, c) <= 0:
+        return None
+    s2 = a * a + b * b + c * c
+    s4 = a ** 4 + b ** 4 + c ** 4
+    if s2 <= 0:
+        return None
+    beta = s4 / (s2 * s2)
+    disc = max(3.0 - 6.0 * beta, 0.0)   # guard: perfectly balanced → disc≈0
+    r = np.sqrt(disc)
+    if 1.0 + r <= 0:
+        return None
+    return float(np.sqrt((1.0 - r) / (1.0 + r)) * 100.0)
+
+
+def _extract_per_phase(df):
+    """Build the ``(per_phase_frame, kind)`` carried on ``df_proc.attrs`` for the
+    no-load unbalance metric, or ``None`` when whole-triplet per-phase voltage is
+    unavailable (e.g. a single pre-averaged ``U_avg`` column). Built from the raw
+    prepared frame so it aligns with ``df_proc`` by Timestamp; values are stored
+    unscaled (the unbalance factor is scale-invariant)."""
+    v_cols_ln = ["U1_rms_AVG", "U2_rms_AVG", "U3_rms_AVG"]
+    v_cols_ll = ["U12_rms_AVG", "U23_rms_AVG", "U31_rms_AVG"]
+    if all(c in df.columns for c in v_cols_ll):
+        cols, kind = v_cols_ll, "L-L"
+    elif all(c in df.columns for c in v_cols_ln):
+        cols, kind = v_cols_ln, "L-N"
+    else:
+        return None
+    out = pd.DataFrame({"Timestamp": df["Timestamp"]})
+    for i, c in enumerate(cols, 1):
+        out[f"V_ph{i}"] = pd.to_numeric(df[c], errors="coerce")
+    return out, kind
+
+
+def _window_unbalance(df_proc, start_ts, end_ts):
+    """Mean per-phase voltages over a window → IEC unbalance factor. Reads the
+    per-phase frame stashed on ``df_proc.attrs`` by :func:`perform_analysis`.
+    Returns ``(pct, kind)`` (kind = "L-L" or "L-N"), or ``None`` when per-phase
+    voltage is absent or degenerate."""
+    attrs = getattr(df_proc, "attrs", None) or {}
+    vp = attrs.get("v_phase")
+    kind = attrs.get("v_phase_kind", "L-N")
+    if vp is None or len(vp) == 0 or "Timestamp" not in vp.columns:
+        return None
+    t = pd.to_datetime(vp["Timestamp"])
+    seg = vp[(t >= pd.Timestamp(start_ts)) & (t <= pd.Timestamp(end_ts))]
+    means = [pd.to_numeric(seg[f"V_ph{i}"], errors="coerce").dropna().mean() for i in (1, 2, 3)]
+    if any(pd.isna(m) for m in means):
+        return None
+    pct = _voltage_unbalance_pct(*means)
+    return None if pct is None else (pct, kind)
+
+
+def _modulation_gate(fs, lim):
+    """ISO 8528-5 §4 sample-rate gate for voltage modulation Û_mod,s. The
+    modulation maths (§2.5) is deferred; this resolves whether it *could* be
+    computed from the available rate so a number is never fabricated from
+    undersampled data. Returns a status string."""
+    if lim is None:
+        return "not graded (no performance class)"
+    if lim.get("volt_modulation_pct") is None:
+        return "AMC — by agreement (G1)"
+    if fs is None:
+        return "insufficient sample rate (rate unknown)"
+    if fs < _MODULATION_MIN_FS_HZ:
+        return f"insufficient sample rate ({fs:g} Hz < {_MODULATION_MIN_FS_HZ:g} Hz needed)"
+    return "sample rate adequate — modulation analysis pending"
+
+
 def detect_steady_windows(df_proc, df_events, config: AnalysisConfig):
     """Auto-segment the record into stable dwell windows between transient events.
 
@@ -1119,9 +1199,10 @@ def summarize_steady_state(df_proc, df_windows, config: AnalysisConfig) -> dict:
       over the per-window mean voltages (§2.3), graded against ``volt_dev_pct``.
     * **droop sanity** — (f_noload − f_rated)/f_r × 100 (§3.3); ≈ 0 for an
       isochronous set.
-    * **ΔU_2.0** voltage unbalance (§2.4) and **Û_mod,s** modulation (§2.5) are
-      placeholders here, computed in later increments; ``sample_rate_hz`` and
-      ``modulation_status`` carry the §4 sample-rate gate.
+    * **ΔU_2.0** voltage unbalance (§2.4) at the no-load window (IEC line-voltage
+      factor from per-phase magnitudes), and the **Û_mod,s** modulation §4
+      sample-rate gate (``sample_rate_hz`` + ``modulation_status``); the
+      modulation maths itself (§2.5) is deferred.
 
     Returns a JSON-friendly dict; every graded ``*_pass`` is ``None`` outside
     class mode (no Table 4 limit to grade against).
@@ -1143,16 +1224,16 @@ def summarize_steady_state(df_proc, df_windows, config: AnalysisConfig) -> dict:
         "freq_droop_pct": None,
         "freq_droop_limit_pct": (lim or {}).get("freq_droop_pct"),
         "freq_droop_pass": None,
-        # Voltage unbalance ΔU_2.0 @ no-load (§2.4) — computed in a later increment.
+        # Voltage unbalance ΔU_2.0 @ no-load (§2.4) — IEC factor from per-phase mags.
         "volt_unbalance_pct": None,
         "volt_unbalance_limit_pct": (lim or {}).get("volt_unbalance_pct"),
         "volt_unbalance_pass": None,
         "volt_unbalance_status": "not computed",
-        # Voltage modulation Û_mod,s (§2.5) — gated on sample rate (§4).
+        # Voltage modulation Û_mod,s (§2.5) — gated on sample rate (§4); maths deferred.
         "modulation_pct": None,
         "modulation_limit_pct": (lim or {}).get("volt_modulation_pct"),
         "modulation_pass": None,
-        "modulation_status": "not computed",
+        "modulation_status": _modulation_gate(fs, lim),
     }
     rows = (df_windows.to_dict("records")
             if df_windows is not None and len(df_windows) else [])
@@ -1186,6 +1267,24 @@ def summarize_steady_state(df_proc, df_windows, config: AnalysisConfig) -> dict:
                 summary["freq_droop_pass"] = bool(abs(droop) <= lim["freq_band_pct"])
             else:
                 summary["freq_droop_pass"] = bool(droop <= lim["freq_droop_pct"] + 1e-9)
+
+    # ── ΔU_2.0 — voltage unbalance at the no-load window (§2.4) ──────────────
+    # No-load = the lowest mean-kW dwell. IEC line-voltage factor from per-phase
+    # magnitudes (no phase angles in RMS logger data); graded against the class
+    # limit when set. Reports the gate status when per-phase voltage is absent.
+    nl_rows = [r for r in rows if r.get("Mean_kW") is not None]
+    noload_win = min(nl_rows, key=lambda r: r["Mean_kW"]) if nl_rows else rows[0]
+    ub = _window_unbalance(df_proc, noload_win["Start_Timestamp"], noload_win["End_Timestamp"])
+    if ub is None:
+        summary["volt_unbalance_status"] = "no per-phase voltage in data"
+    else:
+        val, kind = ub
+        summary["volt_unbalance_pct"] = round(val, 3)
+        summary["volt_unbalance_status"] = (
+            f"at no-load, from {kind} magnitudes"
+            + ("" if kind == "L-L" else " (approx; no neutral angle)"))
+        if lim is not None:
+            summary["volt_unbalance_pass"] = bool(val <= lim["volt_unbalance_pct"])
     return summary
 
 
@@ -1615,5 +1714,14 @@ def perform_analysis(df, config: AnalysisConfig):
         # Apply compliance check to each event
         compliance = events.apply(lambda row: check_compliance(row, config), axis=1)
         events = pd.concat([events, compliance], axis=1)
+
+    # Stash the per-phase voltage magnitudes for the ISO 8528-5 no-load unbalance
+    # metric on df_proc.attrs — NOT as columns. Columns would propagate into
+    # df_events (events are sliced from df_proc) and the JSON contract, and would
+    # break the parity signature. attrs is steady-state-only side metadata that
+    # rides with the returned df_proc object (which the bridge never rebuilds).
+    pp = _extract_per_phase(df)
+    if pp is not None:
+        df_proc.attrs["v_phase"], df_proc.attrs["v_phase_kind"] = pp
 
     return df_proc, events
