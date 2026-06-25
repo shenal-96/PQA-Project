@@ -26,6 +26,8 @@ hiddenimports = [
     # XLS tabs (lazily string-imported from desktop.xls_host).
     "ecu_parser", "ecu_csv_parser", "ecu_multi_comparator", "ecu_csv_comparator",
     "ecu_recording_parser", "python_calamine",
+    # Settings Reference tab (curated ComAp/D550 knowledge base).
+    "settings_reference",
     "docx", "PIL",
 ]
 

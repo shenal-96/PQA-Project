@@ -192,6 +192,11 @@ export interface SetpointFile {
   filename: string;
   b64: string;
 }
+export interface SetpointOptions {
+  hide_unchanged?: boolean;
+  ignore_whitespace?: boolean;
+  ignore_case?: boolean;
+}
 export interface SetpointResult {
   kind: SetpointKind;
   columns: string[];
@@ -199,6 +204,8 @@ export interface SetpointResult {
   rows: Array<Record<string, string | number | boolean | null>>;
   n_files: number;
   n_diffs: number;
+  /** Diffchecker-style side-by-side HTML view (desktop only; absent on MockBackend). */
+  html?: string;
 }
 
 // --- ECU recording (M4) --------------------------------------------------------
@@ -240,4 +247,35 @@ export interface CrashReportResult {
   mailto_opened: boolean;
   revealed: boolean;
   error?: string | null;
+}
+
+// --- Settings Reference (curated ComAp/D550 knowledge base) ---------------------
+/** One setpoint/parameter entry with plain-English context. */
+export interface ReferenceSetting {
+  name: string;
+  units: string;
+  range: string;
+  default: string;
+  description: string;
+  philosophy: string;
+  performance: string;
+}
+/** A named group of settings within a device. */
+export interface ReferenceGroup {
+  name: string;
+  settings: ReferenceSetting[];
+}
+/** One device (controller/AVR) with its grouped settings. */
+export interface ReferenceDevice {
+  name: string;
+  summary: string;
+  source: string;
+  /** True once the data has been verified against the official manual. */
+  verified: boolean;
+  groups: ReferenceGroup[];
+}
+/** The full curated settings reference returned over the bridge. */
+export interface SettingsReference {
+  devices: ReferenceDevice[];
+  count: number;
 }

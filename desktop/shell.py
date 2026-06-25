@@ -209,6 +209,31 @@ class HostBridge:
         from desktop.xls_host import load_ecu_recording_data
         return load_ecu_recording_data(params or {})
 
+    @_logged
+    def settings_reference(self, params: dict | None = None) -> dict:
+        """Return the curated ComAp/D550 settings knowledge base (JSON-safe).
+
+        Shape: {"devices": [{name, summary, source, verified,
+        groups: [{name, settings: [{name, units, range, default,
+        description, philosophy, performance}]}]}], "count": int}.
+        """
+        import settings_reference as sref
+
+        devices = []
+        for name in sref.list_devices():
+            dev = sref.get_device(name)
+            devices.append({
+                "name": name,
+                "summary": dev["summary"],
+                "source": dev["source"],
+                "verified": bool(dev["verified"]),
+                "groups": [
+                    {"name": group, "settings": settings}
+                    for group, settings in dev["groups"].items()
+                ],
+            })
+        return {"devices": devices, "count": sref.count_settings()}
+
     # ---- analysis ---------------------------------------------------------
     @_logged
     def run_analysis(self, config: dict | None = None) -> dict:

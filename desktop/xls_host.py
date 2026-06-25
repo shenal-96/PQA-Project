@@ -71,6 +71,11 @@ def compare_setpoint(params: dict) -> dict:
     if len(files_in) < 2:
         raise ValueError("Select at least two files to compare.")
 
+    opts = (params or {}).get("options") or {}
+    hide_unchanged = bool(opts.get("hide_unchanged", False))
+    ignore_whitespace = bool(opts.get("ignore_whitespace", False))
+    ignore_case = bool(opts.get("ignore_case", False))
+
     parsed: dict = {}
     tmps: list[str] = []
     try:
@@ -112,7 +117,7 @@ def compare_setpoint(params: dict) -> dict:
     labels = list(parsed.keys())
     columns = fixed + labels
     rows = [{col: _cell(row.get(col)) for col in columns} for row in diffs]
-    return {
+    result = {
         "kind": kind,
         "columns": columns,
         "labels": labels,
@@ -120,6 +125,33 @@ def compare_setpoint(params: dict) -> dict:
         "n_files": len(labels),
         "n_diffs": len(rows),
     }
+
+    # Also build the Diffchecker-style side-by-side HTML view from the same
+    # already-parsed file data (``parsed`` is ``{label: parse_result}`` — exactly
+    # the shape ``build_csv_view``/``build_xls_view`` expect). Never let a view
+    # failure break the flat-table contract: on any error, omit ``html``.
+    try:
+        import comparison_view
+
+        if kind == "csv":
+            html, _ = comparison_view.build_csv_view(
+                parsed,
+                hide_unchanged=hide_unchanged,
+                ignore_whitespace=ignore_whitespace,
+                ignore_case=ignore_case,
+            )
+        else:
+            html, _ = comparison_view.build_xls_view(
+                parsed,
+                hide_unchanged=hide_unchanged,
+                ignore_whitespace=ignore_whitespace,
+                ignore_case=ignore_case,
+            )
+        result["html"] = html
+    except Exception:
+        pass
+
+    return result
 
 
 # ── ECU recording (time-series) ─────────────────────────────────────────────────

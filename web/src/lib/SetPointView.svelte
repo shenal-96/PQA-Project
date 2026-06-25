@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { AnalysisBackend } from '../backend';
-  import type { Caps, SetpointResult } from '../backend/types';
+  import type { Caps, SetpointOptions, SetpointResult } from '../backend/types';
 
   let { backend, caps }: { backend: AnalysisBackend | undefined; caps: Caps | undefined } = $props();
 
@@ -10,6 +10,12 @@
   let error = $state<string | undefined>(undefined);
   let result = $state<SetpointResult | undefined>(undefined);
   let filter = $state('');
+  let viewMode = $state<'table' | 'side'>('table');
+
+  // Diff comparison options (threaded to the backend view builder).
+  let hideUnchanged = $state(false);
+  let ignoreWhitespace = $state(false);
+  let ignoreCase = $state(false);
 
   const canXls = $derived(caps?.canXls === true);
   const accept = $derived(kind === 'csv' ? '.csv' : '.xls,.xlsx');
@@ -44,13 +50,24 @@
     busy = true;
     error = undefined;
     result = undefined;
+    const options: SetpointOptions = {
+      hide_unchanged: hideUnchanged,
+      ignore_whitespace: ignoreWhitespace,
+      ignore_case: ignoreCase,
+    };
     try {
-      result = await backend.compareSetpoint(kind, files);
+      result = await backend.compareSetpoint(kind, files, options);
     } catch (e) {
       error = String(e);
     } finally {
       busy = false;
     }
+  }
+
+  // Re-run the comparison when a diff option changes (so the side-by-side view
+  // and flat table both reflect the new option). No-op until a comparison has run.
+  function onOptionChange() {
+    if (result && files.length >= 2 && !busy) compare();
   }
 
   function downloadCsv() {
@@ -107,11 +124,26 @@
     <div class="summary">
       <span><b>{result.n_files}</b> files</span>
       <span><b>{result.n_diffs}</b> differing locations</span>
-      <input class="filter" type="text" bind:value={filter} placeholder="Filter rows…" />
-      <button class="dl" onclick={downloadCsv} disabled={!rows.length}>⬇ Download CSV</button>
+      <div class="seg view-seg">
+        <button class:on={viewMode === 'table'} onclick={() => (viewMode = 'table')}>Flat table</button>
+        <button class:on={viewMode === 'side'} onclick={() => (viewMode = 'side')}>Side-by-side</button>
+      </div>
+      <label class="opt"><input type="checkbox" bind:checked={hideUnchanged} onchange={onOptionChange} /> Hide unchanged</label>
+      <label class="opt"><input type="checkbox" bind:checked={ignoreWhitespace} onchange={onOptionChange} /> Ignore whitespace</label>
+      <label class="opt"><input type="checkbox" bind:checked={ignoreCase} onchange={onOptionChange} /> Ignore case</label>
+      {#if viewMode === 'table'}
+        <input class="filter" type="text" bind:value={filter} placeholder="Filter rows…" />
+        <button class="dl" onclick={downloadCsv} disabled={!rows.length}>⬇ Download CSV</button>
+      {/if}
     </div>
 
-    {#if result.n_diffs === 0}
+    {#if viewMode === 'side'}
+      {#if result.html}
+        <iframe class="sidebyside" title="Side-by-side comparison" srcdoc={result.html}></iframe>
+      {:else}
+        <div class="empty">Side-by-side view is available in the desktop app.</div>
+      {/if}
+    {:else if result.n_diffs === 0}
       <div class="empty good">✓ No differences found across the selected files.</div>
     {:else}
       <div class="tablewrap">
@@ -159,6 +191,10 @@
   .go:disabled, .dl:disabled { background: #cbd5e1; cursor: not-allowed; }
   .filelist { font-size: 12px; color: var(--text-sub); font-family: 'JetBrains Mono', monospace; }
   .summary { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--text-sub); }
+  .view-seg button { padding: 6px 12px; font-size: 12px; }
+  .opt { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+  .opt input { cursor: pointer; }
+  .sidebyside { width: 100%; flex: 1 1 auto; min-height: 600px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
   .filter { margin-left: auto; border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; font-size: 13px; min-width: 200px; }
   .tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
