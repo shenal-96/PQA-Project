@@ -21,6 +21,27 @@
   const TOPS = ['4%', '28%', '52%', '76%'];
   const GRID_H = '17%';
 
+  // Legend/key for the snapshot overlays — mirrors the matplotlib report-snapshot
+  // legend (PR #9). A chip shows only when its display toggle is on AND at least one
+  // panel actually carries that element, so the key never advertises something the
+  // chart isn't drawing (e.g. the ISO β_f start band only appears in ISO dual-band mode).
+  const legend = $derived.by(() => {
+    const s = snap;
+    const any = (pred: (p: SnapshotPanel) => boolean) =>
+      ORDER.some((k) => { const p = s?.panels?.[k]; return p ? pred(p) : false; });
+    return {
+      band: SHOW.band && any((p) => !!p.band),
+      startBand: SHOW.band && any((p) => !!p.start_band),
+      limit: SHOW.limit && any((p) => !!p.limit),
+      exit: SHOW.intersections && any((p) => p.exit?.ts != null && p.exit?.value != null),
+      recovery: SHOW.intersections && any((p) => p.recovery?.ts != null && p.recovery?.value != null),
+      extreme: SHOW.extreme && any((p) => p.extreme?.ts != null && p.extreme?.value != null),
+    };
+  });
+  const hasLegend = $derived(
+    legend.band || legend.startBand || legend.limit || legend.exit || legend.recovery || legend.extreme,
+  );
+
   function pairs(p: SnapshotPanel) {
     return p.timestamps.map((t, i) => [t, p.values[i]]);
   }
@@ -131,8 +152,34 @@
   $effect(() => { void snap; void show; render(); });
 </script>
 
-<div class="snap" bind:this={el}></div>
+<div class="snap-wrap">
+  {#if hasLegend}
+    <div class="legend">
+      {#if legend.band}<span class="item"><span class="ln band"></span> Tolerance band</span>{/if}
+      {#if legend.startBand}<span class="item"><span class="ln start"></span> ISO β_f start band</span>{/if}
+      {#if legend.limit}<span class="item"><span class="ln limit"></span> Max deviation limit</span>{/if}
+      {#if legend.exit}<span class="item"><span class="dot exit"></span> Band exit</span>{/if}
+      {#if legend.recovery}<span class="item"><span class="dot rec"></span> Recovery</span>{/if}
+      {#if legend.extreme}<span class="item"><span class="dot ext"></span> Peak deviation</span>{/if}
+    </div>
+  {/if}
+  <div class="snap" bind:this={el}></div>
+</div>
 
 <style>
+  .snap-wrap { display: flex; flex-direction: column; gap: 6px; }
+  .legend {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 16px;
+    font-size: 12px; color: var(--text-sub); padding: 2px 4px 0;
+  }
+  .legend .item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .legend .ln { display: inline-block; width: 20px; height: 0; }
+  .legend .ln.band { border-top: 2px dashed #f59e0b; }
+  .legend .ln.start { border-top: 2px dotted #0891b2; }
+  .legend .ln.limit { border-top: 2px dashed #dc2626; }
+  .legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+  .legend .dot.exit { background: #ea580c; }
+  .legend .dot.rec { background: #10b981; }
+  .legend .dot.ext { background: #dc2626; box-shadow: 0 0 0 1.5px #fff, 0 0 0 2.5px #fecaca; }
   .snap { width: 100%; height: 720px; }
 </style>
