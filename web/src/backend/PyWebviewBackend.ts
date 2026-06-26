@@ -2,8 +2,8 @@ import type { AnalysisBackend } from './AnalysisBackend';
 import type {
   AnalysisResult, Caps, CrashReportResult, CsvMeta, EcuRecording, EventOverride,
   EventRecord, IticData, MetricSeries, PendingCrashStatus, ReportRequest,
-  ReportResult, SaveResult, SetpointResult, SnapshotData, SnapshotOpts,
-  SteadyWindow, SteadyWindowEdit, TemplateInfo,
+  ReportResult, SaveResult, SetpointOptions, SetpointResult, SettingsReference,
+  SnapshotData, SnapshotOpts, SteadyResult, SteadyWindowEdit, TemplateInfo,
 } from './types';
 
 declare global {
@@ -51,16 +51,20 @@ export class PyWebviewBackend implements AnalysisBackend {
     return this.api.load_winscope({ b64, filename: file.name }) as Promise<CsvMeta>;
   }
 
-  async compareSetpoint(kind: 'xls' | 'csv', files: File[]): Promise<SetpointResult> {
+  async compareSetpoint(kind: 'xls' | 'csv', files: File[], options?: SetpointOptions): Promise<SetpointResult> {
     const payload = await Promise.all(
       files.map(async (f) => ({ filename: f.name, b64: await fileToBase64(f) })),
     );
-    return this.api.compare_setpoint({ kind, files: payload }) as Promise<SetpointResult>;
+    return this.api.compare_setpoint({ kind, files: payload, options: options ?? {} }) as Promise<SetpointResult>;
   }
 
   async ecuRecording(file: File): Promise<EcuRecording> {
     const b64 = await fileToBase64(file);
     return this.api.ecu_recording({ b64, filename: file.name }) as Promise<EcuRecording>;
+  }
+
+  settingsReference(): Promise<SettingsReference> {
+    return this.api.settings_reference({}) as Promise<SettingsReference>;
   }
 
   runAnalysis(config: Record<string, unknown> = {}): Promise<AnalysisResult> {
@@ -79,8 +83,8 @@ export class PyWebviewBackend implements AnalysisBackend {
     return this.api.recalc({ overrides }) as Promise<{ events: EventRecord[]; itic?: IticData }>;
   }
 
-  recalcSteady(windows?: SteadyWindowEdit[]): Promise<{ steady: SteadyWindow[] }> {
-    return this.api.recalc_steady(windows ? { windows } : {}) as Promise<{ steady: SteadyWindow[] }>;
+  recalcSteady(windows?: SteadyWindowEdit[]): Promise<SteadyResult> {
+    return this.api.recalc_steady(windows ? { windows } : {}) as Promise<SteadyResult>;
   }
 
   generateReport(req: ReportRequest): Promise<ReportResult> {

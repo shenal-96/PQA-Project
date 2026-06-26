@@ -1,8 +1,8 @@
 import type {
   AnalysisResult, Caps, CrashReportResult, CsvMeta, EcuRecording, EventOverride,
   EventRecord, IticData, MetricSeries, PendingCrashStatus, ReportRequest,
-  ReportResult, SaveResult, SetpointResult, SnapshotData, SnapshotOpts,
-  SteadyWindow, SteadyWindowEdit, TemplateInfo,
+  ReportResult, SaveResult, SetpointOptions, SetpointResult, SettingsReference,
+  SnapshotData, SnapshotOpts, SteadyResult, SteadyWindowEdit, TemplateInfo,
 } from './types';
 
 /**
@@ -28,7 +28,7 @@ export interface AnalysisBackend {
    * Re-evaluate steady-state (ISO 8528-5 δ bands) for user-confirmed/edited
    * dwell windows. Omit `windows` to re-detect them automatically.
    */
-  recalcSteady?(windows?: SteadyWindowEdit[]): Promise<{ steady: SteadyWindow[] }>;
+  recalcSteady?(windows?: SteadyWindowEdit[]): Promise<SteadyResult>;
 
   // ---- reports (gated on caps.canReport) -------------------------------------
   /** Build report artifacts (PDF/HTML/.docx) from the last analysis. */
@@ -46,9 +46,11 @@ export interface AnalysisBackend {
 
   // ---- XLS tabs (gated on caps.canXls) ---------------------------------------
   /** Diff 2+ ECU parameter files (XLS/XLSX or ComAp CSV). */
-  compareSetpoint?(kind: 'xls' | 'csv', files: File[]): Promise<SetpointResult>;
+  compareSetpoint?(kind: 'xls' | 'csv', files: File[], options?: SetpointOptions): Promise<SetpointResult>;
   /** Read an ECU recording XLS/XLSX into grouped time series. */
   ecuRecording?(file: File): Promise<EcuRecording>;
+  /** Curated ComAp/D550 settings knowledge base (no XLS gating — UI-free data). */
+  settingsReference?(): Promise<SettingsReference>;
   /**
    * Optional native "Save As" (desktop only). When absent the UI falls back to a
    * browser blob download. `dataB64` is the file's base64 bytes.

@@ -1,0 +1,1051 @@
+{
+  "devices": [
+    {
+      "name": "ComAp InteliGen / InteliSys NT",
+      "summary": "Gen-set controller (engine + generator control, protections, synchronising, load/VAr sharing and power management).",
+      "source": "ComAp InteliGen NT / InteliSys NT Global Guide + InteliConfig configuration tool (verify against uploaded PDF).",
+      "verified": false,
+      "groups": [
+        {
+          "name": "Basic Settings",
+          "settings": [
+            {
+              "name": "Nominal Power",
+              "units": "kW",
+              "range": "1 – 5000",
+              "default": "site rated kW",
+              "description": "Rated real power of the gen-set. Reference (100 %) for all power-based protections and load control.",
+              "philosophy": "Everything expressed in '%' of power (overload, load ramps, base load, peak shaving) is scaled to this value, so it must match the actual set rating.",
+              "performance": "Set too high and overload protection trips late / load ramps push the engine past its real rating; too low and the set trips or de-rates before reaching genuine capacity."
+            },
+            {
+              "name": "Nominal Current",
+              "units": "A",
+              "range": "1 – 5000",
+              "default": "rated stator current",
+              "description": "Rated generator current — reference for overcurrent / IDMT protections.",
+              "philosophy": "Current protections (overcurrent, short circuit, unbalance) are scaled to this value.",
+              "performance": "Mis-set value mis-scales every current protection — nuisance trips if low, missed faults if high."
+            },
+            {
+              "name": "CT Ratio (prim/sec)",
+              "units": "A/A",
+              "range": "e.g. 5–10000 / 5 or /1",
+              "default": "per CT",
+              "description": "Primary-to-secondary ratio of the generator measuring current transformers.",
+              "philosophy": "The controller scales raw CT secondary current up to real primary amps using this ratio; all current readings depend on it.",
+              "performance": "Wrong ratio scales every current reading and power calc — kW/kVAr and protections all read wrong by the ratio error."
+            },
+            {
+              "name": "PT Ratio",
+              "units": "V/V",
+              "range": "1.0 – 500",
+              "default": "1.0 (direct) / site VT ratio",
+              "description": "Voltage-transformer ratio for MV/HV measurement. 1.0 when the controller measures generator voltage directly (LV).",
+              "philosophy": "Scales measured voltage to real busbar voltage on systems with metering VTs (e.g. 11 kV sets).",
+              "performance": "Wrong ratio mis-scales voltage, frequency-independent V protections, and PF/kVAr."
+            },
+            {
+              "name": "Nominal Voltage (Ph-Ph)",
+              "units": "V",
+              "range": "100 – 30000",
+              "default": "415 / 690 / 11000",
+              "description": "Rated line-to-line generator voltage. Reference for under/over voltage protection and the AVR voltage setpoint.",
+              "philosophy": "100 % reference for voltage protection windows; aligns with the PQA tool's nominal-voltage compliance check.",
+              "performance": "Defines where over/under-voltage windows sit; mis-set shifts the whole compliance window."
+            },
+            {
+              "name": "Nominal Frequency",
+              "units": "Hz",
+              "range": "50 / 60",
+              "default": "50",
+              "description": "Rated system frequency. Reference for under/over frequency and the speed governor setpoint.",
+              "philosophy": "Sets the governor speed target and the frequency protection centre; ties to ISO 8528 recovery bands.",
+              "performance": "Mismatch with the engine governor causes a permanent frequency offset and failed recovery checks."
+            },
+            {
+              "name": "Gear Teeth",
+              "units": "-",
+              "range": "10 – 500",
+              "default": "engine flywheel count",
+              "description": "Number of flywheel ring-gear teeth seen by the magnetic pickup (MPU) for RPM measurement.",
+              "philosophy": "Controller derives RPM from pickup pulse rate ÷ gear teeth; underpins all speed-based logic (crank, idle, overspeed).",
+              "performance": "Wrong count gives proportionally wrong RPM — overspeed trips or fails to detect crank/run states."
+            },
+            {
+              "name": "Nominal RPM",
+              "units": "RPM",
+              "range": "750 – 3600",
+              "default": "1500 (50 Hz) / 1800 (60 Hz)",
+              "description": "Rated engine speed reference.",
+              "philosophy": "Reference (100 %) for speed-percentage setpoints such as Starting RPM and overspeed.",
+              "performance": "Defines the speed band; mis-set skews crank-disconnect and overspeed thresholds."
+            }
+          ]
+        },
+        {
+          "name": "Engine / Starting",
+          "settings": [
+            {
+              "name": "Starting RPM",
+              "units": "%",
+              "range": "5 – 50",
+              "default": "25",
+              "description": "Speed (as % of nominal) above which the engine is considered 'running' and the starter is disengaged.",
+              "philosophy": "Crank-disconnect logic — stops cranking once the engine fires and accelerates on its own.",
+              "performance": "Too low → starter stays engaged into a firing engine (gear damage); too high → starter disengages before the engine can sustain itself (stall / repeated cranks)."
+            },
+            {
+              "name": "Prestart Time",
+              "units": "s",
+              "range": "0 – 600",
+              "default": "2",
+              "description": "Pre-lubrication / glow-plug / fuel-prime time before cranking.",
+              "philosophy": "Lets oil pressure build or glow plugs heat before the starter engages, protecting bearings and aiding cold starts.",
+              "performance": "Too short stresses a dry engine on cold starts; too long delays availability in AMF / black-start scenarios."
+            },
+            {
+              "name": "MaxCrank Time",
+              "units": "s",
+              "range": "1 – 60",
+              "default": "8",
+              "description": "Maximum duration of a single crank attempt.",
+              "philosophy": "Bounds starter motor energisation to avoid burning it out if the engine will not fire.",
+              "performance": "Too short may abort before a sluggish cold engine fires; too long overheats the starter."
+            },
+            {
+              "name": "CrankFail Pause",
+              "units": "s",
+              "range": "1 – 60",
+              "default": "8",
+              "description": "Rest time between failed crank attempts.",
+              "philosophy": "Lets the starter motor and battery recover between attempts.",
+              "performance": "Too short overheats/over-drains the starter and battery; too long delays a successful start sequence."
+            },
+            {
+              "name": "Crank Attempts",
+              "units": "-",
+              "range": "1 – 10",
+              "default": "3",
+              "description": "Number of crank attempts before declaring a start failure.",
+              "philosophy": "Balances persistence against protecting the starter/battery and raising a 'Start Fail' alarm.",
+              "performance": "More attempts improve start reliability on marginal engines but risk flooding/draining; fewer give up quickly."
+            },
+            {
+              "name": "Idle Time",
+              "units": "s",
+              "range": "0 – 600",
+              "default": "10",
+              "description": "Low-speed warm-up period after start before ramping to nominal (diesels with idle control).",
+              "philosophy": "Warms oil and components at low load to reduce wear before accepting load.",
+              "performance": "Too short loads a cold engine (wear/smoke); too long delays readiness."
+            },
+            {
+              "name": "Min/Max Stab Time",
+              "units": "s",
+              "range": "0 – 300",
+              "default": "Min 1 / Max 30",
+              "description": "Minimum and maximum time to wait for voltage & frequency to stabilise after reaching nominal speed before closing the breaker / allowing synchronising.",
+              "philosophy": "Ensures the set is electrically stable before it is connected; Max acts as a timeout that raises an alarm if stability is never reached.",
+              "performance": "Min too short risks closing onto an unstable set; Max too short nuisance-alarms a slow-stabilising set."
+            },
+            {
+              "name": "Cooling Speed",
+              "units": "-",
+              "range": "IDLE / NOMINAL",
+              "default": "NOMINAL",
+              "description": "Engine speed used during the unloaded cool-down period.",
+              "philosophy": "Lets turbo/temperatures settle before shutdown.",
+              "performance": "Cooling at idle saves fuel but cools turbos slower; nominal cools faster but uses more fuel."
+            },
+            {
+              "name": "Cooling Time",
+              "units": "s",
+              "range": "0 – 3600",
+              "default": "60",
+              "description": "Unloaded run time after the breaker opens, before the engine stops.",
+              "philosophy": "Allows turbocharger and coolant temperatures to fall gradually, extending turbo life.",
+              "performance": "Too short risks turbo coking / thermal shock; too long wastes fuel and run-hours."
+            }
+          ]
+        },
+        {
+          "name": "Generator Protection",
+          "settings": [
+            {
+              "name": "Overload (BOC/Wrn)",
+              "units": "%",
+              "range": "0 – 200",
+              "default": "110",
+              "description": "Real-power overload threshold (% of Nominal Power) with a time delay.",
+              "philosophy": "Protects the engine from sustained loading beyond its rating; usually a warning then a breaker-open/trip level.",
+              "performance": "Lower = earlier protection but more nuisance trips on transient peaks; higher = risk of engine overload/overheat."
+            },
+            {
+              "name": "Overcurrent (IDMT)",
+              "units": "%",
+              "range": "100 – 500",
+              "default": "Pickup ~110, time-graded",
+              "description": "Inverse-time generator overcurrent protection scaled to Nominal Current.",
+              "philosophy": "Time-current curve protects windings while allowing brief inrush / motor-start surges.",
+              "performance": "Tight settings trip on legitimate inrush; loose settings allow thermal damage during sustained faults."
+            },
+            {
+              "name": "Short Circuit",
+              "units": "%",
+              "range": "100 – 1000",
+              "default": "set-dependent, short delay",
+              "description": "Instantaneous high-current trip.",
+              "philosophy": "Fast clearing of bolted faults to limit damage.",
+              "performance": "Too sensitive trips on inrush; too high delays fault clearing."
+            },
+            {
+              "name": "Voltage Unbalance",
+              "units": "%",
+              "range": "0 – 50",
+              "default": "10",
+              "description": "Maximum allowed phase voltage imbalance, with delay.",
+              "philosophy": "Detects lost-phase / unbalanced load conditions that overheat the alternator.",
+              "performance": "Lower catches imbalance sooner but nuisance-trips on naturally unbalanced single-phase loads."
+            },
+            {
+              "name": "Gen >V / Gen <V",
+              "units": "%",
+              "range": "0 – 150",
+              "default": ">115 / <85",
+              "description": "Generator over/under voltage trip levels (% of nominal) with delays.",
+              "philosophy": "Disconnects the set when AVR/excitation faults push voltage out of a safe window.",
+              "performance": "Narrow window improves load protection but risks tripping during normal transient dips/rises; wide window can let damaging voltage reach the load."
+            },
+            {
+              "name": "Gen >f / Gen <f",
+              "units": "Hz",
+              "range": "±0 – 10 of nom",
+              "default": ">52 / <48",
+              "description": "Generator over/under frequency trip levels with delays.",
+              "philosophy": "Protects against governor runaway (overspeed) and prolonged underspeed/overload.",
+              "performance": "Tight bands fail ISO recovery transients; loose bands allow off-frequency operation of sensitive loads."
+            },
+            {
+              "name": "Reverse Power",
+              "units": "%",
+              "range": "-50 – 0",
+              "default": "-5 to -10",
+              "description": "Reverse (motoring) power trip when the alternator draws power from the bus.",
+              "philosophy": "Protects the engine when, in parallel, it loses prime mover power and is motored by other sets.",
+              "performance": "Too sensitive trips on small reverse swings during load steps; too loose allows prolonged motoring (engine damage)."
+            }
+          ]
+        },
+        {
+          "name": "Speed / Load Control (Sync)",
+          "settings": [
+            {
+              "name": "Speed Gov Bias / Char",
+              "units": "-",
+              "range": "RELAY / PWM / ANALOG",
+              "default": "analog ±10 V",
+              "description": "Output type/characteristic driving the engine speed governor.",
+              "philosophy": "Defines how the controller biases engine speed for synchronising and load control.",
+              "performance": "Wrong type/polarity makes the set chase frequency the wrong way — failure to sync / runaway."
+            },
+            {
+              "name": "Freq Gain",
+              "units": "%",
+              "range": "0 – 200",
+              "default": "site-tuned (e.g. 40)",
+              "description": "Proportional gain of the frequency/speed control loop.",
+              "philosophy": "Determines how aggressively the controller corrects frequency error toward nominal before/while synchronising.",
+              "performance": "Too high → frequency hunting/oscillation; too low → slow frequency recovery, longer ISO recovery times."
+            },
+            {
+              "name": "Freq Int",
+              "units": "%",
+              "range": "0 – 200",
+              "default": "site-tuned",
+              "description": "Integral term of the frequency loop.",
+              "philosophy": "Removes steady-state frequency offset so the set settles exactly on nominal.",
+              "performance": "Too high → slow oscillation / overshoot; too low → lingering frequency error."
+            },
+            {
+              "name": "Angle Gain",
+              "units": "%",
+              "range": "0 – 200",
+              "default": "site-tuned",
+              "description": "Phase-angle matching gain during synchronising.",
+              "philosophy": "Pulls generator phase angle into the synchroniser window before breaker close.",
+              "performance": "Too high → angle hunting and missed close windows; too low → very slow synchronising."
+            },
+            {
+              "name": "Load Ramp",
+              "units": "s",
+              "range": "1 – 600",
+              "default": "10 – 60",
+              "description": "Time to ramp load up after breaker close (and down before open).",
+              "philosophy": "Soft loading/unloading to avoid frequency dips and mechanical shock on the engine.",
+              "performance": "Fast ramp causes large frequency/voltage transients (ISO recovery failures); slow ramp delays reaching base/peak load."
+            },
+            {
+              "name": "LS Gain / LS Int",
+              "units": "%",
+              "range": "0 – 200",
+              "default": "site-tuned",
+              "description": "Load-sharing proportional / integral gains in parallel operation.",
+              "philosophy": "Make multiple sets share real power proportionally to their rating on a common bus.",
+              "performance": "Too high → power hunting between sets; too low → uneven sharing / slow balancing."
+            }
+          ]
+        },
+        {
+          "name": "Voltage / PF Control (AVR interface)",
+          "settings": [
+            {
+              "name": "Voltage Gain / Int",
+              "units": "%",
+              "range": "0 – 200",
+              "default": "site-tuned",
+              "description": "Gains of the controller's voltage-bias loop to the AVR (when the controller trims the AVR setpoint).",
+              "philosophy": "Lets the gen-set controller adjust generator voltage for matching and VAr sharing via the AVR's external bias input.",
+              "performance": "Too high → voltage hunting; too low → slow voltage matching before paralleling."
+            },
+            {
+              "name": "PF Gain / PF Int",
+              "units": "%",
+              "range": "0 – 200",
+              "default": "site-tuned",
+              "description": "Power-factor control loop gains when paralleled to the mains (import/export PF regulation).",
+              "philosophy": "Holds a target PF / kVAr when running in parallel with the grid.",
+              "performance": "Too high → reactive-power hunting; too low → slow PF correction, poor reactive sharing."
+            },
+            {
+              "name": "Base PF / VAr",
+              "units": "-",
+              "range": "0.0 – 1.0 / kVAr",
+              "default": "0.8 – 1.0",
+              "description": "Target power factor (or kVAr) setpoint in mains-parallel mode.",
+              "philosophy": "Defines the reactive operating point when exporting/importing with the grid.",
+              "performance": "Lower PF target raises reactive current and heating; near-unity minimises reactive loading."
+            }
+          ]
+        },
+        {
+          "name": "AMF / Mains (where fitted)",
+          "settings": [
+            {
+              "name": "Mains >V / <V",
+              "units": "%",
+              "range": "0 – 150",
+              "default": ">110 / <85",
+              "description": "Mains over/under voltage detection for auto mains-failure start.",
+              "philosophy": "Decides when utility supply is unhealthy and the gen-set should start and take the load.",
+              "performance": "Tight bands cause frequent unnecessary gen starts; loose bands delay backup during a real dip."
+            },
+            {
+              "name": "Mains >f / <f",
+              "units": "Hz",
+              "range": "±0 – 10 of nom",
+              "default": ">52 / <48",
+              "description": "Mains over/under frequency detection for AMF.",
+              "philosophy": "Frequency half of the mains-health decision.",
+              "performance": "As above — trade nuisance starts against slow backup response."
+            },
+            {
+              "name": "Return Delay",
+              "units": "s",
+              "range": "0 – 3600",
+              "default": "60 – 600",
+              "description": "Time mains must stay healthy before transferring back and stopping the set.",
+              "philosophy": "Avoids ping-ponging on an unstable utility supply.",
+              "performance": "Short → repeated transfers on flickering mains; long → runs the set (and burns fuel) after mains recovers."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Leroy-Somer D550 AVR",
+      "summary": "Digital automatic voltage regulator (excitation control) — voltage / PF / kVAr / manual field regulation with PID, limits and protections; 7A continuous excitation (15A SCC) with USB/CAN configuration via EasyReg Advanced.",
+      "source": "Leroy-Somer D550 Installation & Maintenance manual (5744 en - 2021.02 / c, ref. S.A.R.L. Moteurs Leroy-Somer). Configuration via EasyReg Advanced software.",
+      "verified": true,
+      "groups": [
+        {
+          "name": "Regulation Modes",
+          "settings": [
+            {
+              "name": "Voltage Regulation (AVR)",
+              "units": "-",
+              "range": "on/off",
+              "default": "default mode",
+              "description": "Primary mode: closed-loop control of generator output voltage at setpoint by modulating field excitation.",
+              "philosophy": "Core AVR function — measures stator voltage vs reference and drives the PID to adjust exciter field. Baseline for all other modes.",
+              "performance": "Single regulation mode active at any time; bumpless mode switching when conditions change (e.g., load → paralleling)."
+            },
+            {
+              "name": "Voltage Regulation + Quadrature Droop",
+              "units": "-",
+              "range": "on/off + droop %",
+              "default": "droop 3–5 %",
+              "description": "Voltage mode with reactive droop — reduces voltage setpoint proportional to reactive (lagging) current.",
+              "philosophy": "For parallel generator operation: makes multiple machines share reactive load stably without fast communication. Each machine naturally backs off voltage as it carries more VAr.",
+              "performance": "More droop → better VAr sharing but lower voltage with reactive load; zero droop → VAr hunting."
+            },
+            {
+              "name": "Voltage Regulation + Cross-Current Compensation",
+              "units": "-",
+              "range": "on/off + gain",
+              "default": "off (requires CTs)",
+              "description": "Voltage mode with interconnected CT feedback — senses reactive current on adjacent phase and adjusts setpoint.",
+              "philosophy": "Alternative to droop for tightly-coupled sets: achieves flat voltage with good VAr sharing via direct current feedback.",
+              "performance": "Requires correct CT wiring (phase V standard). Mis-wired or over-gained → reactive hunting / instability."
+            },
+            {
+              "name": "Voltage Regulation + Load Compensation",
+              "units": "-",
+              "range": "on/off",
+              "default": "off",
+              "description": "Voltage mode with load-current feed-forward — anticipates voltage dip from stator current.",
+              "philosophy": "Faster voltage response to load changes by predicting the IV voltage drop before it happens.",
+              "performance": "Improves transient response; rarely used in modern generators (PID already handles it)."
+            },
+            {
+              "name": "Voltage Matching (U=U)",
+              "units": "-",
+              "range": "on/off + tolerance %",
+              "default": "on",
+              "description": "Holds generator voltage = grid/bus voltage before synchronizing (breaker close).",
+              "philosophy": "Minimises voltage difference across the closing breaker to avoid reactive inrush current surge and mechanical/electrical shock. Typical tolerance: ±3–5% of nominal.",
+              "performance": "Without it, close-on-mismatch → high current spike, torque shock, and breaker/mechanism stress. Automatic mode-switch after close to PF/kVAr regulation."
+            },
+            {
+              "name": "Generator Power Factor (PF) Regulation",
+              "units": "-",
+              "range": "target 0.6–1.0",
+              "default": "0.8 leading (typical)",
+              "description": "Closed-loop regulation of generator reactive output to hold a target PF when paralleled with mains.",
+              "philosophy": "In grid-coupled operation, the bus voltage is stiff, so the AVR instead regulates reactive current (and thus PF) to a setpoint. Typical: 0.8–0.95 leading (absorbing reactive from grid).",
+              "performance": "Lower PF → more reactive current & field heating; must be disabled in standalone mode (would cause voltage drift)."
+            },
+            {
+              "name": "Generator kVAr Regulation",
+              "units": "kVAr",
+              "range": "±rated capability",
+              "default": "0",
+              "description": "Closed-loop regulation of generator reactive power output to a kVAr setpoint when paralleled with mains.",
+              "philosophy": "Alternative to PF mode for grid codes specifying reactive power directly. Useful for voltage support and dynamic stability requirements (LVRT, FRT).",
+              "performance": "Sets reactive loading directly; affects alternator heating and grid interaction. Sign determines lead/lag."
+            },
+            {
+              "name": "Grid Point Power Factor Regulation",
+              "units": "-",
+              "range": "target 0.6–1.0",
+              "default": "grid-code-dependent",
+              "description": "Regulates reactive power at the grid connection point (not just at the alternator) using grid voltage measurement feedback.",
+              "philosophy": "Used in grid-code scenarios (e.g., wind, solar) where reactive support at the point of interconnection is required.",
+              "performance": "Requires grid voltage measurement wiring and grid-code option module."
+            },
+            {
+              "name": "Field Current (Manual / Excitation) Mode",
+              "units": "A",
+              "range": "0 – 7 (continuous) / 15 (SCC)",
+              "default": "—",
+              "description": "Open-loop direct field current control — user sets desired field amp directly.",
+              "philosophy": "Fallback mode on sensing loss (safety); commissioning/diagnostics mode. No closed-loop voltage control — voltage follows load & alternator impedance.",
+              "performance": "Used only for troubleshooting or controlled manual operation. Prolonged use without load monitoring risks over-excitation."
+            }
+          ]
+        },
+        {
+          "name": "PID Tuning",
+          "settings": [
+            {
+              "name": "Proportional Gain (P)",
+              "units": "-",
+              "range": "0 – 100 (% / scaled)",
+              "default": "site-tuned",
+              "description": "Immediate corrective action proportional to voltage error (measurement - setpoint).",
+              "philosophy": "Sets loop stiffness: how hard the AVR reacts to a deviation right now. P alone cannot eliminate steady-state error.",
+              "performance": "Higher P → faster step response but risk of overshoot & oscillation; lower P → sluggish, larger voltage dips on load acceptance."
+            },
+            {
+              "name": "Integral Gain (I)",
+              "units": "-",
+              "range": "0 – 100 (% / scaled)",
+              "default": "site-tuned",
+              "description": "Cumulative corrective action removing steady-state voltage error over time.",
+              "philosophy": "Guarantees voltage settles exactly on setpoint, not persistently offset. I alone is slow (lag in step response).",
+              "performance": "Higher I → faster offset removal but slow oscillation/overshoot; lower I → persistent voltage offset after transient."
+            },
+            {
+              "name": "Derivative Gain (D)",
+              "units": "-",
+              "range": "0 – 100 (% / scaled)",
+              "default": "site-tuned",
+              "description": "Damping action proportional to rate of change of voltage error (dV/dt).",
+              "philosophy": "Anticipates fast transients and damps overshoot, improving stability margin. D amplifies measurement noise.",
+              "performance": "Higher D → better transient damping but twitchy excitation on noisy signals; too high → control chatter."
+            },
+            {
+              "name": "Overall Gain (G)",
+              "units": "-",
+              "range": "0 – 100 (% / scaled)",
+              "default": "site-tuned",
+              "description": "Master gain multiplier applied to PID output (P + I + D terms).",
+              "philosophy": "Scales PID response to the alternator's excitation rate sensitivity. One PID profile can suit multiple machine sizes if G is tuned per machine.",
+              "performance": "Low G → slow response, poor recovery; high G → fast response but risk of instability. Critical for load-step transient performance."
+            }
+          ]
+        },
+        {
+          "name": "Startup / Soft Start",
+          "settings": [
+            {
+              "name": "Soft Start (Voltage Ramp) Time",
+              "units": "s",
+              "range": "0 – 60",
+              "default": "10 (typical)",
+              "description": "Duration for generator output voltage to ramp from residual (~5% retained) to nominal setpoint after the machine reaches rated speed.",
+              "philosophy": "Avoids inrush transients on loads & transformers at startup by limiting dV/dt. Too short → voltage overshoot, transformer inrush current, nuisance trips.",
+              "performance": "Too short (< 5s) → large inrush on transformer-fed loads; too long (> 30s) → slow availability when set is needed fast (AMF, black-start)."
+            },
+            {
+              "name": "Voltage Setpoint / Reference",
+              "units": "V (or % nominal)",
+              "range": "50 – 150 % (adjustable range)",
+              "default": "100 % nominal",
+              "description": "Target voltage the PID drives toward. Often ±5–10% trimmable for load matching and VAr sharing tuning.",
+              "philosophy": "The 100% reference for all voltage-dependent protections and compliance checks. Offset affects overall system voltage and reactive sharing with parallel machines.",
+              "performance": "Lower setpoint → smaller voltage excursions on load steps but risking under-voltage trips; higher → larger dips."
+            }
+          ]
+        },
+        {
+          "name": "Load Acceptance / Limits",
+          "settings": [
+            {
+              "name": "LAM — Load Acceptance Module (voltage dip)",
+              "units": "%",
+              "range": "dip 0–20 %, delay 0–20 s",
+              "default": "dip ~10–12 %, hold ~5–8 s",
+              "description": "Temporary voltage reduction on sudden large load step to reduce active-power demand and ease engine speed recovery.",
+              "philosophy": "Key feature for ISO 8528 transient performance: trades brief voltage dip for frequency stability, helping the governor hold speed during block loads.",
+              "performance": "More aggressive LAM → better frequency recovery but deeper voltage dip (sensitive loads may drop out); disabled → larger frequency dips, possible underspeed trips."
+            },
+            {
+              "name": "Underspeed Volts-per-Hertz (U/f) Protection",
+              "units": "Hz / %",
+              "range": "knee 40–52 Hz (adj.), slope 0–20 % / Hz (adj.)",
+              "default": "knee ~48 Hz, slope ~3–5 % / Hz",
+              "description": "Reduces voltage setpoint proportionally when generator frequency falls below a knee point, preventing over-fluxing when engine bogs down.",
+              "philosophy": "Protects alternator core from saturation and excessive field demand during underspeed transients. Characteristic: V = Vnom × (f / f_knee) when f < f_knee.",
+              "performance": "Higher knee → earlier voltage reduction (better engine recovery, less field stress) but more voltage sag; lower → risk of over-excitation saturation."
+            },
+            {
+              "name": "Over-Excitation Limit (max field current)",
+              "units": "A",
+              "range": "4–15 A (per machine)",
+              "default": "alternator rated field (e.g. 7 A)",
+              "description": "Ceiling on field current to protect exciter and field windings from thermal damage during sustained high-VAr demand or transients.",
+              "philosophy": "Typically time-characteristic (e.g., allow 15 A for 10 s, then drop to 7 A sustained). Soft limiter that gradually reduces voltage setpoint as limit is approached.",
+              "performance": "Too low a limit → voltage cannot be sustained on heavy reactive load (large dips, instability); too high → field winding risk."
+            },
+            {
+              "name": "Under-Excitation Limit (min field current)",
+              "units": "A / kVAr",
+              "range": "typically > pole-slip threshold (per capability curve)",
+              "default": "machine pole-slip boundary",
+              "description": "Minimum excitation level to keep the alternator within its stability/capability curve when absorbing large reactive currents (leading PF in grid parallel).",
+              "philosophy": "Prevents loss of synchronism / pole slip when the machine is forced to operate at leading power factor (e.g., by grid code reactive requirement).",
+              "performance": "Too low → loss of synchronism / pole slip catastrophe; too high → limits grid-code reactive support capability."
+            },
+            {
+              "name": "Stator Current Limit",
+              "units": "A",
+              "range": "1.0–1.5 × rated stator current",
+              "default": "rated current",
+              "description": "Limits voltage output by capping stator current to protect alternator windings from sustained thermal overload.",
+              "philosophy": "Soft limiter that backs off voltage setpoint if stator current approaches limit. Protects against sustained overload or short-circuit conditions.",
+              "performance": "Too tight → voltage collapses before reaching full output; too loose → winding thermal stress risk."
+            },
+            {
+              "name": "Field Forcing on Loss of Sensing",
+              "units": "-",
+              "range": "on/off + value",
+              "default": "on (auto-switch to safe value)",
+              "description": "Automatic switch to a pre-set safe field current value if the voltage-sensing input is lost (measurement wire break, VT failure).",
+              "philosophy": "Prevents runaway over-excitation (and resulting over-voltage) when the controller cannot see the voltage. Allows fault current to sustain if a downstream short occurs.",
+              "performance": "Must be enabled for safety. Field-forcing value should be chosen to maintain safe voltage while supporting grid faults."
+            }
+          ]
+        },
+        {
+          "name": "Protections & Faults",
+          "settings": [
+            {
+              "name": "Over-Voltage Protection",
+              "units": "%",
+              "range": "105–130 % (threshold + delay)",
+              "default": "110–115 % (typical)",
+              "description": "Detects and responds to sustained over-voltage (excitation/AVR fault, loss of load, voltage transformer fault).",
+              "philosophy": "Typical actions: alarm → stop regulation (switch to field current mode) or trip. Prevents voltage stress on connected equipment.",
+              "performance": "Threshold too low → nuisance trips on legitimate transients; too high → over-voltage damage to loads."
+            },
+            {
+              "name": "Under-Voltage Protection",
+              "units": "%",
+              "range": "70–95 % (threshold + delay)",
+              "default": "85 % (typical)",
+              "description": "Detects sustained under-voltage (loss of excitation, exciter failure, overload voltage collapse).",
+              "philosophy": "Typical actions: alarm → stop regulation or trigger load disconnect logic. Protects motors from stalling.",
+              "performance": "Threshold too low → prolonged low voltage damages motors; too high → nuisance trips on normal load-step dips."
+            },
+            {
+              "name": "Under-Frequency Protection",
+              "units": "Hz",
+              "range": "47–49 Hz (threshold + delay)",
+              "default": "~48 Hz (typical)",
+              "description": "Detects prolonged underspeed (engine governor unable to catch up with load demand, fuel system issue, or coupling loss).",
+              "philosophy": "Triggers alarm and/or load-shed logic. Works with U/f slope to ease engine recovery.",
+              "performance": "Too high → over-sensitive (nuisance); too low → delayed detection of genuine engine problem."
+            },
+            {
+              "name": "Over-Frequency Protection",
+              "units": "Hz",
+              "range": "51–52 Hz (threshold + delay)",
+              "default": "~52 Hz (typical)",
+              "description": "Detects sustained overspeed (governor hunting, sudden load drop, fuel system malfunction).",
+              "philosophy": "Triggers alarm and/or frequency-limiting action. ISO 8528 recovery bands define acceptable temporary overshoot.",
+              "performance": "Too low → trip on transient recovery (common fault); too high → runaway overspeed damage."
+            },
+            {
+              "name": "Open Diode Fault",
+              "units": "-",
+              "range": "detect via ripple signature",
+              "default": "auto",
+              "description": "Detects open/failed diode in the rotating exciter rectifier by analyzing field-current ripple waveform.",
+              "philosophy": "Early warning of exciter degradation before catastrophic excitation loss. Allows planned maintenance vs emergency outage.",
+              "performance": "Catch early for orderly decommission; late detection → sudden loss of excitation during load."
+            },
+            {
+              "name": "Shorted Diode Fault",
+              "units": "-",
+              "range": "detect via ripple signature",
+              "default": "auto",
+              "description": "Detects short-circuited diode in the rotating exciter by ripple analysis.",
+              "philosophy": "Indicates exciter component degradation. Can lead to partial or full excitation loss.",
+              "performance": "Early detection allows troubleshooting; late detection → reduced voltage support capability."
+            },
+            {
+              "name": "Reverse Power / Active Reverse Power",
+              "units": "%",
+              "range": "-5 to -20 (threshold)",
+              "default": "~-10 % (typical)",
+              "description": "Detects alternator motoring (power flowing backward into the prime mover), protecting the engine from being driven.",
+              "philosophy": "Critical in parallel operation: if a set loses prime-mover power, it is motored by other machines, causing engine damage.",
+              "performance": "Threshold too tight → trips on transient power swings; too loose → prolonged motoring damage."
+            },
+            {
+              "name": "Reactive Reverse Power",
+              "units": "kVAr",
+              "range": "threshold + delay",
+              "default": "auto",
+              "description": "Detects reverse reactive power flow (capacitive generator feeding reactive into the grid).",
+              "philosophy": "Less critical than active reverse power; can indicate grid disturbance or islanding risk.",
+              "performance": "Configuration-dependent; used in grid-code scenarios."
+            },
+            {
+              "name": "Synchro-Check",
+              "units": "-",
+              "range": "frequency/voltage/angle tolerance",
+              "default": "enabled when paralleling",
+              "description": "Verifies that grid/bus conditions are synchronized before allowing breaker close (frequency within ±0.5 Hz, voltage within ±10%, angle within ~10°).",
+              "philosophy": "Prevents closing onto an out-of-sync bus, which would cause severe current surge and mechanical shock.",
+              "performance": "Typical ranges: Δf < ±1 Hz, ΔV < ±10 %, Δθ < ±20° (configurable)."
+            },
+            {
+              "name": "Loss of Sensing Alarm",
+              "units": "-",
+              "range": "auto-detect on VT input",
+              "default": "auto-enable",
+              "description": "Detects broken voltage-sensing wire or VT failure by monitoring sensor plausibility.",
+              "philosophy": "Triggers field forcing to a safe value to prevent runaway excitation and over-voltage.",
+              "performance": "Essential for safety; should trigger alarm and/or field forcing immediately."
+            },
+            {
+              "name": "Voltage Unbalance Protection",
+              "units": "%",
+              "range": "0–50 % phase mismatch",
+              "default": "~10 % (typical)",
+              "description": "Detects unbalanced 3-phase voltage (single-phase loss, asymmetric load).",
+              "philosophy": "Protects alternator from unbalanced current heating. Typical action: alarm → stop regulation.",
+              "performance": "Threshold too low → nuisance trips (natural single-phase load); too high → heating risk."
+            },
+            {
+              "name": "Current Unbalance Protection",
+              "units": "%",
+              "range": "0–50 % phase mismatch",
+              "default": "~15 % (typical)",
+              "description": "Detects unbalanced 3-phase stator current (winding asymmetry, load unbalance).",
+              "philosophy": "Similar to voltage unbalance; protects windings from asymmetric heating.",
+              "performance": "Configuration and threshold per machine."
+            },
+            {
+              "name": "Short-Circuit Detection",
+              "units": "-",
+              "range": "instantaneous high current",
+              "default": "auto-enable",
+              "description": "Detects bolted 3-phase short (stator fault) by sudden current rise.",
+              "philosophy": "Immediate action: typically switches to field current mode to sustain fault current for downstream protective devices to clear.",
+              "performance": "Allows coordination with switchgear; without it, AVR may reduce field and starve fault current."
+            },
+            {
+              "name": "Power Supply Fault (auxiliary 8–35 VDC)",
+              "units": "-",
+              "range": "voltage detect",
+              "default": "auto-enable",
+              "description": "Detects loss or degradation of the DC auxiliary supply powering the AVR.",
+              "philosophy": "Triggers alarm and/or field-forcing action. Loss of auxiliary power → loss of control.",
+              "performance": "Essential monitoring; auxiliary must be properly fused (1 A fast-acting typical)."
+            },
+            {
+              "name": "IGBT Fault (power stage)",
+              "units": "-",
+              "range": "temperature / over-current",
+              "default": "auto-enable",
+              "description": "Detects power semiconductor (IGBT) over-temperature or over-stress in the field-drive bridge.",
+              "philosophy": "Triggers thermal shutdown or power limiting to protect the bridge. Indicates cooling or load issue.",
+              "performance": "Heatsink blockage, high ambient, or sustained heavy transients can trigger this."
+            },
+            {
+              "name": "Temperature Alarms & Trips",
+              "units": "°C",
+              "range": "0 to +70 °C (operating), configurable limits",
+              "default": "alarm ~60 °C, trip ~70 °C (typical)",
+              "description": "Monitors D550 PCB temperature (1–5 external Pt100 sensors can be added for field/stator temperature).",
+              "philosophy": "Prevents thermal damage to the AVR and alternator. External sensor limits protect the machine itself.",
+              "performance": "Low limits → nuisance alarms in hot climates; high limits → thermal risk."
+            }
+          ]
+        },
+        {
+          "name": "Parallel Operation & Synchronization",
+          "settings": [
+            {
+              "name": "Quadrature Droop Characteristic",
+              "units": "%",
+              "range": "0–10 % (adj.)",
+              "default": "3–5 % (typical)",
+              "description": "Voltage droop proportional to reactive current: V_out = V_set - droop% × (I_q / I_rated).",
+              "philosophy": "Makes paralleled machines share VAr load stably. Each machine naturally backs off voltage as it carries more reactive current, preventing one machine from hogging the load.",
+              "performance": "Higher droop → more voltage sag but better VAr sharing; zero droop → VAr hunting oscillation."
+            },
+            {
+              "name": "Cross-Current Compensation (CCC)",
+              "units": "-",
+              "range": "on/off + gain %",
+              "default": "off (requires dual CT setup)",
+              "description": "Uses interconnected phase-V current transformers to feed cross-current signal directly into voltage setpoint adjustment.",
+              "philosophy": "Direct feedback of inter-machine reactive current allows flat voltage + stable VAr sharing. No voltage droop needed.",
+              "performance": "Correct wiring/gain → smooth parallel operation; wrong polarity → reactive hunting / instability."
+            },
+            {
+              "name": "Voltage Matching (U=U) Tolerance",
+              "units": "%",
+              "range": "±1 to ±20 % (configurable)",
+              "default": "±3–5 % (typical)",
+              "description": "Before breaker close, the AVR adjusts its voltage setpoint to match the grid/bus voltage within tolerance.",
+              "philosophy": "Minimizes voltage difference across the breaker, reducing inrush current and mechanical shock at close.",
+              "performance": "Tight tolerance → slow matching, may miss close window; loose tolerance → large inrush on mismatch close."
+            },
+            {
+              "name": "Breaker Status Input (closing confirmation)",
+              "units": "-",
+              "range": "contact / pulse input",
+              "default": "required",
+              "description": "Discrete input confirming the breaker has actually closed, triggering the mode switch (e.g., from voltage matching to PF regulation).",
+              "philosophy": "Safety interlock: prevents regulating in parallel mode before the breaker is really closed (risk of over-voltage if mains is lost before close).",
+              "performance": "Must be wired from the breaker auxiliary contact, not assumed from breaker command."
+            }
+          ]
+        },
+        {
+          "name": "Advanced Features",
+          "settings": [
+            {
+              "name": "Curve Functions (5-point)",
+              "units": "-",
+              "range": "up to 4 curves",
+              "default": "typically 0",
+              "description": "Defines one parameter as a 5-point function of another (e.g., kVAr reference vs voltage, field limit vs temperature).",
+              "philosophy": "Allows sophisticated control logic without external PLC (e.g., voltage support curve matching grid code requirements).",
+              "performance": "Used for dynamic characteristics & non-linear compensation. Linear segments between points."
+            },
+            {
+              "name": "Logic / Analog Gates",
+              "units": "-",
+              "range": "up to 20 gates (2-input)",
+              "default": "0 active",
+              "description": "Configurable function blocks: AND/OR/XOR, comparators, set-reset, addition/subtraction/multiplication/division, temporization.",
+              "philosophy": "Allows local decision-making without external PLC (e.g., load shedding logic, frequency-dependent actions).",
+              "performance": "Chain gates together for complex control sequences. Useful for AMF and grid-code adaptive control."
+            },
+            {
+              "name": "Event Logging & Counters",
+              "units": "-",
+              "range": "up to 8 counters",
+              "default": "as configured",
+              "description": "Records occurrence of user-defined events (e.g., over-voltage occurrence count) with optional field-current snapshot.",
+              "philosophy": "Enables remote monitoring and maintenance trending (e.g., how many times has over-voltage been triggered?).",
+              "performance": "Useful for diagnostics and predictive maintenance planning."
+            },
+            {
+              "name": "Oscilloscope Function (with USB)",
+              "units": "-",
+              "range": "8-parameter plot",
+              "default": "on demand",
+              "description": "Real-time waveform capture and replay of up to 8 signals (voltage, current, frequency, field, etc.) via EasyReg software.",
+              "philosophy": "Commissioning & troubleshooting tool: visualizes AVR response to load steps, transients, and faults in real-time.",
+              "performance": "Requires USB connection to EasyReg Advanced; essential for tuning PID and validating behavior."
+            },
+            {
+              "name": "Monitor Window (dashboard)",
+              "units": "-",
+              "range": "numeric/gauges/curves",
+              "default": "on demand",
+              "description": "Configurable real-time display dashboard showing voltage, current, PF, frequency, temperature, synchronization status, and fault flags.",
+              "philosophy": "Remote monitoring window when connected via USB/CAN. Shows current regulation state & performance.",
+              "performance": "Useful for commissioning, operation, and diagnostics."
+            },
+            {
+              "name": "Second Configuration / 50–60 Hz Switching",
+              "units": "-",
+              "range": "on/off + select via input",
+              "default": "off",
+              "description": "Stores a second full parameter set that can be switched in via digital input (e.g., for 50 Hz ↔ 60 Hz operation).",
+              "philosophy": "Useful for dual-frequency sets or for selecting alternate regulation modes on demand.",
+              "performance": "Allows up to 16 parameters to differ between Config A and Config B."
+            },
+            {
+              "name": "Synchronization Logic Module",
+              "units": "-",
+              "range": "on/off + settings",
+              "default": "off (requires grid voltage input)",
+              "description": "Evaluates grid voltage frequency, magnitude, angle, and breaker timing to determine synchronization readiness.",
+              "philosophy": "Part of breaker-closing safety logic; ensures conditions are safe before initiating close command.",
+              "performance": "Typical thresholds: Δf < ±1 Hz, ΔV < ±10%, Δθ < ±20°."
+            },
+            {
+              "name": "Grid Code Functions (option module)",
+              "units": "-",
+              "range": "LVRT / FRT / voltage support",
+              "default": "off",
+              "description": "Optional modules for grid-code compliance (wind, solar, DG integration): LVRT (low-voltage ride-through), FRT (fault ride-through), reactive power / voltage support curves.",
+              "philosophy": "Helps manage transient behavior during grid disturbances per local grid codes.",
+              "performance": "Requires option license and additional external inputs (grid voltage, frequency, phase)."
+            }
+          ]
+        },
+        {
+          "name": "Electrical Specifications",
+          "settings": [
+            {
+              "name": "Field Current Rating",
+              "units": "A",
+              "range": "7 A @ 70 °C, 8 A @ 55 °C",
+              "default": "7 A (continuous)",
+              "description": "Maximum sustained excitation current the D550 can supply without exceeding temperature limits.",
+              "philosophy": "Sets the upper limit on field power delivery and the over-excitation protection threshold.",
+              "performance": "Short-circuit current (10 s max) is 15 A. Exceeding sustained limit risks heatsink overtemp fault."
+            },
+            {
+              "name": "Voltage Measurement Range",
+              "units": "VAC",
+              "range": "2-phase or 3-phase, 0–530 VAC rms",
+              "default": "site-dependent (e.g. 0–480 for LV)",
+              "description": "Input voltage range for alternator voltage feedback. VT required if alternator voltage exceeds 480 VAC.",
+              "philosophy": "Measures stator voltage for closed-loop regulation. Over-range can damage measurement circuit.",
+              "performance": "Configure input type (Y/Δ) and VT ratio (1:1 for direct, up to 500:1 for MV/HV)."
+            },
+            {
+              "name": "Frequency Measurement Range",
+              "units": "Hz",
+              "range": "30–400 Hz",
+              "default": "50 or 60 Hz (nominal)",
+              "description": "Bandwidth for frequency detection from AC measurement inputs. Covers wide range to support variable-speed generators.",
+              "philosophy": "Allows transient frequency measurement and synchronization logic. Zero-crossing detection.",
+              "performance": "Narrow range (e.g. ±5 Hz) improves noise immunity; wide range helps during major disturbances."
+            },
+            {
+              "name": "Current Measurement (CT)",
+              "units": "A/A",
+              "range": "1–5 A secondary, 0–300% overload for 30 s",
+              "default": "per CT spec",
+              "description": "Generator stator current input via current transformer for power and PF calculations, load sharing, and limits.",
+              "philosophy": "CT secondary is 1–5 A (range-configurable). Overload capability for short-circuit recording.",
+              "performance": "CT ratio & burden must be entered in configuration; wrong ratio scales all current-dependent functions."
+            },
+            {
+              "name": "Auxiliary DC Power Supply",
+              "units": "VDC",
+              "range": "8–35 VDC (nominal ~24)",
+              "default": "site-dependent (typically 24 VDC)",
+              "description": "Powers the D550 PCB logic and field-drive circuits. Must be protected by a 1 A fast-acting fuse.",
+              "philosophy": "Loss of auxiliary → loss of AVR control. Low voltage → control malfunction.",
+              "performance": "Must be a regulated supply within ±10% of nominal. Transient dropout > 50 ms triggers fault."
+            },
+            {
+              "name": "AC Power Supply Inputs (PMG/AREP/SHUNT)",
+              "units": "VAC",
+              "range": "50–277 VAC, 10 VA typical draw",
+              "default": "PMG (permanent magnet alternator) @ 50–100 VAC typical",
+              "description": "Powers the exciter field circuit or provides input to rectification. Options: PMG (permanent-magnet exciter output), AREP (main stator auxiliary winding), SHUNT (external AC source).",
+              "philosophy": "Selection depends on alternator architecture. PMG is most robust (doesn't depend on main AVR).",
+              "performance": "AC supply must be protected by Class CC fuse (15 A max) or 10 A breaker. Loss of AC input → loss of field power."
+            },
+            {
+              "name": "Operating Temperature Range",
+              "units": "°C",
+              "range": "-40 to +70 °C (operating)",
+              "default": "-40 to +70 °C",
+              "description": "D550 PCB ambient temperature limits. Exceeding +70 °C triggers thermal shutdown.",
+              "philosophy": "Heatsink design and cabinet cooling must ensure operating condition within range.",
+              "performance": "Derate output in high-ambient locations (e.g., tropical climates may need >55 °C derating to protect field windings)."
+            },
+            {
+              "name": "EMC / Standards",
+              "units": "-",
+              "range": "IEC 61000-6-2 (industrial immunity), IEC 61000-6-4 (industrial emissions)",
+              "default": "compliant",
+              "description": "Electromagnetic compatibility: industrial immunity to transients, RF, harmonics; emissions controlled.",
+              "philosophy": "Shielded cables required outside terminal box (>5 m runs or heavy EMI environment).",
+              "performance": "Proper grounding and bonding essential for compliance; loosely wired systems may see nuisance trips."
+            }
+          ]
+        },
+        {
+          "name": "Measurement & Wiring",
+          "settings": [
+            {
+              "name": "Voltage Transformer (VT) Requirement",
+              "units": "-",
+              "range": "required if V > 480 VAC L-L",
+              "default": "not required < 480 VAC",
+              "description": "Voltage step-down transformer required for MV/HV generators to safely measure at 0–480 VAC secondary.",
+              "philosophy": "PT (potential transformer) / VT rated for measurement (typically burden class 0.2 or better).",
+              "performance": "Burden (VA) must be low to avoid voltage drop on the VT secondary affecting measurement accuracy."
+            },
+            {
+              "name": "Current Transformer (CT) Placement",
+              "units": "-",
+              "range": "phase U: parallel output, phase V: cross-current & grid, phase W: spare",
+              "default": "per regulation mode needed",
+              "description": "CT placement is fixed per function: U-phase for standard parallel sharing, V-phase for cross-current compensation & grid current, W-phase optional.",
+              "philosophy": "Wrong placement → VAr sharing failure, incorrect power measurements. Cross-current CT must see inter-machine reactive current.",
+              "performance": "Ensure all CTs have same ratio and burden. Mismatch causes imbalance in sharing logic."
+            },
+            {
+              "name": "Cable Length & EMC Shielding",
+              "units": "m",
+              "range": "max 100 m total, shielded if > 5 m outside terminal box",
+              "default": "< 5 m in terminal box okay unshielded",
+              "description": "Long/unshielded cables pick up EMI and can cause nuisance trips or measurement errors.",
+              "philosophy": "Recommend shielded twisted pair for all analog inputs (voltage, current) outside the terminal box. Ground shield at one end only.",
+              "performance": "Poor shielding → random faults, frequency/voltage measurement noise, false protection trips."
+            },
+            {
+              "name": "Field Winding Resistance",
+              "units": "Ω",
+              "range": "> 4 Ω (minimum safe)",
+              "default": "machine-dependent (typical 5–50 Ω)",
+              "description": "Exciter field coil DC resistance. Must be measured during commissioning and confirmed against the exciter nameplate.",
+              "philosophy": "Low resistance indicates winding short; very high resistance indicates open circuit. Both prevent proper excitation.",
+              "performance": "Used by EasyReg to estimate field time-constant and for over-current detection thresholds."
+            },
+            {
+              "name": "Earth (Ground) Connection",
+              "units": "-",
+              "range": "dedicated earth terminal",
+              "default": "essential",
+              "description": "The D550 must be earthed via the dedicated M5 terminal to the machine frame / cabinet earth.",
+              "philosophy": "All control signals, analog inputs, and the heatsink reference to this earth. Poor earth → nuisance trips, measurement errors.",
+              "performance": "Must be low impedance (< 1 Ω). Use substantial cable, not a small wire. Test resistance at commissioning."
+            }
+          ]
+        },
+        {
+          "name": "Configuration & Commissioning",
+          "settings": [
+            {
+              "name": "Quick Configuration",
+              "units": "-",
+              "range": "select machine from database",
+              "default": "default / fastest",
+              "description": "EasyReg database includes pre-tuned parameters for common alternator models. User selects machine, downloads parameters.",
+              "philosophy": "Fast path for straightforward setups where alternator is from a known OEM with test data.",
+              "performance": "Can be refined in Advanced mode later. Good starting point for tuning."
+            },
+            {
+              "name": "Advanced Configuration",
+              "units": "-",
+              "range": "full manual parameter entry",
+              "default": "required for custom machines",
+              "description": "Manual definition of alternator ratings, excitation curve, measurement configuration, capability limits, protection thresholds, PID gains, I/O mapping.",
+              "philosophy": "Needed for bespoke or unusual alternators. Requires detailed machine nameplate and test/commissioning data.",
+              "performance": "Allows complete customization for grid codes, voltage matching, synchronization, and advanced modes."
+            },
+            {
+              "name": "Overcurrent Protection (AC supply)",
+              "units": "-",
+              "range": "Class CC fast-blow fuse (15 A max) or circuit breaker (10 A max)",
+              "default": "per supply source",
+              "description": "Protects AC power input from overcurrent (short, fault). Must be rated fast-acting to protect control circuits.",
+              "philosophy": "Slow fuses (Class T) are insufficient and may not clear in time to prevent damage.",
+              "performance": "Check fuse rating at commissioning; wrong fuse type → may not protect the AVR on internal faults."
+            },
+            {
+              "name": "DC Auxiliary Protection",
+              "units": "-",
+              "range": "1 A fast-acting fuse (or DCCT)",
+              "default": "required",
+              "description": "Protects the 8–35 VDC auxiliary supply from overcurrent (short circuit, battery fault).",
+              "philosophy": "Loss of auxiliary → loss of control; must be protected to prevent extended short. 1 A is standard for 24 VDC logic circuits.",
+              "performance": "Use ceramic cartridge fuses (fast-acting). Auto-reset breakers risk repeated shutdown cycles on transient faults."
+            },
+            {
+              "name": "Mounting & Heatsink Cooling",
+              "units": "-",
+              "range": "vertical heatsink orientation, ≥ 50 mm clearance all sides",
+              "default": "standard cabinet mount",
+              "description": "Heatsink (rear aluminum fin structure) must have free airflow for thermal dissipation. Vertical orientation is best (convection).",
+              "philosophy": "Blocked heatsink → over-temperature fault, reduced field output.",
+              "performance": "In high-ambient cabinets, consider duct cooling or forced-air fan."
+            }
+          ]
+        },
+        {
+          "name": "Maintenance & Troubleshooting",
+          "settings": [
+            {
+              "name": "Preventive Maintenance Schedule",
+              "units": "-",
+              "range": "visual inspection annually, connector tightness check yearly",
+              "default": "annually",
+              "description": "Remove dust (dry air), verify connector tightness (0.6–0.8 Nm terminal torque), ensure heatsink airflow is unobstructed.",
+              "philosophy": "Running hour meter available via parameter 254.008. Replacement advised after 40,000 hours of operation.",
+              "performance": "Early maintenance prevents failure-mode surprises during critical operation."
+            },
+            {
+              "name": "Typical Anomalies & Remedies",
+              "units": "-",
+              "range": "voltage drift, loss of excitation, over-temperature, frozen display, no USB communication",
+              "default": "per symptom",
+              "description": "Manual lists common failure modes and recommended troubleshooting steps (check VT, CT wiring; verify exciter field continuity; inspect cooling; replace AVR if internal fault confirmed).",
+              "philosophy": "Structured troubleshooting methodology to isolate external vs internal faults.",
+              "performance": "Most failures are external (broken wiring, exciter fault, cooling blockage). Only replace AVR if internal diagnostics confirm malfunction."
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "count": 105
+}

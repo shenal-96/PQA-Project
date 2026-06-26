@@ -246,7 +246,25 @@
 
     <label class="chk"><input type="checkbox" bind:checked={config.steady_state_enabled} /> Evaluate steady-state (ISO 8528-5 δ bands)</label>
     {#if config.steady_state_enabled}
-      <div class="cap">Checks every sample during the stable dwell periods between load steps against the tight δU / δf bands — separate from transient recovery. For staged load-bank tests only.</div>
+      <div class="cap">Checks the stable dwell periods between load steps. For staged load-bank tests only.</div>
+
+      <div class="grp-label">Performance class (Table 4)</div>
+      <div class="chips" style="margin-bottom:4px">
+        <button class="chip" class:on={config.steady_performance_class === null} onclick={() => (config.steady_performance_class = null)}>None</button>
+        <button class="chip" class:on={config.steady_performance_class === 'G1'} onclick={() => (config.steady_performance_class = 'G1')}>G1</button>
+        <button class="chip" class:on={config.steady_performance_class === 'G2'} onclick={() => (config.steady_performance_class = 'G2')}>G2</button>
+        <button class="chip" class:on={config.steady_performance_class === 'G3'} onclick={() => (config.steady_performance_class = 'G3')}>G3</button>
+      </div>
+      {#if config.steady_performance_class === null}
+        <div class="cap">Free-form mode: every sample is checked against the δU / δf bands below.</div>
+      {:else}
+        <div class="cap">ISO 8528-5 grading: frequency on β_f (peak-to-peak) and voltage on ΔU_st (regulation), against the {config.steady_performance_class} Table 4 limits. The δU / δf bands below drive the time-series overlay only.</div>
+        <label class="chk"><input type="checkbox" bind:checked={config.steady_isochronous} /> Isochronous set (droop → 0%)</label>
+        <label class="chk"><input type="checkbox" bind:checked={config.steady_single_two_cylinder} /> Single/two-cylinder engine (β_f ≤ 2.5%)</label>
+        <label class="chk"><input type="checkbox" bind:checked={config.steady_low_power} /> Low-power set, ISO 8528-8 (ΔU_st ±10%)</label>
+        <label class="chk"><input type="checkbox" bind:checked={config.steady_parallel_operation} /> Parallel operation (unbalance 0.5%)</label>
+      {/if}
+
       <div class="two">
         <div class="col">
           <div class="field col-f"><span>δU band (±%)</span><input type="number" min="0" step="0.5" bind:value={config.steady_voltage_band_pct} /></div>

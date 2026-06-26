@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { EventRecord } from '../backend/types';
-  import { cell, num2 } from '../lib/format';
+  import { cell, num2, recSeconds } from '../lib/format';
 
   let { events }: { events: EventRecord[] } = $props();
 
@@ -38,8 +38,8 @@
           <td class="mono">{num2(e['dKw'])}</td>
           <td class="mono">{num2(e['V_dev'])}</td>
           <td class="mono">{num2(e['F_dev'])}</td>
-          <td class="mono">{num2(e['V_rec_s'])}</td>
-          <td class="mono">{num2(e['F_rec_s'])}</td>
+          <td class="mono">{recSeconds(e['V_rec_s'])}</td>
+          <td class="mono">{recSeconds(e['F_rec_s'])}</td>
           <td>
             <span class="pill" class:pass={isPass(e)} class:bad={!isPass(e)}>
               {cell(e['Compliance_Status'])}

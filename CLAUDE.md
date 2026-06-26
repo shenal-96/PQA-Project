@@ -224,13 +224,47 @@ Engine (`core/analysis.py`, all UI-free):
 - `analyze_steady_state(df_proc, df_events, config, windows=None)` — orchestrates;
   `windows` lets the caller pass user-confirmed/edited dwells (hybrid flow).
 
+**ISO 8528-5 Table 4 grading (`steady_performance_class`, default None).** Two modes:
+- **Legacy / free-form (class None):** unchanged — pass/fail is per-sample against
+  the free-form `steady_voltage_band_pct` / `steady_freq_band_pct` δ bands.
+- **Class mode (`"G1"/"G2"/"G3"`):** metrics are graded against `STEADY_STATE_LIMITS`
+  (the Table 4 dict). `steady_limits(config)` resolves the per-class limits and
+  applies the footnote toggles (`steady_single_two_cylinder` → β_f ≤ 2.5%;
+  `steady_low_power` → ΔU_st ±10%; `steady_parallel_operation` → unbalance 0.5%;
+  `steady_isochronous` → droop 0%). Then:
+  - **β_f** (`_beta_f`, spec §2.1) — per-window peak-to-peak `(f_max−f_min)/f_r×100`
+    (outlier-robust via `steady_beta_f_percentile`) drives the per-window frequency
+    verdict (`Beta_f_pct` / `Beta_f_limit_pct` / `Beta_f_pass`). β_f is always
+    reported; it only grades when a class is set. The displayed per-window bands
+    switch to the class bands (V = ΔU_st regulation band, F = α_f tol band).
+  - **ΔU_st** (cross-window, spec §2.3) — `summarize_steady_state(df_proc, df_windows,
+    config)` aggregates the per-window mean voltages into `±(U_max−U_min)/(2·U_r)×100`,
+    plus the **droop sanity** check (`(f_noload−f_rated)/f_r×100`) and the §4
+    **sample-rate gate** (`detect_sample_rate_hz`). Returns a JSON dict with graded
+    `*_pass` fields (None outside class mode).
+  - **ΔU_2.0 voltage unbalance** (§2.4) — `summarize_steady_state` computes the IEC
+    line-voltage unbalance factor (`_voltage_unbalance_pct`) at the no-load window
+    from per-phase magnitudes carried on `df_proc.attrs["v_phase"]`
+    (`_extract_per_phase`). **On attrs, NOT columns** — columns would slice into
+    `df_events` and leak into the JSON contract + break the parity signature.
+    Exact from L-L magnitudes; flagged "approx" from L-N (zero-sequence). Graded
+    vs `volt_unbalance_pct`.
+  - **§4 sample-rate gate** (`detect_sample_rate_hz` + `_modulation_gate`) sets
+    `modulation_status` ("insufficient sample rate" / "AMC (G1)" / "pending") so a
+    modulation number is never fabricated from undersampled data (`_MODULATION_MIN_FS_HZ`
+    = 50). The **Û_mod,s modulation maths** itself (§2.5) is the only remaining
+    deferred metric.
+
 Bridge/contract: `HostBridge.run_analysis` attaches `result["steady"]` (list of
-window dicts via `events_to_records`) **only when enabled**, so the default
-contract is byte-identical. `HostBridge.recalc_steady({"windows": [...]})`
-re-evaluates user-edited/labelled windows against the cached `df_proc` (omit
-`windows` to re-detect). Frontend: sidebar toggle + δ-band / dwell inputs;
-`SteadyStatePanel.svelte` renders the editable dwell table with re-evaluate /
-reset-to-auto. `MockBackend` serves the bundled `steady` sample.
+window dicts via `events_to_records`) **and** `result["steady_summary"]` (the
+cross-window dict) **only when enabled**, so the default contract is byte-identical.
+`HostBridge.recalc_steady({"windows": [...]})` re-evaluates user-edited/labelled
+windows against the cached `df_proc` and returns both `steady` + `steady_summary`
+(omit `windows` to re-detect). Frontend: sidebar performance-class chips + footnote
+toggles + δ-band / dwell inputs; `SteadyStatePanel.svelte` renders the editable
+dwell table (with a β_f column) plus the ISO 8528-5 summary card; the report
+(`report_host.build_steady_summary_html` + `build_steady_table_html`) embeds both.
+`MockBackend` serves the bundled `steady` + `steady_summary` sample.
 
 ### Miro logger support (2026-05-05)
 Two CSV formats are now auto-detected from the header in `analysis.py:detect_logger_format`:
