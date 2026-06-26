@@ -212,6 +212,10 @@ export interface ReportRequest {
   clear_not_recovered?: boolean;
   rated_load_kw?: number | null;
   image_options?: Record<string, unknown>;
+  /** Per-event snapshot window-size (s) overrides, keyed by event index. */
+  snapshot_window_overrides?: Record<number, number>;
+  /** Per-event snapshot time-shift (s) overrides, keyed by event index. */
+  snapshot_offset_overrides?: Record<number, number>;
 }
 /** One stored Word template in the persistent library. */
 export interface TemplateInfo {
