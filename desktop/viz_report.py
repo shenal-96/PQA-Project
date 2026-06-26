@@ -55,6 +55,14 @@ def render_report_images(df_raw, df_proc, df_events, config, client_name,
     import visualizations as viz  # lazy: pulls in matplotlib
 
     opts = {**_OPTION_DEFAULTS, **(options or {})}
+    # "Remove warnings from report": clear the not-recovered flags before rendering
+    # so the snapshots drop the red watermark/tint (the analysis numbers are
+    # untouched — only the report imagery changes).
+    if opts.get("clear_not_recovered") and df_events is not None and not df_events.empty:
+        df_events = df_events.copy()
+        for _col in ("V_not_recovered", "F_not_recovered"):
+            if _col in df_events.columns:
+                df_events[_col] = False
     graph_dir = os.path.join(base_dir, "Graphs")
     snapshot_dir = os.path.join(base_dir, "Snapshots")
     image_dir = os.path.join(base_dir, "Images")
@@ -144,4 +152,5 @@ _OPTION_DEFAULTS = {
     "show_deviation_limits": True,  # red direction-relevant max-dev line on snapshots
     "show_intersections": False,    # exit/recovery stars — off for a clean report
     "show_max_deviation": False,    # extreme marker — off for a clean report
+    "clear_not_recovered": False,   # drop the not-recovered watermark/tint
 }

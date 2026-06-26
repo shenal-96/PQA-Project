@@ -315,6 +315,34 @@ class HostBridge:
             prev_event_ts=prev_ts, next_event_ts=next_ts, event_index=pos,
         )
 
+    # ---- report templates (persistent .docx library) ---------------------
+    def list_templates(self) -> dict:
+        """Stored Word templates with size + ``{{Snapshot_N}}`` slot metadata."""
+        from desktop import template_store
+        return {"templates": template_store.list_templates()}
+
+    @_logged
+    def save_template(self, params: dict | None = None) -> dict:
+        """Persist an uploaded ``.docx`` template; return the updated library.
+
+        ``params``: ``{"filename": str, "b64": str}``. Re-uploading a name
+        overwrites it, mirroring the Streamlit template-upload behaviour.
+        """
+        from desktop import template_store
+
+        params = params or {}
+        templates = template_store.save_template(params.get("filename"), params.get("b64"))
+        return {"templates": templates}
+
+    @_logged
+    def delete_template(self, params: dict | None = None) -> dict:
+        """Remove a stored template by name; return the updated library."""
+        from desktop import template_store
+
+        params = params or {}
+        templates = template_store.delete_template(params.get("name"))
+        return {"templates": templates}
+
     # ---- reports ----------------------------------------------------------
     def default_html_template(self) -> dict:
         """The built-in editable HTML report template, for the report editor."""

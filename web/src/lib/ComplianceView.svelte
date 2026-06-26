@@ -301,7 +301,7 @@
       {/if}
 
       <div class="section-head"><span class="bar reports"></span><h2>Report</h2></div>
-      <ReportPanel {backend} {caps} displayOpts={displayOptions(config)} />
+      <ReportPanel {backend} {caps} displayOpts={displayOptions(config)} events={result.events} />
     {:else if loading}
       <div class="empty"><div class="bolt">⚡</div><p>Analyzing…</p></div>
     {:else}

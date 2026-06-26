@@ -21,7 +21,7 @@ binaries = []
 hiddenimports = [
     "core", "core.analysis", "core.serialize", "core.viz_dataprep", "core.recalc",
     "desktop.report_host", "desktop.viz_report", "desktop.xls_host",
-    "desktop.usage_log", "desktop.crash_report",
+    "desktop.template_store", "desktop.usage_log", "desktop.crash_report",
     "report", "html_report", "visualizations",
     # XLS tabs (lazily string-imported from desktop.xls_host).
     "ecu_parser", "ecu_csv_parser", "ecu_multi_comparator", "ecu_csv_comparator",

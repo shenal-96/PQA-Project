@@ -1,8 +1,8 @@
 import type {
   AnalysisResult, Caps, CrashReportResult, CsvMeta, EcuRecording, EventOverride,
   EventRecord, IticData, MetricSeries, PendingCrashStatus, ReportRequest,
-  ReportResult, SaveResult, SetpointOptions, SetpointResult, SnapshotData, SnapshotOpts,
-  SettingsReference, SteadyResult, SteadyWindowEdit,
+  ReportResult, SaveResult, SetpointOptions, SetpointResult, SettingsReference,
+  SnapshotData, SnapshotOpts, SteadyResult, SteadyWindowEdit, TemplateInfo,
 } from './types';
 
 /**
@@ -35,6 +35,14 @@ export interface AnalysisBackend {
   generateReport(req: ReportRequest): Promise<ReportResult>;
   /** The built-in editable HTML report template. */
   defaultHtmlTemplate(): Promise<string>;
+
+  // ---- Word template library (desktop only, gated on caps.canReport) ---------
+  /** List the persisted Word templates with size + snapshot-slot metadata. */
+  listTemplates?(): Promise<TemplateInfo[]>;
+  /** Persist an uploaded ``.docx`` template; returns the updated library. */
+  saveTemplate?(file: File): Promise<TemplateInfo[]>;
+  /** Remove a stored template by name; returns the updated library. */
+  deleteTemplate?(name: string): Promise<TemplateInfo[]>;
 
   // ---- XLS tabs (gated on caps.canXls) ---------------------------------------
   /** Diff 2+ ECU parameter files (XLS/XLSX or ComAp CSV). */
