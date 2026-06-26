@@ -60,6 +60,9 @@ def main() -> None:
         "steady_dwell_min_s": 10,
         "steady_exclusion_s": 3,
         "rated_load_kw": 500,
+        # Grade against an ISO 8528-5 performance class so the browser preview
+        # shows β_f pass/fail + the cross-window ΔU_st / droop summary.
+        "steady_performance_class": "G3",
     })
     snapshots = [bridge.snapshot({"index": i}) for i in range(len(result["events"]))]
 

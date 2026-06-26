@@ -173,6 +173,71 @@ def _fmt(value, dp: int = 2) -> str:
         return _esc(value)
 
 
+def build_steady_summary_html(summary) -> str:
+    """Render the cross-window ISO 8528-5 steady-state summary — voltage
+    regulation ΔU_st, frequency droop sanity, the sample-rate gate, and the
+    performance class — as inline-styled HTML, or ``""`` when there is nothing
+    to show. Pairs with :func:`build_steady_table_html` (per-window detail)."""
+    if not summary or not summary.get("n_windows"):
+        return ""
+    td = "padding:5px 9px;border:1px solid #e2e8f0;font-size:12px;"
+
+    def _pill(passed) -> str:
+        if passed is None:
+            return '<span style="color:#64748b;">—</span>'
+        css = ("background:#dcfce7;color:#15803d;" if passed
+               else "background:#fee2e2;color:#b91c1c;")
+        return (f'<span style="padding:1px 8px;border-radius:999px;font-weight:600;'
+                f'font-size:11px;{css}">{"Pass" if passed else "Fail"}</span>')
+
+    def _row(label, val, limit, passed, *, dp=3) -> str:
+        v = "—" if val is None else f"{_fmt(val, dp)}%"
+        lim = "" if limit is None else (f' <span style="color:#64748b;">'
+                                        f'(limit {_fmt(limit, 2)}%)</span>')
+        return (f'<tr><td style="{td}">{label}</td>'
+                f'<td style="{td}font-family:monospace;">{v}{lim}</td>'
+                f'<td style="{td}">{_pill(passed)}</td></tr>')
+
+    cls = summary.get("performance_class")
+    fs = summary.get("sample_rate_hz")
+    head = f"Performance class {_esc(cls)}" if cls else "No performance class (free-form δ bands)"
+    if fs is not None:
+        head += f" · sample rate {_fmt(fs, 3)} Hz"
+
+    # Voltage unbalance — value + verdict when computed, else the gate status.
+    ub_val = summary.get("volt_unbalance_pct")
+    if ub_val is None:
+        ub_row = (f'<tr><td style="{td}">ΔU_2.0 — voltage unbalance @ no-load</td>'
+                  f'<td style="{td}" colspan="2"><span style="color:#64748b;">'
+                  f'{_esc(summary.get("volt_unbalance_status"))}</span></td></tr>')
+    else:
+        ub_lim = summary.get("volt_unbalance_limit_pct")
+        ub_v = f"{_fmt(ub_val, 3)}%" + ("" if ub_lim is None else
+               f' <span style="color:#64748b;">(limit {_fmt(ub_lim, 2)}%)</span>')
+        ub_note = (f'<div style="color:#64748b;font-size:10.5px;">'
+                   f'{_esc(summary.get("volt_unbalance_status"))}</div>')
+        ub_row = (f'<tr><td style="{td}">ΔU_2.0 — voltage unbalance @ no-load</td>'
+                  f'<td style="{td}font-family:monospace;">{ub_v}{ub_note}</td>'
+                  f'<td style="{td}">{_pill(summary.get("volt_unbalance_pass"))}</td></tr>')
+
+    out = [
+        '<div class="section-title">Steady-State Summary (ISO 8528-5)</div>',
+        f'<div style="font-size:12px;color:#475569;margin:2px 0 6px;">{head}</div>',
+        '<table style="border-collapse:collapse;margin:0 0 14px;">',
+        _row("ΔU_st — voltage regulation (±)", summary.get("delta_u_st_pct"),
+             summary.get("delta_u_st_limit_pct"), summary.get("delta_u_st_pass")),
+        _row("Frequency droop (sanity)", summary.get("freq_droop_pct"),
+             summary.get("freq_droop_limit_pct"), summary.get("freq_droop_pass")),
+        ub_row,
+        # Modulation — deferred maths; surface the §4 sample-rate gate status.
+        f'<tr><td style="{td}">Û_mod,s — voltage modulation</td>'
+        f'<td style="{td}" colspan="2"><span style="color:#64748b;">'
+        f'{_esc(summary.get("modulation_status"))}</span></td></tr>',
+        "</table>",
+    ]
+    return "\n".join(out)
+
+
 def build_steady_table_html(df_steady) -> str:
     """Render the steady-state (ISO 8528-5 δ band) results as a self-contained
     HTML section, or ``""`` when there is nothing to show.
@@ -202,6 +267,7 @@ def build_steady_table_html(df_steady) -> str:
         f'<th style="{th}">V out</th>'
         f'<th style="{th}">F min/mean/max (Hz)</th>'
         f'<th style="{th}">F out</th>'
+        f'<th style="{th}">β_f % / limit</th>'
         f'<th style="{th}">Result</th>'
         "</tr></thead><tbody>",
     ]
@@ -218,6 +284,15 @@ def build_steady_table_html(df_steady) -> str:
         f_out = int(r.get("F_n_out") or 0)
         v_out_txt = f"{v_out} ({_fmt(r.get('V_pct_out'))}%)" if v_out else "0"
         f_out_txt = f"{f_out} ({_fmt(r.get('F_pct_out'))}%)" if f_out else "0"
+        bf, bf_lim, bf_pass = r.get("Beta_f_pct"), r.get("Beta_f_limit_pct"), r.get("Beta_f_pass")
+        if bf is None:
+            bf_txt = "—"
+        elif bf_lim is None:
+            bf_txt = _fmt(bf, 3)            # legacy mode: informational, no limit
+        else:
+            bf_color = "#b91c1c" if bf_pass is False else "#15803d"
+            bf_txt = (f'<span style="color:{bf_color};font-weight:600;">{_fmt(bf, 3)}</span>'
+                      f' <span style="color:#64748b;">/ {_fmt(bf_lim, 2)}</span>')
         badge = (f'<span style="padding:1px 8px;border-radius:999px;font-weight:600;'
                  f'font-size:11px;{status_css}">{_esc(r.get("Status"))}</span>')
         if r.get("Hunting"):
@@ -237,12 +312,13 @@ def build_steady_table_html(df_steady) -> str:
             f'<td style="{td}font-family:monospace;">{v_out_txt}</td>'
             f'<td style="{td}font-family:monospace;">{_fmt(r.get("F_min"), 3)} / {_fmt(r.get("F_mean"), 3)} / {_fmt(r.get("F_max"), 3)}</td>'
             f'<td style="{td}font-family:monospace;">{f_out_txt}</td>'
+            f'<td style="{td}font-family:monospace;">{bf_txt}</td>'
             f'<td style="{td}">{badge}</td>'
             "</tr>"
         )
         if notes:
             out.append(
-                f'<tr style="{row_bg}"><td colspan="8" '
+                f'<tr style="{row_bg}"><td colspan="9" '
                 f'style="{td}color:#64748b;font-size:11px;">{" · ".join(notes)}</td></tr>'
             )
 
@@ -318,10 +394,16 @@ def build_report(df_raw, df_proc, df_events, config, params, *, df_steady=None, 
             graph_dir=img["graph_dir"], snapshot_dir=img["snapshot_dir"],
             image_dir=img["image_dir"],
         )
-        # Steady-state (ISO 8528-5 δ bands) table — a text/HTML placeholder, so
-        # it is always set (to "" when there is no steady-state data) and never
-        # leaks literal {{braces}} into the rendered report.
-        p_map["{{Steady_State_Table}}"] = build_steady_table_html(df_steady)
+        # Steady-state (ISO 8528-5) — cross-window summary (ΔU_st, droop, gate)
+        # followed by the per-window table. A text/HTML placeholder, so it is
+        # always set (to "" when there is no steady-state data) and never leaks
+        # literal {{braces}} into the rendered report.
+        steady_html = build_steady_table_html(df_steady)
+        if steady_html:
+            import core.analysis as ca
+            steady_summary = ca.summarize_steady_state(df_proc, df_steady, config)
+            steady_html = build_steady_summary_html(steady_summary) + steady_html
+        p_map["{{Steady_State_Table}}"] = steady_html
 
         # Warn when the template can't fit every detected event's snapshot.
         n_events = 0 if df_events is None else len(df_events)
