@@ -2,8 +2,10 @@
   import { untrack } from 'svelte';
   import type { AnalysisConfigInput, Preset } from '../config/defaults';
   import { BUILTIN_PRESETS, VOLTAGE_PRESETS } from '../config/defaults';
+  import { loadCustomPresets } from '../config/preset_store';
   import type { Caps } from '../backend/types';
   import TimeRangeSlider from './TimeRangeSlider.svelte';
+  import PresetConfigurator from './PresetConfigurator.svelte';
 
   let {
     config,
@@ -53,19 +55,91 @@
     untrack(() => (VOLTAGE_PRESETS.includes(config.nominal_voltage) ? String(config.nominal_voltage) : 'Custom')),
   );
 
+  // ── Presets: built-in (read-only) + user custom (localStorage) ──
+  let customPresets = $state<Preset[]>(loadCustomPresets());
+  let presetMgrOpen = $state(false);
+
   function applyPreset(name: string) {
     activePreset = name;
-    const preset: Preset | undefined = BUILTIN_PRESETS.find((p) => p.name === name);
+    const preset: Preset | undefined = [...BUILTIN_PRESETS, ...customPresets].find((p) => p.name === name);
     if (preset) Object.assign(config, preset.values);
   }
+
+  // If the active custom preset is deleted in the manager, drop the stale label.
+  $effect(() => {
+    const names = [...BUILTIN_PRESETS, ...customPresets].map((p) => p.name);
+    if (activePreset !== 'None' && !names.includes(activePreset)) activePreset = 'None';
+  });
 
   function setVoltMode(v: string) {
     voltMode = v;
     if (v !== 'Custom') config.nominal_voltage = Number(v);
   }
+
+  // ── Resizable sidebar (drag handle on the right edge; width persisted) ──
+  const SIDEBAR_WIDTH_KEY = 'pqa.sidebar.width.v1';
+  const MIN_W = 260;
+  const MAX_W = 680;
+  const DEFAULT_W = 340;
+
+  function loadWidth(): number {
+    try {
+      const raw = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+      if (raw) {
+        const w = Number(raw);
+        if (Number.isFinite(w)) return Math.max(MIN_W, Math.min(MAX_W, w));
+      }
+    } catch {
+      /* ignore */
+    }
+    return DEFAULT_W;
+  }
+  function saveWidth(w: number) {
+    try {
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(w));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  let sidebarWidth = $state(loadWidth());
+  let dragging = $state(false);
+
+  function startDrag(e: MouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = sidebarWidth;
+    dragging = true;
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+    function move(ev: MouseEvent) {
+      sidebarWidth = Math.max(MIN_W, Math.min(MAX_W, startW + (ev.clientX - startX)));
+    }
+    function up() {
+      dragging = false;
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      saveWidth(sidebarWidth);
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    }
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  }
+  function resetWidth() {
+    sidebarWidth = DEFAULT_W;
+    saveWidth(DEFAULT_W);
+  }
+  function onHandleKey(e: KeyboardEvent) {
+    const STEP = 16;
+    if (e.key === 'ArrowLeft') { sidebarWidth = Math.max(MIN_W, sidebarWidth - STEP); saveWidth(sidebarWidth); e.preventDefault(); }
+    else if (e.key === 'ArrowRight') { sidebarWidth = Math.min(MAX_W, sidebarWidth + STEP); saveWidth(sidebarWidth); e.preventDefault(); }
+    else if (e.key === 'Home') { resetWidth(); e.preventDefault(); }
+  }
 </script>
 
-<aside class="sidebar">
+<aside class="sidebar" style="--sidebar-width: {sidebarWidth}px">
+  <div class="sidebar-inner">
   <div class="head">
     <div class="bolt">⚡</div>
     <div>
@@ -113,8 +187,16 @@
     <label class="grp-label" for="preset">Active Preset</label>
     <select id="preset" value={activePreset} onchange={(e) => applyPreset((e.target as HTMLSelectElement).value)}>
       <option value="None">None</option>
-      {#each BUILTIN_PRESETS as p}<option value={p.name}>{p.name}</option>{/each}
+      <optgroup label="Built-in">
+        {#each BUILTIN_PRESETS as p}<option value={p.name}>{p.name}</option>{/each}
+      </optgroup>
+      {#if customPresets.length}
+        <optgroup label="Custom">
+          {#each customPresets as p}<option value={p.name}>{p.name}</option>{/each}
+        </optgroup>
+      {/if}
     </select>
+    <button class="manage-presets" onclick={() => (presetMgrOpen = true)}>⚙ Manage presets</button>
 
     <label class="chk"><input type="checkbox" bind:checked={config.show_limits} /> Show Limits on Graphs</label>
 
@@ -310,21 +392,67 @@
     {loading ? 'Analyzing…' : 'Run Analysis'}
   </button>
   {#if !fileName}<div class="hint">Load a file to enable analysis.</div>{/if}
+  </div>
+  <button
+    type="button"
+    class="resize-handle"
+    class:active={dragging}
+    aria-label="Resize sidebar — drag, arrow keys to adjust, double-click to reset"
+    title="Drag to resize · double-click to reset"
+    onmousedown={startDrag}
+    ondblclick={resetWidth}
+    onkeydown={onHandleKey}
+  ></button>
 </aside>
+
+{#if presetMgrOpen}
+  <PresetConfigurator {config} bind:presets={customPresets} onApply={applyPreset} onClose={() => (presetMgrOpen = false)} />
+{/if}
 
 <style>
   .sidebar {
-    width: 340px;
-    flex: 0 0 340px;
+    width: var(--sidebar-width, 340px);
+    flex: 0 0 var(--sidebar-width, 340px);
+    height: 100%;
+    position: relative;
+    display: flex;
     background: var(--navy);
+  }
+  .sidebar-inner {
+    flex: 1;
+    min-width: 0;
     color: #cbd5e1;
     padding: 18px 16px 28px;
     display: flex;
     flex-direction: column;
     gap: 16px;
-    height: 100%;
     overflow-y: auto;
   }
+  .resize-handle {
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 6px;
+    cursor: col-resize;
+    background: transparent;
+    border: none;
+    padding: 0;
+    appearance: none;
+    transition: background 0.15s;
+    z-index: 5;
+  }
+  .resize-handle:hover, .resize-handle.active { background: var(--blue); }
+  .resize-handle:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+  .manage-presets {
+    background: #1e293b;
+    color: #cbd5e1;
+    border: 1px solid #334155;
+    border-radius: 7px;
+    padding: 7px;
+    font-size: 12px;
+    cursor: pointer;
+    margin-top: 2px;
+  }
+  .manage-presets:hover { border-color: var(--blue); color: #fff; }
   .head { display: flex; align-items: center; gap: 10px; }
   .head .bolt { width: 36px; height: 36px; display: grid; place-items: center; background: var(--blue); border-radius: 9px; font-size: 18px; }
   .head .title { font-weight: 700; color: #fff; font-size: 17px; }
