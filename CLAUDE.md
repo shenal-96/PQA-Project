@@ -27,6 +27,41 @@ streamlit run app.py --server.port 8502 --server.address 0.0.0.0
 
 Logs to `/tmp/pqa_debug.log` (also printed to terminal).
 
+## Testing — Report Harness (run after every feature change)
+
+**`report_test/` is a headless harness that runs the REAL report pipeline**
+(`core.analysis` → `desktop.report_host.build_report`) with no UI. It is pure
+Python, so it never touches `web/dist/` and can't be fooled by a stale bundle.
+Use it to confirm reports still generate correctly with real customer data.
+
+**ALWAYS run it after any change to the analysis engine, report builder, or
+plots** — i.e. edits to `core/analysis.py`, `report.py`, `html_report.py`,
+`visualizations.py`, `desktop/report_host.py`, or `desktop/viz_report.py`. Treat
+a green harness run + a visual check of the output PDFs as part of "done" for any
+such feature, alongside the unit tests.
+
+```bash
+# macOS/Linux                         # Windows
+.venv/bin/python report_test/run_report_test.py      # .venv\Scripts\python.exe report_test\run_report_test.py
+#   --job <name>   run one job        #   --watch   re-run on file change (live loop)
+```
+
+- **Inputs:** drop logger CSV/XLS + Word templates in `report_test/fixtures/`
+  (gitignored — customer data). Runs are defined in `report_test/jobs.json`; each
+  job picks a CSV + template and an optional `time_start`/`time_end` to slice one
+  CSV into a single test (mirrors the app's time-window filter).
+- **Outputs:** `report_test/output/<job>/` → `report.pdf` (Edge/Chrome),
+  `report.docx`, `report.docx.pdf` (LibreOffice render for visual check),
+  `report.html`, `summary.json`.
+- **Evaluate:** render the output PDF pages and visually check image placement,
+  layout, and that no literal `{{placeholder}}` text survives. The harness also
+  auto-flags Word image overflow and snapshot-slot vs event-count mismatches
+  (events > slots = events dropped; events < slots = blank slots).
+- **Prereqs:** a Chromium-family browser for PDF (Edge auto-found on Windows;
+  on macOS set `PQA_CHROMIUM` or install Chrome) and, optionally, LibreOffice for
+  the `.docx`→PDF visual render. Also run the unit tests:
+  `pytest tests/test_report.py tests/test_hostbridge.py`.
+
 ## File Map
 
 | File | Purpose |
