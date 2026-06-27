@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { AnalysisBackend } from '../backend';
-  import type { Caps, EventRecord, ReportFields, ReportRequest, ReportResult, TemplateInfo } from '../backend/types';
+  import type { Caps, EventRecord, ReportFields, ReportRequest, ReportResult, SnapshotOpts, TemplateInfo } from '../backend/types';
   import type { DisplayOptions } from '../config/defaults';
 
   let {
@@ -9,11 +9,15 @@
     caps,
     displayOpts,
     events = [],
+    snapshotOpts,
   }: {
     backend: AnalysisBackend | undefined;
     caps: Caps | undefined;
     displayOpts?: DisplayOptions;
     events?: EventRecord[];
+    /** Per-event snapshot window/time-shift tweaks (keyed by event index) so the
+     *  report's clean snapshots match the on-screen ones the user tuned. */
+    snapshotOpts?: Record<number, SnapshotOpts>;
   } = $props();
 
   const FIELDS_KEY = 'pqa.report.v1';
@@ -211,6 +215,15 @@
     arts = [];
     persistFields();
     try {
+      // Carry the per-event snapshot window/time-shift tweaks into the report so
+      // its clean snapshots match what the user tuned on screen (port of #21).
+      const winOv: Record<number, number> = {};
+      const offOv: Record<number, number> = {};
+      for (const [k, o] of Object.entries(snapshotOpts ?? {})) {
+        const i = Number(k);
+        if (o?.window_s != null) winOv[i] = o.window_s;
+        if (o?.time_offset_s) offOv[i] = o.time_offset_s; // skip the default 0 s
+      }
       const req: ReportRequest = {
         fields,
         filename: filename || 'PQA_Report',
@@ -227,6 +240,8 @@
               show_max_deviation: displayOpts.show_max_deviation,
             }
           : undefined,
+        snapshot_window_overrides: Object.keys(winOv).length ? winOv : undefined,
+        snapshot_offset_overrides: Object.keys(offOv).length ? offOv : undefined,
       };
       const res: ReportResult = await backend.generateReport(req);
       warnings = res.warnings ?? [];
