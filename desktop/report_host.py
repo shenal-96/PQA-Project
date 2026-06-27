@@ -29,6 +29,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 
 log = logging.getLogger(__name__)
 
@@ -112,20 +113,64 @@ def html_to_pdf(html: str, pdf_path: str, *, timeout: int = 60,
             f"--print-to-pdf={os.path.abspath(pdf_path)}",
             file_uri,
         ]
+        # Chrome on macOS writes the PDF but does not reliably self-terminate
+        # after --print-to-pdf, so we cannot just wait for the process to exit
+        # (Edge on Windows does exit — proc.poll() returns first and we stop
+        # immediately). Instead: launch, poll for the output file to appear and
+        # stop growing, then terminate the process. stderr is sent to a file
+        # (not a pipe) so a chatty browser can never fill a pipe buffer and stall
+        # the render, and so we never block waiting for a child to close the pipe.
+        err_path = os.path.join(tmp_dir, "chrome.err")
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        except subprocess.TimeoutExpired:
-            return False, f"PDF export timed out after {timeout}s (browser: {browser})."
+            err_f = open(err_path, "wb")
+            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=err_f)
         except Exception as exc:  # noqa: BLE001
             return False, f"PDF export failed to launch browser {browser}: {exc}"
 
-        ok = os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0
+        abs_pdf = os.path.abspath(pdf_path)
+        deadline = time.monotonic() + timeout
+        poll_s = 0.25
+        stable_needed_s = 0.75  # size must hold steady this long => render done
+        last_size = -1
+        stable_s = 0.0
+        timed_out = True
+        try:
+            while time.monotonic() < deadline:
+                if proc.poll() is not None:  # browser exited on its own (Edge)
+                    timed_out = False
+                    break
+                if os.path.exists(abs_pdf):
+                    size = os.path.getsize(abs_pdf)
+                    if size > 0 and size == last_size:
+                        stable_s += poll_s
+                        if stable_s >= stable_needed_s:
+                            timed_out = False
+                            break
+                    else:
+                        stable_s = 0.0
+                    last_size = size
+                time.sleep(poll_s)
+        finally:
+            if proc.poll() is None:  # macOS: still running after the PDF is done
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+            err_f.close()
+
+        ok = os.path.exists(abs_pdf) and os.path.getsize(abs_pdf) > 0
         parts = [f"browser: {browser}"]
-        if proc.stderr.strip():
+        try:
+            with open(err_path, "rb") as f:
+                stderr_txt = f.read().decode("utf-8", errors="replace").strip()
+        except OSError:
+            stderr_txt = ""
+        if stderr_txt:
             # Chromium is chatty on stderr even on success; keep the tail only.
-            parts.append(proc.stderr.strip()[-800:])
-        if not ok and proc.returncode != 0:
-            parts.append(f"exit code {proc.returncode}")
+            parts.append(stderr_txt[-800:])
+        if not ok and timed_out:
+            parts.append(f"timed out after {timeout}s")
         return ok, "\n".join(parts)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)

@@ -1,0 +1,4 @@
+# Customer logger data + Word templates the user drops in locally — never commit.
+fixtures/
+# Generated report artifacts.
+output/

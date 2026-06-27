@@ -1,0 +1,34 @@
+{
+  "jobs": [
+    {
+      "name": "block_load",
+      "csv": "AWS54-1.4B-4556 G3.csv",
+      "template": "4.01C-AWS SYD57 WARM START BLOCK LOAD TEMPLATE.docx",
+      "time_start": "2026-05-25 08:51:33",
+      "time_end": "2026-05-25 08:55:19",
+      "fields": {
+        "report_title": "AWS SYD57 Warm Start Block Load",
+        "pqa_serial": "4556",
+        "gen_sn": "AWS54-1.4B-4556 G3"
+      },
+      "config": {
+        "nominal_voltage": 415.0
+      }
+    },
+    {
+      "name": "iso",
+      "csv": "AWS54-1.4B-4556 G3.csv",
+      "template": "4.01A - AWS SYD57 ISO TEMPLATE.docx",
+      "time_start": "2026-05-25 08:55:25",
+      "time_end": "2026-05-25 08:56:21",
+      "fields": {
+        "report_title": "AWS SYD57 ISO",
+        "pqa_serial": "4556",
+        "gen_sn": "AWS54-1.4B-4556 G3"
+      },
+      "config": {
+        "nominal_voltage": 415.0
+      }
+    }
+  ]
+}

@@ -8,6 +8,7 @@ import os
 import glob
 import io
 import logging
+import re
 import pandas as pd
 from docx import Document
 from docx.shared import Inches, Pt
@@ -287,6 +288,16 @@ def get_placeholder_map(client_name, config_values, df=None,
     return placeholder_map
 
 
+# Image placeholders that get_placeholder_map only emits when the underlying
+# file exists. When a template has more snapshot/metric slots than the analysis
+# produced (e.g. a 6-step template run against a 5-event test), the surplus
+# placeholders are never in the map and would otherwise survive as literal
+# {{Snapshot_6}} text in the rendered .docx. We blank these leftovers so a Word
+# report never shows raw template syntax — mirrors report_host's HTML strip.
+_UNUSED_IMAGE_PLACEHOLDER = re.compile(
+    r"\{\{(?:Snapshot_\d+|Avg_[A-Za-z_]+|Compliance_Table)\}\}")
+
+
 def inject_images_to_word(template_stream, placeholder_map):
     """
     Replace {{placeholders}} in a Word document with images or text.
@@ -386,6 +397,12 @@ def inject_images_to_word(template_stream, placeholder_map):
                 else:
                     # Text replacement: apply to new_text (which accumulates all replacements)
                     new_text = new_text.replace(key, str(value))
+
+            # Blank any image/metric placeholders the map never filled (template
+            # has more slots than this analysis produced) so no literal
+            # {{Snapshot_N}} survives into the rendered document.
+            if not has_image:
+                new_text = _UNUSED_IMAGE_PLACEHOLDER.sub("", new_text)
 
             # Now apply the accumulated changes to the paragraph
             if has_image and image_path:
