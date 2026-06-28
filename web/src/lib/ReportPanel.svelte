@@ -100,8 +100,8 @@
   let includeItic = $state(false);
 
   type Artifact = { name: string; mime: string; b64: string };
-  let arts = $state<Artifact[]>([]);
-  // Persistent list of reports generated this session (most recent first).
+  // Persistent list of reports generated this session (most recent first) — kept
+  // so a cancelled Save dialog can be retried without re-running the report.
   let history = $state<{ name: string; when: string; arts: Artifact[] }[]>([]);
 
   const canReport = $derived(caps?.canReport === true);
@@ -217,7 +217,6 @@
     statusMsg = undefined;
     warnings = [];
     log = undefined;
-    arts = [];
     persistFields();
     try {
       // Carry the per-event snapshot window/time-shift tweaks into the report so
@@ -258,18 +257,59 @@
       if (res.artifacts.html) out.push({ name: `${res.filename}.html`, mime: 'text/html', b64: utf8ToB64(res.artifacts.html) });
       if (res.artifacts.docx_b64)
         out.push({ name: `${res.filename}.docx`, mime: res.artifacts.docx_mime ?? 'application/octet-stream', b64: res.artifacts.docx_b64 });
-      arts = out;
-      statusOk = out.length > 0;
-      statusMsg = out.length ? `Generated ${out.length} file${out.length > 1 ? 's' : ''}.` : 'No files were generated — see warnings.';
-      if (out.length) {
-        const when = new Date().toLocaleTimeString();
-        history = [{ name: res.filename, when, arts: out }, ...history].slice(0, 10);
+      if (!out.length) {
+        statusOk = false;
+        statusMsg = 'No files were generated — see warnings.';
+        return;
       }
+      // Record the run first so a cancelled Save can be retried from the list below.
+      const when = new Date().toLocaleTimeString();
+      history = [{ name: res.filename, when, arts: out }, ...history].slice(0, 10);
+      // Prompt the native Save-location dialog straight away (desktop), or download
+      // directly in the browser fallback — no intermediate "staged downloads" step.
+      await saveAll(out);
     } catch (e) {
       statusOk = false;
       statusMsg = `Report failed: ${String(e)}`;
     } finally {
       busy = false;
+    }
+  }
+
+  /** Save every generated artifact: a native Save dialog per file on desktop,
+   *  or a direct browser download when no native save bridge is available. */
+  async function saveAll(out: Artifact[]) {
+    if (!canSave || !backend?.saveFile) {
+      out.forEach(download);
+      statusOk = true;
+      statusMsg = `Downloaded ${out.length} file${out.length > 1 ? 's' : ''}.`;
+      return;
+    }
+    const saved: string[] = [];
+    let cancelled = false;
+    let fellBack = false;
+    for (const a of out) {
+      try {
+        const res = await backend.saveFile(a.name, a.b64);
+        if (res.path) saved.push(res.path);
+        else if (res.error) { fellBack = true; download(a); }
+        else cancelled = true; // user dismissed the Save dialog for this file
+      } catch {
+        fellBack = true;
+        download(a);
+      }
+    }
+    if (saved.length) {
+      statusOk = true;
+      statusMsg = saved.length === 1
+        ? `Saved to ${saved[0]}`
+        : `Saved ${saved.length} files (last: ${saved[saved.length - 1]}).`;
+    } else if (cancelled) {
+      statusOk = true;
+      statusMsg = 'Save cancelled — re-save from the list below if needed.';
+    } else if (fellBack) {
+      statusOk = false;
+      statusMsg = 'Could not open the save dialog — downloaded instead.';
     }
   }
 
@@ -394,23 +434,12 @@
   </div>
 
   <button class="gen" onclick={generate} disabled={!canGenerate}>
-    {busy ? 'Generating…' : '📄 Generate Report'}
+    {busy ? 'Generating…' : canSave ? '📄 Generate & Save…' : '📄 Generate & Download'}
   </button>
   {#if blockedByTpl && canReport}<span class="hint">Upload and select a Word template to generate a {format}.</span>{/if}
   {#if blockedByNr}<span class="hint">Acknowledge the not-recovered warning above to enable generation.</span>{/if}
 
   {#if statusMsg}<div class="status" class:ok={statusOk} class:bad={!statusOk}>{statusMsg}</div>{/if}
-
-  {#if arts.length}
-    <div class="downloads">
-      {#each arts as a}
-        <div class="dl">
-          <span class="fname">{a.name}</span>
-          <button class="dl-btn" onclick={() => grab(a)}>{canSave ? '💾 Save As…' : '⬇ Download'}</button>
-        </div>
-      {/each}
-    </div>
-  {/if}
 
   {#if warnings.length}
     <ul class="warnings">
@@ -487,10 +516,6 @@
   .status { padding: 8px 12px; border-radius: 8px; font-size: 13px; }
   .status.ok { background: #dcfce7; color: #15803d; }
   .status.bad { background: #fee2e2; color: #b91c1c; }
-  .downloads { display: flex; flex-direction: column; gap: 8px; }
-  .dl { display: flex; align-items: center; gap: 12px; background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
-  .dl .fname { font-family: 'JetBrains Mono', monospace; font-size: 13px; flex: 1; }
-  .dl-btn { background: var(--blue); color: #fff; border: none; border-radius: 7px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
   .warnings { margin: 0; padding-left: 18px; color: #b45309; font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
   .log pre { background: #0f172a; color: #cbd5e1; padding: 10px; border-radius: 8px; font-size: 11px; overflow-x: auto; white-space: pre-wrap; }
   .log summary, .history summary { font-size: 12px; color: var(--text-sub); cursor: pointer; }
