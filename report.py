@@ -308,17 +308,68 @@ def _element_all_text(elem):
     return "".join(t.text or "" for t in elem.findall(".//" + qn("w:t")))
 
 
-def _find_snapshot_anchor(doc):
-    """Body element that new 'after results / before snapshots' content goes before.
+def _is_section_heading(p_elem, doc):
+    """True when a paragraph reads as a section heading.
 
-    Returns the Heading paragraph immediately preceding the first ``{{Snapshot_*}}``
-    block (so injected sections land just before 'Load Step 1'); failing that, the
-    snapshot block itself; if the template has no snapshots, ``None`` (caller
-    appends at the end). Must be called BEFORE placeholders are replaced, while the
-    ``{{Snapshot_1}}`` marker text still exists.
+    Checks the style name first ('Heading N' / 'Title'), then the **outline
+    level** — set either directly on the paragraph or inherited from its style —
+    so a heading the TOC picks up via outline level still counts even when its
+    style isn't literally named 'Heading N'. (Some templates author the first
+    'Load Step 1' heading in a plain style, which is why the style name alone is
+    not enough.)
     """
     from docx.text.paragraph import Paragraph
 
+    p = Paragraph(p_elem, doc)
+    try:
+        name = (p.style.name if p.style is not None else "") or ""
+    except Exception:  # noqa: BLE001
+        name = ""
+    if name.startswith("Heading") or name == "Title":
+        return True
+    candidates = [p_elem.find(qn("w:pPr"))]
+    try:
+        candidates.append(p.style.element.find(qn("w:pPr")))
+    except Exception:  # noqa: BLE001
+        pass
+    for pPr in candidates:
+        if pPr is None:
+            continue
+        ol = pPr.find(qn("w:outlineLvl"))
+        if ol is not None:
+            try:
+                return int(ol.get(qn("w:val"))) < 9
+            except (TypeError, ValueError):
+                pass
+    return False
+
+
+def _set_page_break_before(p_elem):
+    """Ensure a ``w:p`` starts on a new page (idempotent). No-op for non-paragraphs."""
+    if p_elem.tag.split("}")[-1] != "p":
+        return
+    pPr = p_elem.find(qn("w:pPr"))
+    if pPr is None:
+        pPr = OxmlElement("w:pPr")
+        p_elem.insert(0, pPr)
+    if pPr.find(qn("w:pageBreakBefore")) is None:
+        pPr.append(OxmlElement("w:pageBreakBefore"))
+
+
+def _find_snapshot_anchor(doc):
+    """Body element that new 'after results / before snapshots' content goes before.
+
+    Finds the first ``{{Snapshot_*}}`` block, then walks back to the heading that
+    introduces it (e.g. 'Load Step 1') so injected sections land *above* that
+    heading. The first snapshot heading is sometimes authored in a plain
+    (non-'Heading') style, so we treat the topmost paragraph of the contiguous
+    non-blank run immediately preceding the snapshot as the heading, and stop
+    early on a real heading (by :func:`_is_section_heading`). Returns that
+    paragraph; failing that the snapshot block itself; ``None`` when the template
+    has no snapshots (caller appends at the end). Must be called BEFORE
+    placeholders are replaced, while the ``{{Snapshot_1}}`` marker text still
+    exists.
+    """
     snap_re = re.compile(r"\{\{Snapshot_\d+\}\}")
     children = list(doc.element.body.iterchildren())
     for i, child in enumerate(children):
@@ -326,22 +377,19 @@ def _find_snapshot_anchor(doc):
             continue
         if not snap_re.search(_element_all_text(child)):
             continue
-        # Walk back over blank spacer paragraphs to a heading.
+        anchor = None
         j = i - 1
         while j >= 0:
             prev = children[j]
             if prev.tag.split("}")[-1] != "p":
-                break
-            style = ""
-            p = Paragraph(prev, doc)
-            if p.style is not None and p.style.name:
-                style = p.style.name
-            if style.startswith("Heading"):
-                return prev
-            if _element_all_text(prev).strip():
-                break  # real non-heading content — don't swallow it
+                break  # a table or other block — boundary above the heading group
+            if not _element_all_text(prev).strip():
+                break  # blank spacer line — boundary above the heading group
+            anchor = prev                       # a non-blank paragraph in the group
+            if _is_section_heading(prev, doc):
+                break                            # a real heading — section start
             j -= 1
-        return child
+        return anchor if anchor is not None else child
     return None
 
 
@@ -373,6 +421,11 @@ def _insert_image_sections(doc, anchor, sections, content_width):
             anchor.addprevious(heading._p)
             anchor.addprevious(img_para._p)
         added.append(title)
+    # Resume the snapshots cleanly on a new page after the injected block, so the
+    # first snapshot is moved to the next page intact instead of being cramped
+    # onto the tail of the Compliance/ITIC page and clipped.
+    if added and anchor is not None:
+        _set_page_break_before(anchor)
     return added
 
 
