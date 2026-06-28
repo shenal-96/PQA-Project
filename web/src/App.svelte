@@ -46,6 +46,19 @@
     caps = await backend.caps();
     ready = true;
   });
+
+  // Files dropped outside a drop zone must not navigate the webview to file://.
+  // The zones (use:dropzone) preventDefault on their own targets; this swallows
+  // the default everywhere else.
+  $effect(() => {
+    const swallow = (e: DragEvent) => e.preventDefault();
+    window.addEventListener('dragover', swallow);
+    window.addEventListener('drop', swallow);
+    return () => {
+      window.removeEventListener('dragover', swallow);
+      window.removeEventListener('drop', swallow);
+    };
+  });
 </script>
 
 <div class="shell">

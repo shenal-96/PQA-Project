@@ -8,6 +8,7 @@
   import PresetConfigurator from './PresetConfigurator.svelte';
   import InfoTip from './InfoTip.svelte';
   import { HELP } from '../config/help_text';
+  import { dropzone, injectFiles } from './dropzone';
 
   let {
     config,
@@ -40,6 +41,14 @@
     onRun: () => void;
     onFile: (ev: Event) => void;
   } = $props();
+
+  // Drag-and-drop for the logger file: feed dropped files through the same hidden
+  // <input> + onFile handler so validation/format-detection stays in one place.
+  let csvInput = $state<HTMLInputElement | undefined>(undefined);
+  let csvDragActive = $state(false);
+  function onCsvDrop(files: File[]) {
+    injectFiles(csvInput, files.slice(0, 1)); // single logger file
+  }
 
   // ISO timestamps -> datetime-local input value (YYYY-MM-DDTHH:MM:SS).
   const toLocal = (iso: string | null | undefined): string => (iso ? iso.slice(0, 19) : '');
@@ -153,10 +162,17 @@
 
   <section>
     <div class="grp-label">{fileLabel} <InfoTip text={HELP.file} /></div>
-    <label class="file-btn">
-      {fileName ? 'Change file' : 'Load file'}
-      <input type="file" {accept} onchange={onFile} hidden />
-    </label>
+    <div
+      class="dropzone"
+      class:drag-active={csvDragActive}
+      use:dropzone={{ onDrop: onCsvDrop, onActive: (a) => (csvDragActive = a), disabled: loading }}
+    >
+      <label class="file-btn">
+        {fileName ? 'Change file' : 'Load file'}
+        <input type="file" {accept} bind:this={csvInput} onchange={onFile} hidden />
+      </label>
+      <div class="drop-hint">{csvDragActive ? 'Drop to load' : 'or drag & drop a file here'}</div>
+    </div>
     {#if fileName}
       <div class="filename" title={fileName}>{fileName}</div>
       {#if loggerFormat}<span class="pill">{loggerFormat}</span>{/if}
@@ -477,7 +493,12 @@
   .chips { display: flex; gap: 6px; flex-wrap: wrap; }
   .chip { flex: 1; min-width: 56px; background: #0b1220; border: 1px solid #1e293b; color: #cbd5e1; padding: 6px; border-radius: 7px; font-size: 12px; }
   .chip.on { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
-  .file-btn { background: #1e293b; color: #fff; text-align: center; padding: 9px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .file-btn { background: #1e293b; color: #fff; text-align: center; padding: 9px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; display: block; }
+  .file-btn:hover { background: #334155; }
+  .dropzone { display: flex; flex-direction: column; gap: 5px; border: 1.5px dashed transparent; border-radius: 10px; padding: 5px; transition: border-color 120ms, background 120ms; }
+  .dropzone.drag-active { border-color: var(--blue); background: rgba(37, 99, 235, 0.14); }
+  .dropzone.drag-active .file-btn { background: var(--blue); }
+  .drop-hint { text-align: center; font-size: 10.5px; color: #94a3b8; letter-spacing: 0.01em; }
   .filename { font-size: 11px; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pill { align-self: flex-start; background: #312e81; color: #c7d2fe; font-size: 11px; padding: 2px 8px; border-radius: 999px; }
   .run { background: var(--blue); color: #fff; border: none; padding: 12px; border-radius: 9px; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 4px; }

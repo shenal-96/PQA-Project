@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { dropzone, injectFiles } from './dropzone';
   import type { AnalysisBackend } from '../backend';
   import type { Caps, EventRecord, ReportFields, ReportRequest, ReportResult, SnapshotOpts, TemplateInfo } from '../backend/types';
   import type { DisplayOptions } from '../config/defaults';
@@ -83,6 +84,10 @@
   let selectedTemplate = $state<string>(_prefs.template);
   let tplBusy = $state(false);
   let tplError = $state<string | undefined>(undefined);
+  // Drag-and-drop for Word templates: route dropped .docx files through the same
+  // hidden <input> + onTemplateUpload handler used by the file picker.
+  let tplInput = $state<HTMLInputElement | undefined>(undefined);
+  let tplDragActive = $state(false);
 
   // Snapshot slots in the built-in HTML template (for the non-Word completeness check).
   let defaultSnapMax = $state(10);
@@ -175,6 +180,16 @@
   }
   function fmtSize(n: number): string {
     return n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  function onTplDrop(files: File[]) {
+    const docx = files.filter((f) => f.name.toLowerCase().endsWith('.docx'));
+    if (!docx.length) {
+      tplError = 'Only .docx Word templates can be uploaded.';
+      return;
+    }
+    tplError = undefined;
+    injectFiles(tplInput, docx);
   }
 
   async function onTemplateUpload(ev: Event) {
@@ -363,12 +378,16 @@
 
   {#if needsTemplate}
     <div class="tpl">
-      <div class="tpl-head">
+      <div
+        class="tpl-head"
+        class:drag-active={tplDragActive}
+        use:dropzone={{ onDrop: onTplDrop, onActive: (a) => (tplDragActive = a), disabled: !canReport || tplBusy }}
+      >
         <label class="file-btn" class:disabled={!canReport || tplBusy}>
           {tplBusy ? 'Uploading…' : '＋ Upload Word template(s) (.docx)'}
-          <input type="file" accept=".docx" multiple onchange={onTemplateUpload} disabled={!canReport || tplBusy} hidden />
+          <input type="file" accept=".docx" multiple bind:this={tplInput} onchange={onTemplateUpload} disabled={!canReport || tplBusy} hidden />
         </label>
-        <span class="hint">Saved on this PC — they persist across restarts.</span>
+        <span class="hint">{tplDragActive ? 'Drop .docx to upload' : 'Drag & drop .docx here — saved on this PC across restarts.'}</span>
       </div>
 
       {#if tplError}<div class="status bad">{tplError}</div>{/if}
@@ -484,7 +503,8 @@
   .hint { font-size: 11px; color: var(--text-sub); }
   /* Template library */
   .tpl { display: flex; flex-direction: column; gap: 8px; background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
-  .tpl-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .tpl-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border: 1.5px dashed transparent; border-radius: 8px; padding: 6px; transition: border-color 120ms, background 120ms; }
+  .tpl-head.drag-active { border-color: var(--blue); background: #eff6ff; }
   .file-btn { flex-direction: row; align-items: center; background: #1e293b; color: #fff; padding: 8px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
   .file-btn.disabled { background: #cbd5e1; cursor: not-allowed; }
   .tpl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
