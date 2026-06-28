@@ -210,6 +210,10 @@ export interface ReportRequest {
   docx_template_name?: string;
   /** Drop the not-recovered watermark/tint from the report snapshots. */
   clear_not_recovered?: boolean;
+  /** Add the compliance summary table, even when the template has no placeholder. */
+  include_compliance_table?: boolean;
+  /** Render + add the ITIC (CBEMA) curve to the report. */
+  include_itic?: boolean;
   rated_load_kw?: number | null;
   image_options?: Record<string, unknown>;
 }

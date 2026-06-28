@@ -234,6 +234,11 @@ def get_placeholder_map(client_name, config_values, df=None,
     if os.path.exists(table_path):
         placeholder_map["{{Compliance_Table}}"] = table_path
 
+    # ITIC (CBEMA) curve — only emitted when the toggle rendered the image.
+    itic_path = os.path.join(graph_dir, f"{client_name}_ITIC_Curve.jpeg")
+    if os.path.exists(itic_path):
+        placeholder_map["{{ITIC_Curve}}"] = itic_path
+
     # Metric graphs
     metrics = {
         "Avg_Voltage_LL": "{{Avg_Voltage_LL}}",
@@ -295,16 +300,107 @@ def get_placeholder_map(client_name, config_values, df=None,
 # {{Snapshot_6}} text in the rendered .docx. We blank these leftovers so a Word
 # report never shows raw template syntax — mirrors report_host's HTML strip.
 _UNUSED_IMAGE_PLACEHOLDER = re.compile(
-    r"\{\{(?:Snapshot_\d+|Avg_[A-Za-z_]+|Compliance_Table)\}\}")
+    r"\{\{(?:Snapshot_\d+|Avg_[A-Za-z_]+|Compliance_Table|ITIC_Curve)\}\}")
 
 
-def inject_images_to_word(template_stream, placeholder_map):
+def _element_all_text(elem):
+    """Concatenate every ``w:t`` text node inside a body element (p or tbl)."""
+    return "".join(t.text or "" for t in elem.findall(".//" + qn("w:t")))
+
+
+def _find_snapshot_anchor(doc):
+    """Body element that new 'after results / before snapshots' content goes before.
+
+    Returns the Heading paragraph immediately preceding the first ``{{Snapshot_*}}``
+    block (so injected sections land just before 'Load Step 1'); failing that, the
+    snapshot block itself; if the template has no snapshots, ``None`` (caller
+    appends at the end). Must be called BEFORE placeholders are replaced, while the
+    ``{{Snapshot_1}}`` marker text still exists.
+    """
+    from docx.text.paragraph import Paragraph
+
+    snap_re = re.compile(r"\{\{Snapshot_\d+\}\}")
+    children = list(doc.element.body.iterchildren())
+    for i, child in enumerate(children):
+        if child.tag.split("}")[-1] not in ("p", "tbl"):
+            continue
+        if not snap_re.search(_element_all_text(child)):
+            continue
+        # Walk back over blank spacer paragraphs to a heading.
+        j = i - 1
+        while j >= 0:
+            prev = children[j]
+            if prev.tag.split("}")[-1] != "p":
+                break
+            style = ""
+            p = Paragraph(prev, doc)
+            if p.style is not None and p.style.name:
+                style = p.style.name
+            if style.startswith("Heading"):
+                return prev
+            if _element_all_text(prev).strip():
+                break  # real non-heading content — don't swallow it
+            j -= 1
+        return child
+    return None
+
+
+def _insert_image_sections(doc, anchor, sections, content_width):
+    """Insert ``(heading, image_path)`` sections before ``anchor`` (append if None).
+
+    Each section is a Heading-1 paragraph (so the TOC field lists it) starting on
+    a fresh page, followed by a left-aligned full-width picture. Returns the list
+    of heading titles actually inserted (those whose image existed).
+    """
+    added = []
+    for title, image_path in sections:
+        if not image_path or not os.path.exists(image_path):
+            continue
+        # Build at the end of the doc, then relocate before the anchor. Inserting
+        # heading-then-image in order keeps them adjacent and correctly ordered.
+        heading = doc.add_heading(title, level=1)
+        heading.paragraph_format.page_break_before = True
+        img_para = doc.add_paragraph()
+        img_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        img_para.add_run().add_picture(image_path, width=content_width)
+        if anchor is not None:
+            anchor.addprevious(heading._p)
+            anchor.addprevious(img_para._p)
+        added.append(title)
+    return added
+
+
+def enable_update_fields(doc):
+    """Flag all fields (incl. the TOC) to refresh when the document is next opened.
+
+    Word honours this on open — refreshing the TOC's page numbers after we inject
+    new headed sections. (LibreOffice ignores it on headless convert; the contents
+    page there stays stale, but the body content is correct.)
+    """
+    settings = doc.settings.element
+    upd = settings.find(qn("w:updateFields"))
+    if upd is None:
+        upd = OxmlElement("w:updateFields")
+        settings.insert(0, upd)
+    upd.set(qn("w:val"), "true")
+
+
+def inject_images_to_word(template_stream, placeholder_map, *,
+                          extra_sections=None, update_fields=False):
     """
     Replace {{placeholders}} in a Word document with images or text.
 
     Parameters:
         template_stream: file path string or file-like BytesIO object
         placeholder_map: dict of {{key}} -> file path or text value
+        extra_sections: optional list of (heading_text, placeholder_key, image_path)
+            to inject as new Heading-1 sections after the results/time-series block
+            and before the per-event snapshots (used for the Compliance Table / ITIC
+            Curve toggles). A section is injected only when the template does NOT
+            already contain placeholder_key (otherwise normal replacement fills it
+            in place).
+        update_fields: when True, mark the document's fields (incl. the TOC) to
+            refresh on next open, so the contents page picks up injected sections.
 
     Returns:
         Document object with replacements applied
@@ -320,6 +416,19 @@ def inject_images_to_word(template_stream, placeholder_map):
         _content_width = _sec.page_width - _sec.left_margin - _sec.right_margin - Inches(0.15)
     except Exception:
         _content_width = Inches(6.35)  # safe fallback
+
+    # Inject sections (Compliance Table / ITIC) BEFORE replacing placeholders, so
+    # the {{Snapshot_1}} anchor text is still present to locate the
+    # results→snapshots boundary. Each requested section is (title, placeholder_key,
+    # image_path): if the template already contains that placeholder we skip the
+    # section (normal replacement will fill it in place); otherwise we inject.
+    if extra_sections:
+        body_text = _element_all_text(doc.element.body)
+        to_inject = [(title, path) for (title, ph_key, path) in extra_sections
+                     if path and os.path.exists(path) and ph_key not in body_text]
+        if to_inject:
+            anchor = _find_snapshot_anchor(doc)
+            _insert_image_sections(doc, anchor, to_inject, _content_width)
 
     def apply_strict_formatting(paragraph):
         p_format = paragraph.paragraph_format
@@ -429,6 +538,9 @@ def inject_images_to_word(template_stream, placeholder_map):
         for row in table.rows:
             for cell in row.cells:
                 process_paragraphs(cell.paragraphs)
+
+    if update_fields:
+        enable_update_fields(doc)
 
     return doc
 

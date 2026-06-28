@@ -89,6 +89,11 @@
   let warnings = $state<string[]>([]);
   let log = $state<string | undefined>(undefined);
   let removeNrWarnings = $state(false);
+  // Toggles to add sections the template may not have a placeholder for. They are
+  // injected after the results/time-series block and before the snapshots; the
+  // .docx TOC refreshes in Word to list them.
+  let includeComplianceTable = $state(false);
+  let includeItic = $state(false);
 
   type Artifact = { name: string; mime: string; b64: string };
   let arts = $state<Artifact[]>([]);
@@ -217,6 +222,8 @@
         outputs,
         docx_template_name: needsTemplate ? selectedTemplate : undefined,
         clear_not_recovered: hasNotRecovered && removeNrWarnings ? true : undefined,
+        include_compliance_table: includeComplianceTable || undefined,
+        include_itic: includeItic || undefined,
         rated_load_kw: displayOpts?.rated_load_kw ?? null,
         image_options: displayOpts
           ? {
@@ -364,6 +371,13 @@
     </div>
   {/if}
 
+  <div class="extras">
+    <div class="extras-label">Include in report</div>
+    <label class="chk"><input type="checkbox" bind:checked={includeComplianceTable} disabled={!canReport} /> Compliance summary table</label>
+    <label class="chk"><input type="checkbox" bind:checked={includeItic} disabled={!canReport} /> ITIC (CBEMA) curve</label>
+    <span class="hint">Added after the results, before the snapshots. Word refreshes the contents page to list them.</span>
+  </div>
+
   <button class="gen" onclick={generate} disabled={!canGenerate}>
     {busy ? 'Generating…' : '📄 Generate Report'}
   </button>
@@ -450,6 +464,8 @@
   /* Not-recovered gate */
   .nr { display: flex; flex-direction: column; gap: 6px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 10px 12px; }
   .nr-warn { font-size: 12px; color: #b45309; }
+  .extras { display: flex; flex-direction: column; gap: 6px; background: var(--surface, #f8fafc); border: 1px solid var(--border, #e2e8f0); border-radius: 8px; padding: 10px 12px; }
+  .extras-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-sub); }
   .chk { flex-direction: row; align-items: center; gap: 6px; font-size: 13px; color: var(--text-main); }
   .gen { align-self: flex-start; background: var(--blue); color: #fff; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; cursor: pointer; }
   .gen:disabled { background: #cbd5e1; cursor: not-allowed; }

@@ -269,6 +269,35 @@ def _docx_to_pdf(docx_path: str, out_dir: str) -> str | None:
         shutil.rmtree(conv_dir, ignore_errors=True)
 
 
+def _audit_docx_toc(docx_path: str) -> dict:
+    """Report what the Word TOC will contain after Word refreshes it.
+
+    LibreOffice doesn't refresh the TOC on headless convert, so the preview PDF's
+    contents page is stale. Instead we read the doc's Heading-1..3 paragraphs (the
+    exact set the TOC field includes) in document order and confirm updateFields is
+    set — proving the TOC WILL be correct when opened in Word.
+    """
+    try:
+        import docx
+        from docx.oxml.ns import qn
+        from docx.text.paragraph import Paragraph
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"python-docx unavailable: {exc}"}
+
+    doc = docx.Document(docx_path)
+    headings = []
+    for child in doc.element.body.iterchildren():
+        if child.tag.split("}")[-1] != "p":
+            continue
+        p = Paragraph(child, doc)
+        style = (p.style.name or "") if p.style is not None else ""
+        if style.startswith("Heading") and p.text.strip():
+            headings.append({"level": style, "text": p.text.strip()[:70]})
+    update_fields = doc.settings.element.find(qn("w:updateFields")) is not None
+    return {"update_fields_set": update_fields,
+            "toc_headings": headings, "heading_count": len(headings)}
+
+
 # ── one job ──────────────────────────────────────────────────────────────────
 def run_job(job: dict) -> dict:
     """Run a single report job end-to-end; write artifacts; return its summary."""
@@ -341,11 +370,17 @@ def run_job(job: dict) -> dict:
     if want_docx:
         with open(template_path, "rb") as f:
             docx_b64 = base64.b64encode(f.read()).decode("ascii")
+    include_ct = bool(job.get("include_compliance_table"))
+    include_itic = bool(job.get("include_itic"))
+    if include_ct or include_itic:
+        print(f"→ toggles: compliance_table={include_ct} itic={include_itic}")
     params = {
         "fields": fields,
         "filename": "report",
         "outputs": {"pdf": True, "html": True, "docx": want_docx},
         "docx_template_b64": docx_b64,
+        "include_compliance_table": include_ct,
+        "include_itic": include_itic,
     }
     result = build_report(df_run, df_proc, df_events, cfg, params)
     artifacts = result.get("artifacts", {})
@@ -363,12 +398,14 @@ def run_job(job: dict) -> dict:
             f.write(artifacts["html"])
         written.append(p)
     docx_audit = None
+    toc_audit = None
     if "docx_b64" in artifacts:
         p = os.path.join(out_dir, "report.docx")
         with open(p, "wb") as f:
             f.write(base64.b64decode(artifacts["docx_b64"]))
         written.append(p)
         docx_audit = _audit_docx_images(p)
+        toc_audit = _audit_docx_toc(p)
         docx_pdf = _docx_to_pdf(p, out_dir)
         if docx_pdf:
             written.append(docx_pdf)
@@ -394,6 +431,7 @@ def run_job(job: dict) -> dict:
             "artifacts_present": sorted(artifacts.keys()),
         },
         "docx_image_audit": docx_audit,
+        "docx_toc_audit": toc_audit,
         "outputs_written": written,
     }
     with open(os.path.join(out_dir, "summary.json"), "w") as f:
@@ -407,6 +445,11 @@ def run_job(job: dict) -> dict:
     if docx_audit and docx_audit.get("flags"):
         for fl in docx_audit["flags"]:
             print(f"  ⚠ {fl}")
+    if toc_audit and not toc_audit.get("error"):
+        print(f"  TOC: {toc_audit['heading_count']} headings, "
+              f"updateFields={toc_audit['update_fields_set']}")
+        for h in toc_audit["toc_headings"]:
+            print(f"      · {h['text']}")
     for w in written:
         print(f"  {w}")
     return summary

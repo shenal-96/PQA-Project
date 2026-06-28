@@ -111,6 +111,21 @@ def render_report_images(df_raw, df_proc, df_events, config, client_name,
         except Exception as exc:  # noqa: BLE001
             errors.append(f"Compliance table failed: {exc}")
 
+    # ── ITIC (CBEMA) curve ─────────────────────────────────────────────────────
+    # Opt-in (report toggle): plot_itic_curve writes both an SVG and a JPEG; we
+    # use the JPEG since python-docx/HTML embed raster, not SVG.
+    itic_path = None
+    if opts.get("include_itic") and df_events is not None and not df_events.empty:
+        try:
+            viz.plot_itic_curve(df_events, client_name, nom_v=nom_v,
+                                output_dir=graph_dir)
+            cand = os.path.join(graph_dir, f"{client_name}_ITIC_Curve.jpeg")
+            itic_path = cand if os.path.exists(cand) else None
+            if itic_path is None:
+                errors.append("ITIC curve produced no plottable events.")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"ITIC curve failed: {exc}")
+
     # ── Per-event snapshots ────────────────────────────────────────────────────
     n_snapshots = 0
     if df_events is not None and not df_events.empty:
@@ -139,6 +154,7 @@ def render_report_images(df_raw, df_proc, df_events, config, client_name,
         "graph_dir": graph_dir,
         "snapshot_dir": snapshot_dir,
         "image_dir": image_dir,
+        "itic_path": itic_path,
         "n_snapshots": n_snapshots,
         "errors": errors,
     }
@@ -153,4 +169,5 @@ _OPTION_DEFAULTS = {
     "show_intersections": False,    # exit/recovery stars — off for a clean report
     "show_max_deviation": False,    # extreme marker — off for a clean report
     "clear_not_recovered": False,   # drop the not-recovered watermark/tint
+    "include_itic": False,          # render the ITIC (CBEMA) curve for the report
 }

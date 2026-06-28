@@ -62,6 +62,29 @@ such feature, alongside the unit tests.
   the `.docx`→PDF visual render. Also run the unit tests:
   `pytest tests/test_report.py tests/test_hostbridge.py`.
 
+## Optional report sections (Compliance Table / ITIC Curve)
+
+The report dialog has two toggles — **Compliance summary table** and **ITIC
+(CBEMA) curve** — that add those sections even when the Word/HTML template has no
+placeholder for them. Params: `include_compliance_table` / `include_itic` on
+`build_report` (see `desktop/report_host.py`). They are injected **after the
+results/time-series block and before the snapshots**; if the template already has
+the `{{Compliance_Table}}` / `{{ITIC_Curve}}` placeholder, it is filled in place
+instead of injecting a section.
+
+- In the **.docx**, each section is a `Heading 1` paragraph + full-width image
+  (`report._insert_image_sections`), inserted before the first snapshot heading.
+  Because the templates use a real Word **TOC field**, the new headings are listed
+  automatically once the field refreshes — `report.enable_update_fields` sets
+  `w:updateFields=true` so **Word** refreshes the contents page (page numbers
+  included) on open. **LibreOffice does NOT refresh the TOC on headless convert**,
+  so the harness's `report.docx.pdf` preview shows the sections in the body but a
+  stale contents page — verify the final TOC in Word. The harness's TOC audit
+  lists the doc's headings to confirm the section will appear.
+- ITIC images come from `visualizations.plot_itic_curve` (it writes a JPEG beside
+  its SVG); rendering is gated by `image_options["include_itic"]` in
+  `desktop/viz_report.render_report_images`.
+
 ## File Map
 
 | File | Purpose |

@@ -38,7 +38,7 @@ log = logging.getLogger(__name__)
 # empty or there are fewer events than template snapshot slots. We blank these
 # leftovers so the rendered report never shows literal ``{{...}}`` braces.
 _UNUSED_IMAGE_PLACEHOLDER = re.compile(
-    r"\{\{(?:Snapshot_\d+|Avg_[A-Za-z_]+|Compliance_Table)\}\}")
+    r"\{\{(?:Snapshot_\d+|Avg_[A-Za-z_]+|Compliance_Table|ITIC_Curve)\}\}")
 
 # Word .docx MIME — surfaced so the frontend tags downloads correctly.
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -389,9 +389,18 @@ def build_report(df_raw, df_proc, df_events, config, params, *, df_steady=None, 
           "docx_template_b64": "<base64>",   # optional; inline .docx for output
           "docx_template_name": "Acme.docx", # optional; name in the saved library
           "clear_not_recovered": false,      # optional; drop the not-recovered flags
+          "include_compliance_table": false, # optional; add compliance table even
+                                             #   when the template has no placeholder
+          "include_itic": false,             # optional; render + add the ITIC curve
           "rated_load_kw": 1000,             # optional, for % annotations
           "image_options": {...}             # optional viz_report overrides
         }
+
+    ``include_compliance_table`` / ``include_itic`` add those sections after the
+    results/time-series block and before the snapshots. In the .docx they are
+    injected as Heading-1 sections (so the TOC field lists them) and ``updateFields``
+    is set so Word refreshes the contents page on open; if the template already has
+    the placeholder, it is filled in place instead.
 
     A Word template may be supplied inline (``docx_template_b64``) or by the name
     of a template saved in the persistent library (``docx_template_name``); the
@@ -412,9 +421,16 @@ def build_report(df_raw, df_proc, df_events, config, params, *, df_steady=None, 
     docx_template_name = params.get("docx_template_name")
     rated = params.get("rated_load_kw")
 
+    # Report toggles: include the compliance summary table and/or the ITIC curve
+    # even when the template has no placeholder for them (injected as new sections).
+    include_compliance_table = bool(params.get("include_compliance_table"))
+    include_itic = bool(params.get("include_itic"))
+
     image_options = dict(params.get("image_options") or {})
     if rated is not None:
         image_options.setdefault("rated_load_kw", rated)
+    if include_itic:
+        image_options["include_itic"] = True
     # When the user opts to drop the not-recovered flags from the report, render
     # the snapshots without the red watermark/tint (mirrors the Streamlit
     # "Remove warnings from report" path, which zeroed the flags before render).
@@ -472,11 +488,47 @@ def build_report(df_raw, df_proc, df_events, config, params, *, df_steady=None, 
                 f" … {{{{Snapshot_{n_events}}}}} placeholders to include them all."
             )
 
+        # Toggled extra sections (Compliance Table / ITIC Curve). Each entry is
+        # (title, placeholder_key, image_path); the Word and HTML paths inject it
+        # only when the template lacks that placeholder.
+        extra_sections = []
+        if include_compliance_table:
+            ct = p_map.get("{{Compliance_Table}}")
+            if ct:
+                extra_sections.append(("Compliance Summary", "{{Compliance_Table}}", ct))
+            else:
+                warnings.append(
+                    "Compliance table requested but none was produced (no events?).")
+        if include_itic:
+            ic = p_map.get("{{ITIC_Curve}}")
+            if ic:
+                extra_sections.append(("ITIC (CBEMA) Curve", "{{ITIC_Curve}}", ic))
+            else:
+                warnings.append(
+                    "ITIC curve requested but none was produced (no plottable events?).")
+
         want_html = bool(outputs.get("html"))
         want_pdf = bool(outputs.get("pdf"))
         want_docx = bool(outputs.get("docx"))
         if not (want_html or want_pdf or want_docx):
             want_pdf = True  # sensible default: always give the user something
+
+        # Insert toggled sections into the HTML (before the snapshots block) when
+        # the template doesn't already carry that placeholder. They reuse the
+        # normal placeholder mechanism, so inject_html_placeholders embeds them.
+        if (want_html or want_pdf) and extra_sections:
+            frag = ""
+            for title, ph_key, _path in extra_sections:
+                if ph_key in html_template:
+                    continue
+                frag += (f'  <div class="section-title">{title}</div>\n'
+                         f'  <div class="compliance-block">{ph_key}</div>\n')
+            if frag:
+                marker = '<div class="section-title">Event Snapshots</div>'
+                if marker in html_template:
+                    html_template = html_template.replace(marker, frag + "  " + marker, 1)
+                else:
+                    html_template += frag
 
         # 3. HTML (needed for the html artifact and/or as the PDF source).
         if want_html or want_pdf:
@@ -511,7 +563,11 @@ def build_report(df_raw, df_proc, df_events, config, params, *, df_steady=None, 
                         f"Word template '{docx_template_name}' was not found in the "
                         f"library — re-upload it to generate the .docx.")
             if template_stream is not None:
-                doc = report_mod.inject_images_to_word(template_stream, p_map)
+                doc = report_mod.inject_images_to_word(
+                    template_stream, p_map,
+                    extra_sections=extra_sections or None,
+                    update_fields=bool(extra_sections),
+                )
                 docx_path = os.path.join(work_dir, filename + ".docx")
                 doc.save(docx_path)
                 artifacts["docx_b64"] = _file_b64(docx_path)
