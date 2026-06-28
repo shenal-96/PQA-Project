@@ -344,16 +344,27 @@ def _is_section_heading(p_elem, doc):
     return False
 
 
-def _set_page_break_before(p_elem):
-    """Ensure a ``w:p`` starts on a new page (idempotent). No-op for non-paragraphs."""
-    if p_elem.tag.split("}")[-1] != "p":
-        return
-    pPr = p_elem.find(qn("w:pPr"))
-    if pPr is None:
+def _set_page_break_before(elem):
+    """Make ``elem`` start on a new page (idempotent).
+
+    A paragraph gets a ``w:pageBreakBefore`` property. Tables can't carry that
+    property, so a page-break spacer paragraph is inserted immediately before the
+    table instead.
+    """
+    tag = elem.tag.split("}")[-1]
+    if tag == "p":
+        pPr = elem.find(qn("w:pPr"))
+        if pPr is None:
+            pPr = OxmlElement("w:pPr")
+            elem.insert(0, pPr)
+        if pPr.find(qn("w:pageBreakBefore")) is None:
+            pPr.append(OxmlElement("w:pageBreakBefore"))
+    elif tag == "tbl":
+        brk = OxmlElement("w:p")
         pPr = OxmlElement("w:pPr")
-        p_elem.insert(0, pPr)
-    if pPr.find(qn("w:pageBreakBefore")) is None:
         pPr.append(OxmlElement("w:pageBreakBefore"))
+        brk.append(pPr)
+        elem.addprevious(brk)
 
 
 def _find_snapshot_anchor(doc):
@@ -391,6 +402,44 @@ def _find_snapshot_anchor(doc):
             j -= 1
         return anchor if anchor is not None else child
     return None
+
+
+# Time-series metric plots live behind these placeholders ({{Avg_Voltage_LL}},
+# {{Avg_kW}}, …). The Compliance Table / ITIC Curve are injected directly after
+# the LAST of them — i.e. right after the time-series plots block.
+_TIMESERIES_PLOT_RE = re.compile(r"\{\{Avg_[A-Za-z0-9_]+\}\}")
+
+
+def _find_results_end_anchor(doc):
+    """Body block to insert the ITIC/compliance sections *before* — the first
+    block after the time-series plots.
+
+    Anchoring off the plots (the well-defined ``{{Avg_*}}`` placeholders) rather
+    than off the snapshot headings makes placement template-independent: the
+    sections always land directly after the time-series plots, on their own page,
+    no matter how the snapshot section that follows is styled. Locates the LAST
+    ``{{Avg_*}}`` placeholder and returns the next meaningful sibling (skipping
+    blank spacer paragraphs). Falls back to the snapshot-heading anchor when a
+    template carries no plot placeholders; ``None`` means append at the end.
+    Must run BEFORE placeholders are replaced, while the markers still exist.
+    """
+    children = list(doc.element.body.iterchildren())
+    last_plot = -1
+    for i, child in enumerate(children):
+        if child.tag.split("}")[-1] not in ("p", "tbl"):
+            continue
+        if _TIMESERIES_PLOT_RE.search(_element_all_text(child)):
+            last_plot = i
+    if last_plot < 0:
+        return _find_snapshot_anchor(doc)  # no plots — fall back to snapshot anchor
+    j = last_plot + 1
+    while j < len(children):
+        nxt = children[j]
+        if nxt.tag.split("}")[-1] == "p" and not _element_all_text(nxt).strip():
+            j += 1
+            continue  # skip blank spacer paragraphs trailing the last plot
+        return nxt
+    return None  # the plots are the last content — append at the end
 
 
 def _insert_image_sections(doc, anchor, sections, content_width):
@@ -486,7 +535,11 @@ def inject_images_to_word(template_stream, placeholder_map, *,
         to_inject = [(title, path) for (title, ph_key, path) in extra_sections
                      if path and os.path.exists(path) and ph_key not in body_text]
         if to_inject:
-            anchor = _find_snapshot_anchor(doc)
+            # Anchor off the END of the time-series plots (template-independent),
+            # not off the snapshot heading. _insert_image_sections page-breaks the
+            # block onto its own page and page-breaks the following content too, so
+            # the sections sit cleanly after the plots without disturbing the rest.
+            anchor = _find_results_end_anchor(doc)
             _insert_image_sections(doc, anchor, to_inject, _content_width)
 
     def apply_strict_formatting(paragraph):

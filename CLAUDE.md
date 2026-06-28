@@ -67,13 +67,22 @@ such feature, alongside the unit tests.
 The report dialog has two toggles — **Compliance summary table** and **ITIC
 (CBEMA) curve** — that add those sections even when the Word/HTML template has no
 placeholder for them. Params: `include_compliance_table` / `include_itic` on
-`build_report` (see `desktop/report_host.py`). They are injected **after the
-results/time-series block and before the snapshots**; if the template already has
+`build_report` (see `desktop/report_host.py`). They are injected **directly after
+the time-series plots, isolated on their own page**; if the template already has
 the `{{Compliance_Table}}` / `{{ITIC_Curve}}` placeholder, it is filled in place
 instead of injecting a section.
 
 - In the **.docx**, each section is a `Heading 1` paragraph + full-width image
-  (`report._insert_image_sections`), inserted before the first snapshot heading.
+  (`report._insert_image_sections`). Placement is **template-independent**: the
+  anchor is the first block *after the last time-series plot placeholder*
+  (`{{Avg_*}}`, via `report._find_results_end_anchor`), NOT the snapshot heading —
+  some templates author the first "Load Step 1" heading in a plain (non-`Heading`)
+  style, which broke snapshot-relative anchoring. The injected block gets a
+  page-break before its first section and a page-break before the following
+  content, so it sits on its own page after the plots without disturbing the
+  snapshots (which resume intact on the next page). Falls back to the snapshot
+  anchor (`_find_snapshot_anchor`, style- *or* outline-level aware) only when a
+  template has no plot placeholders.
   Because the templates use a real Word **TOC field**, the new headings are listed
   automatically once the field refreshes — `report.enable_update_fields` sets
   `w:updateFields=true` so **Word** refreshes the contents page (page numbers
