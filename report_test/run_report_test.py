@@ -64,21 +64,12 @@ FIXTURES_DIR = os.path.join(_THIS_DIR, "fixtures")
 OUTPUT_DIR = os.path.join(_THIS_DIR, "output")
 JOBS_FILE = os.path.join(_THIS_DIR, "jobs.json")
 
-# PDF pipeline browser. On Windows, report_host.find_chromium() locates Edge
-# (msedge.exe) on PATH / Program Files, so nothing is needed here. On macOS,
-# Chrome is in an .app bundle and not on PATH, so we set PQA_CHROMIUM (which
-# find_chromium checks first) to the standard install location if present.
 import shutil as _shutil
 
-if not os.environ.get("PQA_CHROMIUM"):
-    for _chrome in (
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",  # macOS
-        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-        "/Applications/Chromium.app/Contents/MacOS/Chromium",
-    ):
-        if os.path.exists(_chrome):
-            os.environ["PQA_CHROMIUM"] = _chrome
-            break
+# NOTE: the harness deliberately does NOT set PQA_CHROMIUM. It relies on
+# report_host.find_chromium() — the same browser discovery the desktop app uses —
+# so the harness exercises the real PDF path and would catch a discovery gap
+# (e.g. macOS .app bundles not being found) instead of masking it with an env var.
 
 
 def _find_soffice() -> str | None:

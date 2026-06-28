@@ -50,7 +50,10 @@ def find_chromium() -> str | None:
     """Locate a Chromium-family browser for headless PDF printing, or ``None``.
 
     Order: ``PQA_CHROMIUM``/``PQA_EDGE`` env overrides → names on ``PATH``
-    (Edge first, it ships with Windows) → standard Windows install locations.
+    (Edge first, it ships with Windows) → standard install locations for the
+    current OS (Windows Program Files, macOS ``/Applications`` .app bundles,
+    common Linux paths). macOS/Linux browsers are not on ``PATH`` by default, so
+    the absolute-path fallback is what makes PDF export work there.
     """
     for env in ("PQA_CHROMIUM", "PQA_EDGE"):
         p = os.environ.get(env)
@@ -65,6 +68,7 @@ def find_chromium() -> str | None:
             return found
 
     candidates = []
+    # Windows install locations.
     for var in ("PROGRAMFILES(X86)", "PROGRAMFILES", "LOCALAPPDATA"):
         root = os.environ.get(var)
         if not root:
@@ -73,6 +77,18 @@ def find_chromium() -> str | None:
             os.path.join(root, "Microsoft", "Edge", "Application", "msedge.exe"),
             os.path.join(root, "Google", "Chrome", "Application", "chrome.exe"),
         ]
+    # macOS .app bundles (not on PATH).
+    candidates += [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    ]
+    # Common Linux absolute paths (in case PATH lookup missed them).
+    candidates += [
+        "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium", "/usr/bin/chromium-browser",
+        "/usr/bin/microsoft-edge", "/snap/bin/chromium",
+    ]
     for path in candidates:
         if os.path.exists(path):
             return path
