@@ -142,3 +142,50 @@ def test_snapshot_no_start_band_without_iso():
         assert "start_band" not in snap["panels"]["frequency"], (
             f"event {pos}: 'start_band' should only appear in ISO mode"
         )
+
+
+# ── α_f no-re-entry behaviour (trace leaves β_f but never leaves α_f) ──────────
+
+def test_iso_reentry_flag_matches_alpha_f_containment():
+    """F_reentry is False exactly when the excursion's extreme stayed inside the
+    α_f stop band (no genuine re-entry crossing); recovery time is then 0."""
+    _, df_iso = _run(_ISO_CFG)
+    assert "F_reentry" in df_iso.columns
+    for pos in range(len(df_iso)):
+        r = df_iso.iloc[pos]
+        if pd.isna(r.get("F_exit_ts")):
+            continue
+        within_alpha = r["F_rec_lower"] <= r["F_dev"] <= r["F_rec_upper"]
+        if within_alpha:
+            assert bool(r["F_reentry"]) is False, (
+                f"event {pos}: extreme {r['F_dev']} stayed within α_f "
+                f"[{r['F_rec_lower']}, {r['F_rec_upper']}] → F_reentry should be False")
+            assert float(r["F_rec_s"]) == 0.0, (
+                f"event {pos}: no re-entry → recovery time should be 0")
+        else:
+            assert bool(r["F_reentry"]) is True, (
+                f"event {pos}: extreme {r['F_dev']} breached α_f → F_reentry should be True")
+
+
+def test_non_iso_has_no_reentry_column():
+    """Single-band contract unchanged: no F_reentry column without ISO mode."""
+    _, df_base = _run(_BASE_CFG)
+    assert "F_reentry" not in df_base.columns
+
+
+def test_snapshot_omits_recovery_marker_when_no_reentry():
+    """The frequency panel always keeps the exit marker, but omits the recovery
+    marker when there was no genuine α_f re-entry."""
+    df_proc, df_iso = _run(_ISO_CFG)
+    for pos in range(len(df_iso)):
+        r = df_iso.iloc[pos]
+        if pd.isna(r.get("F_exit_ts")):
+            continue
+        fp = snapshot_data(df_proc, r, _ISO_CFG, event_index=pos)["panels"]["frequency"]
+        assert "exit" in fp, f"event {pos}: exit marker must always be present"
+        if not bool(r["F_reentry"]):
+            assert "recovery" not in fp, (
+                f"event {pos}: trace stayed in α_f → recovery marker must be omitted")
+        elif pd.notnull(r["F_rec_s"]):
+            assert "recovery" in fp, (
+                f"event {pos}: genuine re-entry → recovery marker should be present")

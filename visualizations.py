@@ -815,6 +815,10 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
         f_dev   = event_row.get("F_dev",       np.nan)
         f_exit  = event_row.get("F_exit_ts")
         f_rec_s = event_row.get("F_rec_s")
+        # ISO two-band: when the trace never left the α_f band there is no genuine
+        # re-entry crossing — draw the exit marker but NOT the re-entry marker.
+        # Defaults True so single-band / non-ISO behaviour is unchanged.
+        f_reentry = bool(event_row.get("F_reentry", True))
         f_upper = event_row.get("F_rec_upper", nom_f * (1 + tol_f / 100))
         f_lower = event_row.get("F_rec_lower", nom_f * (1 - tol_f / 100))
         if pd.isnull(f_upper): f_upper = nom_f * (1 + tol_f / 100)
@@ -994,7 +998,7 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
             axes[2].annotate("exit", xy=(fx, f_exit_band_val), xytext=(4, -14),
                              textcoords="offset points",
                              fontsize=7, color=_ORANGE, fontweight="700")
-            if pd.notnull(f_rec_s):
+            if pd.notnull(f_rec_s) and f_reentry:
                 fr = fx + pd.Timedelta(seconds=float(f_rec_s))
                 axes[2].axvline(fr, color=_LIME, **cross_kw)
                 axes[2].scatter([fr], [f_band_val], color=_LIME, marker="*", s=140, zorder=7)
@@ -1037,13 +1041,14 @@ def plot_load_change_snapshot(df_raw, event_ts, load_change, load_before, load_a
             if pd.notnull(f_exit):
                 _fx = pd.Timestamp(f_exit)
                 _f_exit_lbl = f"exit ({_fx.strftime('%H:%M:%S.%f')[:-4]})"
-                if pd.notnull(f_rec_s):
+                if pd.notnull(f_rec_s) and f_reentry:
                     _fr = _fx + pd.Timedelta(seconds=float(f_rec_s))
                     _f_rec_lbl = f"recovery (+{float(f_rec_s):.2f}s @ {_fr.strftime('%H:%M:%S.%f')[:-4]})"
-            f_legend.extend([
-                Line2D([0], [0], color=_ORANGE, marker="*", ls="none",  markersize=10, label=_f_exit_lbl),
-                Line2D([0], [0], color=_LIME,   marker="*", ls="none",  markersize=10, label=_f_rec_lbl),
-            ])
+            f_legend.append(
+                Line2D([0], [0], color=_ORANGE, marker="*", ls="none", markersize=10, label=_f_exit_lbl))
+            if f_reentry:
+                f_legend.append(
+                    Line2D([0], [0], color=_LIME, marker="*", ls="none", markersize=10, label=_f_rec_lbl))
         if show_max_deviation and pd.notnull(f_dev):
             _f_pct = (f_dev - nom_f) / nom_f * 100 if nom_f else 0
             f_legend.append(

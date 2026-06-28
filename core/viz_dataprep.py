@@ -142,11 +142,16 @@ def _decorate(panel, get, direction, nom, maxdev_default, win, col, prefix) -> N
     dev = _num(get(f"{prefix}_dev"))
     ex = get(f"{prefix}_exit_ts")
     rc = _num(get(f"{prefix}_rec_s"))
+    # ISO two-band: F_reentry is False when the trace left β_f but never left the
+    # wider α_f band — there is no genuine re-entry crossing, so the exit marker is
+    # drawn but the recovery marker is omitted. Absent column / non-ISO => True.
+    reentry = get(f"{prefix}_reentry")
+    has_reentry = True if reentry is None or pd.isnull(reentry) else bool(reentry)
     band_val = upper if (dev is not None and dev > nom) else lower
     exit_val = (start_upper if (dev is not None and dev > nom) else start_lower) if has_start else band_val
     if ex is not None and pd.notnull(ex):
         panel["exit"] = {"ts": _iso(ex), "value": exit_val}
-        if rc is not None:
+        if rc is not None and has_reentry:
             panel["recovery"] = {
                 "ts": _iso(pd.Timestamp(ex) + pd.Timedelta(seconds=rc)),
                 "value": band_val, "rec_s": rc,

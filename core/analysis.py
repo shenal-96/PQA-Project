@@ -1554,6 +1554,26 @@ def perform_analysis(df, config: AnalysisConfig):
                 ) if pd.notnull(row["F_exit_ts"]) else None,
                 axis=1,
             )
+            # ISO 8528-5 two-band: an excursion can leave the tight β_f START band
+            # yet never leave the wider α_f STOP band (its extreme stays within
+            # α_f). There is then NO genuine α_f re-entry crossing — the frequency
+            # was within recovery tolerance the whole time — so per spec the
+            # recovery time is 0 and the (non-existent) re-entry point must not be
+            # plotted. ``F_reentry`` flags whether a real re-entry exists (the exit
+            # marker is unaffected). Added only in ISO mode so the single-band
+            # contract stays byte-identical; consumers default it to True.
+            if config.iso_8528_5_mode:
+                def _f_reentry_exists(row):
+                    if pd.isnull(row["F_exit_ts"]):
+                        return True
+                    fdev = row.get("F_dev")
+                    lo, hi = row.get("F_rec_lower"), row.get("F_rec_upper")
+                    if pd.isnull(fdev) or pd.isnull(lo) or pd.isnull(hi):
+                        return True
+                    # Extreme inside α_f => the trace never left α_f => no re-entry.
+                    return not (lo <= fdev <= hi)
+                events["F_reentry"] = events.apply(_f_reentry_exists, axis=1)
+                events.loc[~events["F_reentry"].astype(bool), "F_rec_s"] = 0.0
         else:
             events["F_exit_ts"] = pd.NaT
             events["F_rec_upper"] = np.nan
