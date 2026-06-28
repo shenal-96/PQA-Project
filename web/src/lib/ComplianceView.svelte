@@ -50,7 +50,7 @@
 
   let snapshots = $state<(SnapshotData | null)[]>([]);
   let snapProgress = $state(0);
-  let snapOpts: Record<number, SnapshotOpts> = {};
+  let snapOpts = $state<Record<number, SnapshotOpts>>({});
   let overrides = $state<Record<number, EventOverride>>({});
   let recalcing = $state(false);
 
@@ -301,7 +301,7 @@
       {/if}
 
       <div class="section-head"><span class="bar reports"></span><h2>Report</h2></div>
-      <ReportPanel {backend} {caps} displayOpts={displayOptions(config)} events={result.events} />
+      <ReportPanel {backend} {caps} displayOpts={displayOptions(config)} events={result.events} snapshotOpts={snapOpts} />
     {:else if loading}
       <div class="empty"><div class="bolt">⚡</div><p>Analyzing…</p></div>
     {:else}

@@ -393,7 +393,9 @@ def build_report(df_raw, df_proc, df_events, config, params, *, df_steady=None, 
                                              #   when the template has no placeholder
           "include_itic": false,             # optional; render + add the ITIC curve
           "rated_load_kw": 1000,             # optional, for % annotations
-          "image_options": {...}             # optional viz_report overrides
+          "image_options": {...},            # optional viz_report overrides
+          "snapshot_window_overrides": {"0": 12.0},  # optional per-event window (s)
+          "snapshot_offset_overrides": {"0": -1.5},  # optional per-event time-shift (s)
         }
 
     ``include_compliance_table`` / ``include_itic`` add those sections after the
@@ -401,6 +403,11 @@ def build_report(df_raw, df_proc, df_events, config, params, *, df_steady=None, 
     injected as Heading-1 sections (so the TOC field lists them) and ``updateFields``
     is set so Word refreshes the contents page on open; if the template already has
     the placeholder, it is filled in place instead.
+
+    ``snapshot_window_overrides`` / ``snapshot_offset_overrides`` are keyed by the
+    positional event index (matching the on-screen snapshot tweaks); they are
+    remapped onto the df_events index inside ``render_report_images`` so the
+    report's clean snapshots match what the user tuned per event.
 
     A Word template may be supplied inline (``docx_template_b64``) or by the name
     of a template saved in the persistent library (``docx_template_name``); the
@@ -450,6 +457,8 @@ def build_report(df_raw, df_proc, df_events, config, params, *, df_steady=None, 
         img = render_report_images(
             df_raw, df_proc, df_events, config, client_name, work_dir,
             options=image_options or None,
+            snapshot_window_overrides=params.get("snapshot_window_overrides"),
+            snapshot_offset_overrides=params.get("snapshot_offset_overrides"),
         )
         warnings.extend(img.get("errors", []))
 

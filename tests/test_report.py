@@ -113,6 +113,24 @@ def test_generate_report_requires_analysis():
         HostBridge().generate_report({"outputs": {"html": True}})
 
 
+def test_remap_overrides_positional_to_index_label():
+    """Per-event snapshot overrides (port of #21): the frontend keys them by
+    POSITIONAL event index (0..n-1); _remap_overrides translates those onto the
+    df_events index labels that generate_all_snapshots looks up — correct even
+    when df_events does not carry a default RangeIndex."""
+    import pandas as pd
+    from desktop.viz_report import _remap_overrides
+
+    df_events = pd.DataFrame({"x": [1, 2, 3]}, index=[10, 20, 30])
+    # String keys (as they arrive over the JSON bridge); out-of-range dropped.
+    out = _remap_overrides(df_events, {"0": 12.0, "2": 7, "5": 99})
+    assert out == {10: 12.0, 30: 7.0}
+    # Nothing-to-apply cases collapse to None.
+    assert _remap_overrides(df_events, None) is None
+    assert _remap_overrides(df_events, {}) is None
+    assert _remap_overrides(pd.DataFrame(), {"0": 1.0}) is None
+
+
 # ── Full report build (needs matplotlib + python-docx) ──────────────────────────
 
 def test_build_report_html(tmp_path):
@@ -131,6 +149,38 @@ def test_build_report_html(tmp_path):
     assert "data:image/" in html                       # images embedded as base64
     assert "{{" not in html                            # no residual placeholders
     assert "pdf_b64" not in res["artifacts"]
+
+
+def test_render_report_images_threads_snapshot_overrides(tmp_path, monkeypatch):
+    """render_report_images forwards the per-event window/time-shift overrides to
+    generate_all_snapshots, remapped onto the df_events index (port of #21)."""
+    pytest.importorskip("matplotlib")
+    import pandas as pd
+    import visualizations as viz
+    from desktop import viz_report
+
+    # Synthetic, non-default index so the positional→label remap is observable.
+    df_events = pd.DataFrame({"x": [1, 2, 3]}, index=[10, 20, 30])
+    captured: dict = {}
+
+    def fake_snaps(*_a, **k):
+        captured["window_overrides"] = k.get("window_overrides")
+        captured["offset_overrides"] = k.get("offset_overrides")
+        return [], []
+
+    # Stub the matplotlib renderers so the test only exercises the threading.
+    monkeypatch.setattr(viz, "generate_all_snapshots", fake_snaps)
+    monkeypatch.setattr(viz, "generate_plots", lambda *a, **k: ([], []))
+    monkeypatch.setattr(viz, "save_compliance_table_as_image", lambda *a, **k: None)
+
+    viz_report.render_report_images(
+        pd.DataFrame(), pd.DataFrame(), df_events, ca.AnalysisConfig(),
+        "client", str(tmp_path),
+        snapshot_window_overrides={"0": 12.0, "1": 8.0},
+        snapshot_offset_overrides={"0": -1.5},
+    )
+    assert captured["window_overrides"] == {10: 12.0, 20: 8.0}
+    assert captured["offset_overrides"] == {10: -1.5}
 
 
 def test_build_report_docx_needs_template(tmp_path):

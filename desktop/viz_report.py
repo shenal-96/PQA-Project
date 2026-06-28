@@ -32,8 +32,33 @@ REPORT_METRICS = (
 )
 
 
+def _remap_overrides(df_events, pos_overrides):
+    """Translate positional-int override keys (0..n-1, as the frontend keys them)
+    onto the df_events index labels that ``generate_all_snapshots`` looks up via
+    ``iterrows()``. Returns None when there is nothing valid to apply.
+
+    Keying by position then mapping through ``df_events.index[pos]`` keeps this
+    correct regardless of whether df_events carries a default RangeIndex.
+    """
+    if not pos_overrides or df_events is None or df_events.empty:
+        return None
+    out = {}
+    n = len(df_events)
+    for k, v in pos_overrides.items():
+        try:
+            pos = int(k)
+            val = float(v)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= pos < n:
+            out[df_events.index[pos]] = val
+    return out or None
+
+
 def render_report_images(df_raw, df_proc, df_events, config, client_name,
-                         base_dir, *, options=None) -> dict:
+                         base_dir, *, options=None,
+                         snapshot_window_overrides=None,
+                         snapshot_offset_overrides=None) -> dict:
     """Render every report image into ``base_dir`` and report what was produced.
 
     Parameters
@@ -47,6 +72,11 @@ def render_report_images(df_raw, df_proc, df_events, config, client_name,
     base_dir    working directory; ``Graphs/``, ``Images/``, ``Snapshots/`` are
                 created beneath it.
     options     optional display overrides (see ``_OPTION_DEFAULTS``).
+    snapshot_window_overrides / snapshot_offset_overrides
+                optional per-event snapshot tweaks keyed by POSITIONAL event index
+                (0..n-1, as the on-screen UI keys them). Remapped onto the
+                df_events index here so the report's clean snapshots match the
+                window/time-shift the user tuned per event (port of #21).
 
     Returns a dict with the three output dirs, the snapshot count, and a list of
     non-fatal error strings (image rendering is best-effort: one failed plot must
@@ -144,6 +174,8 @@ def render_report_images(df_raw, df_proc, df_events, config, client_name,
                 show_max_deviation=opts["show_max_deviation"],
                 rated_load_kw=rated,
                 window_s=float(config.snapshot_window_s),
+                window_overrides=_remap_overrides(df_events, snapshot_window_overrides),
+                offset_overrides=_remap_overrides(df_events, snapshot_offset_overrides),
             )
             errors.extend(snap_errs or [])
             n_snapshots = sum(1 for p in paths if p)
