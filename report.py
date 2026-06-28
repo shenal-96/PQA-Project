@@ -348,9 +348,13 @@ def _find_snapshot_anchor(doc):
 def _insert_image_sections(doc, anchor, sections, content_width):
     """Insert ``(heading, image_path)`` sections before ``anchor`` (append if None).
 
-    Each section is a Heading-1 paragraph (so the TOC field lists it) starting on
-    a fresh page, followed by a left-aligned full-width picture. Returns the list
-    of heading titles actually inserted (those whose image existed).
+    Each section is a Heading-1 paragraph (so the TOC field lists it) followed by
+    a left-aligned full-width picture. The whole injected block starts on a fresh
+    page (page-break before the first section only), and the remaining sections
+    flow on after it — so e.g. the Compliance Table and ITIC Curve share one page
+    rather than each taking its own, while still landing above the first snapshot
+    heading. Returns the list of heading titles actually inserted (those whose
+    image existed).
     """
     added = []
     for title, image_path in sections:
@@ -359,7 +363,9 @@ def _insert_image_sections(doc, anchor, sections, content_width):
         # Build at the end of the doc, then relocate before the anchor. Inserting
         # heading-then-image in order keeps them adjacent and correctly ordered.
         heading = doc.add_heading(title, level=1)
-        heading.paragraph_format.page_break_before = True
+        # Only the first inserted section breaks to a new page; later ones flow
+        # on the same page so the injected sections group together.
+        heading.paragraph_format.page_break_before = (len(added) == 0)
         img_para = doc.add_paragraph()
         img_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
         img_para.add_run().add_picture(image_path, width=content_width)

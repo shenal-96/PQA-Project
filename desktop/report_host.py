@@ -4,9 +4,12 @@ Assembles a PQA report from a completed analysis and returns the artifacts as
 JSON-safe payloads the frontend turns into downloads:
 
 * **HTML**  — self-contained string (images embedded as base64). Always cheap.
-* **PDF**   — produced by the desktop's bundled Chromium (Edge WebView2 on
-              Windows). We render the HTML report then print it to PDF with
-              ``--headless --print-to-pdf`` — no LibreOffice, no WeasyPrint.
+* **PDF**   — when a Word template is supplied, a faithful LibreOffice render of
+              the filled ``.docx`` (:func:`docx_to_pdf`), so the PDF is a *direct
+              conversion of the Word document* — same page size, fonts, tables and
+              headers as Word. With no template (or ``pdf_from_word=False``) it
+              falls back to printing the HTML report via headless Chromium/Edge
+              (:func:`html_to_pdf`).
 * **.docx** — editable Word document, only when the caller supplies a Word
               template; produced by python-docx via the reused ``report`` helpers.
 
@@ -188,6 +191,91 @@ def html_to_pdf(html: str, pdf_path: str, *, timeout: int = 60,
         if not ok and timed_out:
             parts.append(f"timed out after {timeout}s")
         return ok, "\n".join(parts)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+# ── LibreOffice discovery + .docx → PDF (faithful Word render) ───────────────────
+
+def find_soffice() -> str | None:
+    """Locate LibreOffice ``soffice`` for rendering a Word ``.docx`` to PDF, or
+    ``None``.
+
+    Order: ``PQA_SOFFICE`` env override → names on ``PATH`` → standard install
+    locations per OS (macOS/Windows keep it off ``PATH``). This is what lets the
+    PDF be a faithful render of the Word document rather than the Chromium HTML
+    print.
+    """
+    override = os.environ.get("PQA_SOFFICE")
+    if override and os.path.exists(override):
+        return override
+    found = (shutil.which("soffice") or shutil.which("soffice.exe")
+             or shutil.which("libreoffice"))
+    if found:
+        return found
+    for path in (
+        r"C:\Program Files\LibreOffice\program\soffice.exe",
+        r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+        "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+        "/usr/bin/soffice", "/usr/bin/libreoffice", "/snap/bin/libreoffice",
+    ):
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def docx_to_pdf(docx_path: str, pdf_path: str, *, timeout: int = 120,
+                soffice: str | None = None) -> tuple[bool, str]:
+    """Render ``docx_path`` to ``pdf_path`` via headless LibreOffice.
+
+    Returns ``(ok, log)``. The PDF is a faithful conversion of the Word document
+    — same page size, fonts, tables and headers as the ``.docx`` — so it matches
+    what the user sees in Word far more closely than the HTML print does.
+
+    LibreOffice names its output after the input stem and cannot target an exact
+    filename, so we convert into an isolated temp dir (with a private user
+    profile via ``-env:UserInstallation``, so the conversion still works while
+    the user has LibreOffice open) and then move the result to ``pdf_path``.
+    """
+    soffice = soffice or find_soffice()
+    if not soffice:
+        return False, (
+            "LibreOffice (soffice) not found for Word→PDF export. Install "
+            "LibreOffice, or set PQA_SOFFICE to the soffice binary path."
+        )
+
+    tmp_dir = tempfile.mkdtemp(prefix="pqa_lo_")
+    profile_dir = os.path.join(tmp_dir, "profile")
+    out_dir = os.path.join(tmp_dir, "out")
+    os.makedirs(out_dir, exist_ok=True)
+    try:
+        cmd = [
+            soffice,
+            f"-env:UserInstallation={pathlib.Path(profile_dir).as_uri()}",
+            "--headless", "--nologo", "--nofirststartwizard",
+            "--convert-to", "pdf", "--outdir", out_dir,
+            os.path.abspath(docx_path),
+        ]
+        try:
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, timeout=timeout,
+                                  check=False)
+        except subprocess.TimeoutExpired:
+            return False, f"Word→PDF export timed out after {timeout}s (LibreOffice)."
+        except Exception as exc:  # noqa: BLE001
+            return False, f"Word→PDF export failed to launch LibreOffice: {exc}"
+
+        stem = os.path.splitext(os.path.basename(docx_path))[0] + ".pdf"
+        produced = os.path.join(out_dir, stem)
+        parts = [f"soffice: {soffice}"]
+        tail = (proc.stderr or proc.stdout or b"").decode("utf-8", "replace").strip()
+        if tail:
+            parts.append(tail[-800:])
+        if os.path.exists(produced) and os.path.getsize(produced) > 0:
+            os.replace(produced, os.path.abspath(pdf_path))
+            return True, "\n".join(parts)
+        parts.append("LibreOffice produced no PDF output")
+        return False, "\n".join(parts)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -404,6 +492,11 @@ def build_report(df_raw, df_proc, df_events, config, params, *, df_steady=None, 
           "html_template": "<...>",          # optional; defaults to built-in
           "docx_template_b64": "<base64>",   # optional; inline .docx for output
           "docx_template_name": "Acme.docx", # optional; name in the saved library
+          "pdf_from_word": true,             # optional (default true); when a Word
+                                             #   template is supplied, render the PDF
+                                             #   from the .docx (LibreOffice) so it is
+                                             #   a direct Word conversion. false → the
+                                             #   HTML→Chromium PDF instead.
           "clear_not_recovered": false,      # optional; drop the not-recovered flags
           "include_compliance_table": false, # optional; add compliance table even
                                              #   when the template has no placeholder
@@ -538,10 +631,53 @@ def build_report(df_raw, df_proc, df_events, config, params, *, df_steady=None, 
         if not (want_html or want_pdf or want_docx):
             want_pdf = True  # sensible default: always give the user something
 
-        # Insert toggled sections into the HTML (before the snapshots block) when
-        # the template doesn't already carry that placeholder. They reuse the
-        # normal placeholder mechanism, so inject_html_placeholders embeds them.
-        if (want_html or want_pdf) and extra_sections:
+        # Resolve the Word template up front (inline bytes win over a saved
+        # library name). It is needed both for the editable .docx download and —
+        # when present — as the PDF source: the PDF is exported as a faithful
+        # LibreOffice render of the filled .docx so it is a direct conversion of
+        # the Word document, not the Chromium HTML print. ``pdf_from_word=False``
+        # forces the old HTML→Chromium PDF.
+        import io
+        template_stream = None
+        if docx_template_b64:
+            template_stream = io.BytesIO(base64.b64decode(docx_template_b64))
+        elif docx_template_name:
+            from desktop import template_store
+            tpl_path = template_store.resolve(docx_template_name)
+            if tpl_path:
+                template_stream = tpl_path  # python-docx accepts a path
+            else:
+                warnings.append(
+                    f"Word template '{docx_template_name}' was not found in the "
+                    f"library — re-upload it to generate the .docx.")
+
+        pdf_from_word = bool(params.get("pdf_from_word", True))
+        pdf_via_docx = want_pdf and pdf_from_word and template_stream is not None
+
+        # Build the filled .docx once when it is needed as a download and/or as
+        # the PDF source, so the template is never injected twice.
+        docx_path = None
+        if want_docx or pdf_via_docx:
+            if template_stream is not None:
+                doc = report_mod.inject_images_to_word(
+                    template_stream, p_map,
+                    extra_sections=extra_sections or None,
+                    update_fields=bool(extra_sections),
+                )
+                docx_path = os.path.join(work_dir, filename + ".docx")
+                doc.save(docx_path)
+                if want_docx:
+                    artifacts["docx_b64"] = _file_b64(docx_path)
+                    artifacts["docx_mime"] = DOCX_MIME
+            elif want_docx and (not warnings or "not found" not in warnings[-1]):
+                warnings.append("Word (.docx) output needs a Word template upload.")
+
+        # The HTML report is still produced for the .html download, and as the PDF
+        # source when there is no Word template (or pdf_from_word is off). Inject
+        # any toggled sections (Compliance Table / ITIC) the template lacks; the
+        # .docx receives those through inject_images_to_word above.
+        need_html = want_html or (want_pdf and not pdf_via_docx)
+        if need_html and extra_sections:
             frag = ""
             for title, ph_key, _path in extra_sections:
                 if ph_key in html_template:
@@ -555,14 +691,14 @@ def build_report(df_raw, df_proc, df_events, config, params, *, df_steady=None, 
                 else:
                     html_template += frag
 
-        # 3. HTML (needed for the html artifact and/or as the PDF source).
-        if want_html or want_pdf:
+        # 3. HTML artifact and/or the HTML→PDF (Chromium) fallback.
+        if need_html:
             import html_report
             html_str = _strip_unused_image_placeholders(
                 html_report.inject_html_placeholders(html_template, p_map))
             if want_html:
                 artifacts["html"] = html_str
-            if want_pdf:
+            if want_pdf and not pdf_via_docx:
                 pdf_path = os.path.join(work_dir, filename + ".pdf")
                 pdf_ok, plog = html_to_pdf(html_str, pdf_path)
                 log_lines.append(plog)
@@ -571,34 +707,18 @@ def build_report(df_raw, df_proc, df_events, config, params, *, df_steady=None, 
                 else:
                     warnings.append("PDF export failed — see report log for details.")
 
-        # 4. Editable Word .docx (only with a supplied template — inline bytes or
-        #    a name in the persistent library).
-        if want_docx:
-            import io
-            template_stream = None
-            if docx_template_b64:
-                template_stream = io.BytesIO(base64.b64decode(docx_template_b64))
-            elif docx_template_name:
-                from desktop import template_store
-                tpl_path = template_store.resolve(docx_template_name)
-                if tpl_path:
-                    template_stream = tpl_path  # python-docx accepts a path
-                else:
-                    warnings.append(
-                        f"Word template '{docx_template_name}' was not found in the "
-                        f"library — re-upload it to generate the .docx.")
-            if template_stream is not None:
-                doc = report_mod.inject_images_to_word(
-                    template_stream, p_map,
-                    extra_sections=extra_sections or None,
-                    update_fields=bool(extra_sections),
-                )
-                docx_path = os.path.join(work_dir, filename + ".docx")
-                doc.save(docx_path)
-                artifacts["docx_b64"] = _file_b64(docx_path)
-                artifacts["docx_mime"] = DOCX_MIME
-            elif not warnings or "not found" not in warnings[-1]:
-                warnings.append("Word (.docx) output needs a Word template upload.")
+        # 4. PDF as a faithful LibreOffice render of the filled Word .docx — a
+        #    direct conversion of the Word document.
+        if pdf_via_docx and docx_path is not None:
+            pdf_path = os.path.join(work_dir, filename + ".pdf")
+            pdf_ok, plog = docx_to_pdf(docx_path, pdf_path)
+            log_lines.append(plog)
+            if pdf_ok:
+                artifacts["pdf_b64"] = _file_b64(pdf_path)
+            else:
+                warnings.append(
+                    "PDF export from the Word document failed — see report log "
+                    "(is LibreOffice installed?).")
     finally:
         if owns_dir:
             shutil.rmtree(work_dir, ignore_errors=True)
