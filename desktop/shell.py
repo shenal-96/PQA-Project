@@ -153,6 +153,21 @@ class HostBridge:
                              message=str(params.get("message", "")),
                              app_version=APP_VERSION)
 
+    # ---- custom presets (persistent, host-side) ---------------------------
+    def list_presets(self) -> dict:
+        """Return the user's persisted custom acceptance presets."""
+        from desktop import preset_store
+        return {"presets": preset_store.read_presets()}
+
+    def save_presets(self, params: dict | None = None) -> dict:
+        """Replace the stored custom-preset list; returns the cleaned list.
+
+        ``params``: ``{"presets": [{"name": str, "values": {...}}, ...]}``.
+        """
+        from desktop import preset_store
+        presets = (params or {}).get("presets", [])
+        return {"presets": preset_store.write_presets(presets)}
+
     # ---- CSV ingest -------------------------------------------------------
     @_logged
     def load_csv(self, params: dict | None = None) -> dict:

@@ -1,9 +1,9 @@
 import type {
   AnalysisResult, Caps, CrashReportResult, CsvMeta, EcuRecording, EventOverride,
   EventRecord, FeedbackKind, FeedbackResult, IticData, MetricSeries,
-  PendingCrashStatus, ReportRequest, ReportResult, SaveManyResult, SaveResult,
-  SetpointOptions, SetpointResult, SettingsReference, SnapshotData, SnapshotOpts,
-  SteadyResult, SteadyWindowEdit, TemplateInfo,
+  PendingCrashStatus, PresetRecord, ReportRequest, ReportResult, SaveManyResult,
+  SaveResult, SetpointOptions, SetpointResult, SettingsReference, SnapshotData,
+  SnapshotOpts, SteadyResult, SteadyWindowEdit, TemplateInfo,
 } from './types';
 
 /**
@@ -79,4 +79,10 @@ export interface AnalysisBackend {
    * a plain `mailto:` link itself.
    */
   sendFeedback?(kind: FeedbackKind, message: string): Promise<FeedbackResult>;
+
+  // ---- custom presets (persistent host-side; localStorage fallback) ----------
+  /** List the user's stored custom acceptance presets. */
+  listPresets?(): Promise<PresetRecord[]>;
+  /** Replace the stored custom-preset list; returns the normalized list. */
+  savePresets?(presets: PresetRecord[]): Promise<PresetRecord[]>;
 }

@@ -228,7 +228,7 @@
 </script>
 
 <div class="app">
-  <Sidebar {config} {caps} {fileName} {loggerFormat} {loading} {accept} {fileLabel}
+  <Sidebar {config} {caps} {backend} {fileName} {loggerFormat} {loading} {accept} {fileLabel}
     {timeMin} {timeMax} bind:timeStart bind:timeEnd
     bind:activePreset onRun={run} {onFile} />
 

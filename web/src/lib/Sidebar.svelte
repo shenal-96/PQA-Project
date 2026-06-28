@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import type { AnalysisConfigInput, Preset } from '../config/defaults';
   import { BUILTIN_PRESETS, VOLTAGE_PRESETS } from '../config/defaults';
-  import { loadCustomPresets } from '../config/preset_store';
+  import { loadPresets, persistPresets, capturePreset, PRESET_FIELDS } from '../config/preset_store';
+  import type { AnalysisBackend } from '../backend';
   import type { Caps } from '../backend/types';
   import TimeRangeSlider from './TimeRangeSlider.svelte';
   import PresetConfigurator from './PresetConfigurator.svelte';
@@ -13,6 +14,7 @@
   let {
     config,
     caps,
+    backend,
     fileName,
     loggerFormat,
     loading,
@@ -28,6 +30,7 @@
   }: {
     config: AnalysisConfigInput;
     caps: Caps | undefined;
+    backend: AnalysisBackend | undefined;
     fileName: string | undefined;
     loggerFormat: string | null | undefined;
     loading: boolean;
@@ -66,9 +69,13 @@
     untrack(() => (VOLTAGE_PRESETS.includes(config.nominal_voltage) ? String(config.nominal_voltage) : 'Custom')),
   );
 
-  // ── Presets: built-in (read-only) + user custom (localStorage) ──
-  let customPresets = $state<Preset[]>(loadCustomPresets());
+  // ── Presets: built-in (read-only) + user custom (durable host store / localStorage) ──
+  let customPresets = $state<Preset[]>([]);
   let presetMgrOpen = $state(false);
+
+  onMount(async () => {
+    customPresets = await loadPresets(backend);
+  });
 
   function applyPreset(name: string) {
     activePreset = name;
@@ -81,6 +88,29 @@
     const names = [...BUILTIN_PRESETS, ...customPresets].map((p) => p.name);
     if (activePreset !== 'None' && !names.includes(activePreset)) activePreset = 'None';
   });
+
+  // ── "Modified" detection: has the live config drifted from the active preset? ──
+  const activePresetObj = $derived(
+    activePreset === 'None'
+      ? undefined
+      : [...BUILTIN_PRESETS, ...customPresets].find((p) => p.name === activePreset),
+  );
+  const activeIsCustom = $derived(
+    !!activePresetObj && customPresets.some((p) => p.name === activePreset),
+  );
+  const presetModified = $derived.by(() => {
+    const v = activePresetObj?.values as Record<string, unknown> | undefined;
+    if (!v) return false;
+    return PRESET_FIELDS.some((k) => k in v && config[k] !== v[k]);
+  });
+
+  // Re-capture the current config into the active custom preset (overwrite).
+  async function updateActivePreset() {
+    if (!activeIsCustom) return;
+    const updated = capturePreset(activePreset, config);
+    customPresets = customPresets.map((p) => (p.name === activePreset ? updated : p));
+    await persistPresets(customPresets, backend);
+  }
 
   function setVoltMode(v: string) {
     voltMode = v;
@@ -215,6 +245,15 @@
       {/if}
     </select>
     <button class="manage-presets" onclick={() => (presetMgrOpen = true)}>⚙ Manage presets</button>
+    {#if activePreset !== 'None' && presetModified}
+      <div class="preset-modified">
+        <span class="mod-note"><span class="mod-dot">●</span> Modified from “{activePreset}”</span>
+        <div class="mod-actions">
+          {#if activeIsCustom}<button class="mod-btn primary" onclick={updateActivePreset}>Update</button>{/if}
+          <button class="mod-btn" onclick={() => (presetMgrOpen = true)}>Save as new</button>
+        </div>
+      </div>
+    {/if}
 
     <label class="chk"><input type="checkbox" bind:checked={config.show_limits} /> Show Limits on Graphs <InfoTip text={HELP.show_limits} /></label>
 
@@ -422,7 +461,7 @@
 </aside>
 
 {#if presetMgrOpen}
-  <PresetConfigurator {config} bind:presets={customPresets} onApply={applyPreset} onClose={() => (presetMgrOpen = false)} />
+  <PresetConfigurator {config} bind:presets={customPresets} {backend} onApply={applyPreset} onClose={() => (presetMgrOpen = false)} />
 {/if}
 
 <style>
@@ -469,6 +508,17 @@
     margin-top: 2px;
   }
   .manage-presets:hover { border-color: var(--blue); color: #fff; }
+  .preset-modified {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+    margin-top: 6px; padding: 7px 9px; border-radius: 7px;
+    background: rgba(234, 88, 12, 0.12); border: 1px solid rgba(234, 88, 12, 0.35);
+  }
+  .mod-note { font-size: 11px; color: #fdba74; display: flex; align-items: center; gap: 5px; }
+  .mod-dot { color: #f97316; font-size: 9px; }
+  .mod-actions { display: flex; gap: 5px; }
+  .mod-btn { background: #1e293b; color: #cbd5e1; border: 1px solid #334155; border-radius: 6px; padding: 4px 9px; font-size: 11px; font-weight: 600; cursor: pointer; }
+  .mod-btn:hover { border-color: var(--blue); color: #fff; }
+  .mod-btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
   .head { display: flex; align-items: center; gap: 10px; }
   .head .bolt { width: 36px; height: 36px; display: grid; place-items: center; background: var(--blue); border-radius: 9px; font-size: 18px; }
   .head .title { font-weight: 700; color: #fff; font-size: 17px; }

@@ -2,9 +2,9 @@ import type { AnalysisBackend } from './AnalysisBackend';
 import type {
   AnalysisResult, Caps, CrashReportResult, CsvMeta, EcuRecording, EventOverride,
   EventRecord, FeedbackKind, FeedbackResult, IticData, MetricSeries,
-  PendingCrashStatus, ReportRequest, ReportResult, SaveManyResult, SaveResult,
-  SetpointOptions, SetpointResult, SettingsReference, SnapshotData, SnapshotOpts,
-  SteadyResult, SteadyWindowEdit, TemplateInfo,
+  PendingCrashStatus, PresetRecord, ReportRequest, ReportResult, SaveManyResult,
+  SaveResult, SetpointOptions, SetpointResult, SettingsReference, SnapshotData,
+  SnapshotOpts, SteadyResult, SteadyWindowEdit, TemplateInfo,
 } from './types';
 
 declare global {
@@ -138,5 +138,15 @@ export class PyWebviewBackend implements AnalysisBackend {
 
   sendFeedback(kind: FeedbackKind, message: string): Promise<FeedbackResult> {
     return this.api.email_feedback({ kind, message }) as Promise<FeedbackResult>;
+  }
+
+  async listPresets(): Promise<PresetRecord[]> {
+    const r = (await this.api.list_presets()) as { presets: PresetRecord[] };
+    return r.presets ?? [];
+  }
+
+  async savePresets(presets: PresetRecord[]): Promise<PresetRecord[]> {
+    const r = (await this.api.save_presets({ presets })) as { presets: PresetRecord[] };
+    return r.presets ?? [];
   }
 }

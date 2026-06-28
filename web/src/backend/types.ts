@@ -254,6 +254,13 @@ export interface SaveManyResult {
   error?: string;
 }
 
+// --- Custom acceptance presets (persisted host-side; localStorage in browser) --
+/** A user-defined acceptance preset as it crosses the bridge / is stored. */
+export interface PresetRecord {
+  name: string;
+  values: Record<string, number | string | boolean>;
+}
+
 // --- Set Point comparison (M4) -------------------------------------------------
 export type SetpointKind = 'xls' | 'csv';
 export interface SetpointFile {
