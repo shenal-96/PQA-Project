@@ -344,8 +344,6 @@
       {:else}
         <div class="cap">ISO 8528-5 grading: frequency on β_f (peak-to-peak) and voltage on ΔU_st (regulation), against the {config.steady_performance_class} Table 4 limits. The δU / δf bands below drive the time-series overlay only.</div>
         <label class="chk"><input type="checkbox" bind:checked={config.steady_isochronous} /> Isochronous set (droop → 0%) <InfoTip text={HELP.steady_isochronous} /></label>
-        <label class="chk"><input type="checkbox" bind:checked={config.steady_single_two_cylinder} /> Single/two-cylinder engine (β_f ≤ 2.5%) <InfoTip text={HELP.steady_single_two_cylinder} /></label>
-        <label class="chk"><input type="checkbox" bind:checked={config.steady_low_power} /> Low-power set, ISO 8528-8 (ΔU_st ±10%) <InfoTip text={HELP.steady_low_power} /></label>
         <label class="chk"><input type="checkbox" bind:checked={config.steady_parallel_operation} /> Parallel operation (unbalance 0.5%) <InfoTip text={HELP.steady_parallel_operation} /></label>
       {/if}
 
