@@ -16,3 +16,7 @@ web/dist/
 *.egg-info/
 build/
 dist/
+
+# Local Python virtualenv (never commit)
+.venv/
+venv/
