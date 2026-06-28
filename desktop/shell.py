@@ -20,6 +20,11 @@ import sys
 
 from desktop import usage_log
 
+# Displayed app version (window title + crash/feedback reports). Keep in sync
+# with the frontend's authoritative copy in web/src/config/changelog.ts
+# (APP_VERSION = newest CHANGELOG entry).
+APP_VERSION = "v4.2"
+
 
 def _logged(method):
     """Wrap a bridge method so any exception is recorded in the local crash log.
@@ -105,13 +110,30 @@ class HostBridge:
         from desktop.crash_report import send_crash_report
 
         params = params or {}
-        return send_crash_report(limit=int(params.get("limit", 20)),
+        return send_crash_report(app_version=APP_VERSION,
+                                 limit=int(params.get("limit", 20)),
                                  reveal=bool(params.get("reveal", True)))
 
     def dismiss_crash_report(self) -> dict:
         """Clear the pending-crash marker without emailing (user declined)."""
         usage_log.clear_pending_crash()
         return {"ok": True}
+
+    # ---- in-app feedback --------------------------------------------------
+    def email_feedback(self, params: dict | None = None) -> dict:
+        """Open the user's mail client with a feature request / bug report.
+
+        ``params``: ``{"kind": "feature"|"bug", "message": str}``. Builds a
+        ``mailto:`` pre-addressed to the developer with the user's message and
+        opens it. Fully offline — nothing is sent automatically; the user sends
+        the email their mail client opens with.
+        """
+        from desktop.feedback_report import send_feedback
+
+        params = params or {}
+        return send_feedback(kind=str(params.get("kind", "feature")),
+                             message=str(params.get("message", "")),
+                             app_version=APP_VERSION)
 
     # ---- CSV ingest -------------------------------------------------------
     @_logged
@@ -501,7 +523,7 @@ def main() -> None:
     import webview  # lazy: only needed to actually open a window
 
     bridge = HostBridge()
-    window = webview.create_window("PQA PROJECT v4.1", url=_index_url(),
+    window = webview.create_window(f"PQA PROJECT {APP_VERSION}", url=_index_url(),
                                    js_api=bridge, width=1400, height=900, min_size=(1024, 700))
 
     # Track time spent in the app: start the timer when the window is shown and

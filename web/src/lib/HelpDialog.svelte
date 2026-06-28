@@ -2,6 +2,7 @@
   import img2 from '../assets/help/csv_step2_ll_voltage.png';
   import img3 from '../assets/help/csv_step3_trend_graph.png';
   import img4 from '../assets/help/csv_step4_export_options.png';
+  import { APP_VERSION } from '../config/changelog';
 
   let { onClose }: { onClose: () => void } = $props();
 
@@ -61,7 +62,7 @@
 <div class="overlay" onclick={(e) => { if (e.target === e.currentTarget) onClose(); }} role="presentation">
   <div class="dialog" role="dialog" aria-modal="true" aria-label="PQA User Guide" tabindex="-1">
     <header>
-      <div class="title"><span class="bolt">⚡</span> PQA User Guide <span class="ver">v4.1</span></div>
+      <div class="title"><span class="bolt">⚡</span> PQA User Guide <span class="ver">{APP_VERSION}</span></div>
       <button class="close" onclick={onClose} aria-label="Close">✕</button>
     </header>
 

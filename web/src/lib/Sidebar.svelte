@@ -8,6 +8,7 @@
   import PresetConfigurator from './PresetConfigurator.svelte';
   import InfoTip from './InfoTip.svelte';
   import { HELP } from '../config/help_text';
+  import { APP_VERSION } from '../config/changelog';
 
   let {
     config,
@@ -145,7 +146,7 @@
   <div class="head">
     <div class="bolt">⚡</div>
     <div>
-      <div class="title">PQA PROJECT <span class="ver">v4.1</span></div>
+      <div class="title">PQA PROJECT <span class="ver">{APP_VERSION}</span></div>
       <div class="sub">Configuration</div>
     </div>
     {#if caps}<span class="env">{caps.platform}</span>{/if}

@@ -311,6 +311,17 @@ export interface CrashReportResult {
   error?: string | null;
 }
 
+// --- In-app feedback (feature request / bug report) ----------------------------
+/** Which kind of feedback the user is sending from the changelog dialog. */
+export type FeedbackKind = 'feature' | 'bug';
+/** Result of opening the mail client with a feature request / bug report. */
+export interface FeedbackResult {
+  ok: boolean;
+  email: string;
+  mailto_opened: boolean;
+  error?: string | null;
+}
+
 // --- Settings Reference (curated ComAp/D550 knowledge base) ---------------------
 /** One setpoint/parameter entry with plain-English context. */
 export interface ReferenceSetting {

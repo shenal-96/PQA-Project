@@ -1,9 +1,10 @@
 import type { AnalysisBackend } from './AnalysisBackend';
 import type {
   AnalysisResult, Caps, CrashReportResult, CsvMeta, EcuRecording, EventOverride,
-  EventRecord, IticData, MetricSeries, PendingCrashStatus, ReportRequest,
-  ReportResult, SaveResult, SetpointOptions, SetpointResult, SettingsReference,
-  SnapshotData, SnapshotOpts, SteadyResult, SteadyWindowEdit, TemplateInfo,
+  EventRecord, FeedbackKind, FeedbackResult, IticData, MetricSeries,
+  PendingCrashStatus, ReportRequest, ReportResult, SaveResult, SetpointOptions,
+  SetpointResult, SettingsReference, SnapshotData, SnapshotOpts, SteadyResult,
+  SteadyWindowEdit, TemplateInfo,
 } from './types';
 
 declare global {
@@ -126,5 +127,9 @@ export class PyWebviewBackend implements AnalysisBackend {
 
   async dismissCrashReport(): Promise<void> {
     await this.api.dismiss_crash_report();
+  }
+
+  sendFeedback(kind: FeedbackKind, message: string): Promise<FeedbackResult> {
+    return this.api.email_feedback({ kind, message }) as Promise<FeedbackResult>;
   }
 }

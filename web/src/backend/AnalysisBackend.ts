@@ -1,8 +1,9 @@
 import type {
   AnalysisResult, Caps, CrashReportResult, CsvMeta, EcuRecording, EventOverride,
-  EventRecord, IticData, MetricSeries, PendingCrashStatus, ReportRequest,
-  ReportResult, SaveResult, SetpointOptions, SetpointResult, SettingsReference,
-  SnapshotData, SnapshotOpts, SteadyResult, SteadyWindowEdit, TemplateInfo,
+  EventRecord, FeedbackKind, FeedbackResult, IticData, MetricSeries,
+  PendingCrashStatus, ReportRequest, ReportResult, SaveResult, SetpointOptions,
+  SetpointResult, SettingsReference, SnapshotData, SnapshotOpts, SteadyResult,
+  SteadyWindowEdit, TemplateInfo,
 } from './types';
 
 /**
@@ -64,4 +65,12 @@ export interface AnalysisBackend {
   emailCrashReport?(): Promise<CrashReportResult>;
   /** Clear the pending-crash marker without emailing (user declined). */
   dismissCrashReport?(): Promise<void>;
+
+  // ---- in-app feedback (desktop opens the mail client; browser falls back) ---
+  /**
+   * Open the user's mail client pre-addressed to the developer with a feature
+   * request or bug report. Absent on browser/mock backends — the UI then opens
+   * a plain `mailto:` link itself.
+   */
+  sendFeedback?(kind: FeedbackKind, message: string): Promise<FeedbackResult>;
 }
