@@ -2,9 +2,9 @@ import type { AnalysisBackend } from './AnalysisBackend';
 import type {
   AnalysisResult, Caps, CrashReportResult, CsvMeta, EcuRecording, EventOverride,
   EventRecord, FeedbackKind, FeedbackResult, IticData, MetricSeries,
-  PendingCrashStatus, ReportRequest, ReportResult, SaveResult, SetpointOptions,
-  SetpointResult, SettingsReference, SnapshotData, SnapshotOpts, SteadyResult,
-  SteadyWindowEdit, TemplateInfo,
+  PendingCrashStatus, ReportRequest, ReportResult, SaveManyResult, SaveResult,
+  SetpointOptions, SetpointResult, SettingsReference, SnapshotData, SnapshotOpts,
+  SteadyResult, SteadyWindowEdit, TemplateInfo,
 } from './types';
 
 declare global {
@@ -115,6 +115,13 @@ export class PyWebviewBackend implements AnalysisBackend {
 
   saveFile(filename: string, dataB64: string): Promise<SaveResult> {
     return this.api.save_dialog({ filename, data_b64: dataB64 }) as Promise<SaveResult>;
+  }
+
+  saveFiles(files: { name: string; b64: string }[], baseFilename: string): Promise<SaveManyResult> {
+    return this.api.save_files({
+      files: files.map((f) => ({ filename: f.name, data_b64: f.b64 })),
+      filename: baseFilename,
+    }) as Promise<SaveManyResult>;
   }
 
   pendingCrash(): Promise<PendingCrashStatus> {

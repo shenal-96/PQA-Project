@@ -116,3 +116,25 @@ def test_metric_series_requires_analysis():
         pass
     else:  # pragma: no cover
         raise AssertionError("expected RuntimeError before run_analysis")
+
+
+def test_derive_report_targets_multi_keeps_one_dir_and_stem():
+    """One chosen Save path -> all artifacts in that folder, same stem, own ext."""
+    import os
+    from desktop.shell import _derive_report_targets
+
+    files = [{"filename": "PQA_Report.pdf"}, {"filename": "PQA_Report.docx"}]
+    targets = _derive_report_targets(os.path.join("/Users/me/Reports", "SiteX.pdf"), files)
+    assert targets == [
+        os.path.join("/Users/me/Reports", "SiteX.pdf"),
+        os.path.join("/Users/me/Reports", "SiteX.docx"),
+    ]
+
+
+def test_derive_report_targets_single_preserves_path():
+    import os
+    from desktop.shell import _derive_report_targets
+
+    targets = _derive_report_targets(os.path.join("/tmp", "My Report.html"),
+                                     [{"filename": "x.html"}])
+    assert targets == [os.path.join("/tmp", "My Report.html")]

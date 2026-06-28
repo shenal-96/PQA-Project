@@ -247,6 +247,12 @@ export interface SaveResult {
   path: string | null;
   error?: string;
 }
+/** Result of saving several report artifacts via ONE native Save dialog. */
+export interface SaveManyResult {
+  /** Absolute paths written (empty if the user cancelled). */
+  paths: string[];
+  error?: string;
+}
 
 // --- Set Point comparison (M4) -------------------------------------------------
 export type SetpointKind = 'xls' | 'csv';

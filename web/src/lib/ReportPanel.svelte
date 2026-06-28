@@ -105,7 +105,7 @@
   let history = $state<{ name: string; when: string; arts: Artifact[] }[]>([]);
 
   const canReport = $derived(caps?.canReport === true);
-  const canSave = $derived(typeof backend?.saveFile === 'function');
+  const canSave = $derived(typeof backend?.saveFiles === 'function');
   const outputs = $derived(outputsFor(format));
   const needsTemplate = $derived(outputs.docx);
   const selectedTpl = $derived(templates.find((t) => t.name === selectedTemplate));
@@ -276,39 +276,37 @@
     }
   }
 
-  /** Save every generated artifact: a native Save dialog per file on desktop,
-   *  or a direct browser download when no native save bridge is available. */
+  /** Save every generated artifact with ONE native Save dialog on desktop (the
+   *  user picks a single location/name; each file keeps its own extension), or
+   *  a direct browser download when no native save bridge is available. */
   async function saveAll(out: Artifact[]) {
-    if (!canSave || !backend?.saveFile) {
+    if (!canSave || !backend?.saveFiles) {
       out.forEach(download);
       statusOk = true;
       statusMsg = `Downloaded ${out.length} file${out.length > 1 ? 's' : ''}.`;
       return;
     }
-    const saved: string[] = [];
-    let cancelled = false;
-    let fellBack = false;
-    for (const a of out) {
-      try {
-        const res = await backend.saveFile(a.name, a.b64);
-        if (res.path) saved.push(res.path);
-        else if (res.error) { fellBack = true; download(a); }
-        else cancelled = true; // user dismissed the Save dialog for this file
-      } catch {
-        fellBack = true;
-        download(a);
+    try {
+      const res = await backend.saveFiles(
+        out.map((a) => ({ name: a.name, b64: a.b64 })),
+        filename || 'PQA_Report',
+      );
+      if (res.paths.length) {
+        statusOk = true;
+        statusMsg = res.paths.length === 1
+          ? `Saved to ${res.paths[0]}`
+          : `Saved ${res.paths.length} files to ${res.paths[0].replace(/[/\\][^/\\]*$/, '')}`;
+      } else if (res.error) {
+        statusOk = false;
+        out.forEach(download);
+        statusMsg = 'Could not open the save dialog — downloaded instead.';
+      } else {
+        statusOk = true;
+        statusMsg = 'Save cancelled — re-save from the list below if needed.';
       }
-    }
-    if (saved.length) {
-      statusOk = true;
-      statusMsg = saved.length === 1
-        ? `Saved to ${saved[0]}`
-        : `Saved ${saved.length} files (last: ${saved[saved.length - 1]}).`;
-    } else if (cancelled) {
-      statusOk = true;
-      statusMsg = 'Save cancelled — re-save from the list below if needed.';
-    } else if (fellBack) {
+    } catch {
       statusOk = false;
+      out.forEach(download);
       statusMsg = 'Could not open the save dialog — downloaded instead.';
     }
   }

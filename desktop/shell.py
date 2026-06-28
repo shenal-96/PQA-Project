@@ -43,6 +43,24 @@ def _logged(method):
     return wrapper
 
 
+def _derive_report_targets(chosen_path: str, files: list) -> list:
+    """Map a single user-chosen Save path to one target path per artifact.
+
+    Every artifact is written to the chosen directory under the chosen base
+    name, each keeping its own extension — so ``…/SiteX.pdf`` chosen for a
+    Word + PDF report yields ``SiteX.pdf`` and ``SiteX.docx``. This is the pure
+    core of :meth:`HostBridge.save_files` (kept module-level so it is unit-
+    testable without a live webview window).
+    """
+    directory = os.path.dirname(chosen_path)
+    stem = os.path.splitext(os.path.basename(chosen_path))[0] or "PQA_Report"
+    targets = []
+    for f in files:
+        ext = os.path.splitext((f or {}).get("filename") or "")[1]
+        targets.append(os.path.join(directory, stem + ext))
+    return targets
+
+
 class HostBridge:
     """Methods here are exposed to JS as ``window.pywebview.api.<name>(...)``.
 
@@ -420,6 +438,48 @@ class HostBridge:
             return {"path": str(path)}
         except Exception as exc:  # noqa: BLE001 — never crash the bridge
             return {"path": None, "error": str(exc)}
+
+    def save_files(self, params: dict | None = None) -> dict:
+        """Write several report artifacts via ONE native Save dialog.
+
+        The user picks a single location + base name; every artifact is written
+        to that folder under that name, each keeping its own extension (see
+        :func:`_derive_report_targets`). ``params``::
+
+            {"files": [{"filename": str, "data_b64": str}, ...],
+             "filename": <base name>}
+
+        Returns ``{"paths": [str, ...]}`` on success, ``{"paths": []}`` if the
+        user cancelled, or ``{"paths": [], "error": ...}`` when no window is
+        available. Browser-style blob downloads remain the frontend fallback.
+        """
+        params = params or {}
+        files = params.get("files") or []
+        if not files:
+            return {"paths": [], "error": "no files"}
+        base = params.get("filename") or "PQA_Report"
+        # Pre-fill the dialog: a lone file suggests its full name; multiple files
+        # suggest just the base (each extension is applied afterwards).
+        suggested = files[0].get("filename") if len(files) == 1 else base
+        try:
+            import webview
+            windows = getattr(webview, "windows", None) or []
+            if not windows:
+                return {"paths": [], "error": "no active window"}
+            chosen = windows[0].create_file_dialog(
+                webview.SAVE_DIALOG, save_filename=suggested or base)
+            path = chosen[0] if isinstance(chosen, (list, tuple)) else chosen
+            if not path:
+                return {"paths": []}
+            targets = _derive_report_targets(str(path), files)
+            written = []
+            for f, target in zip(files, targets):
+                with open(target, "wb") as out:
+                    out.write(base64.b64decode(f.get("data_b64") or ""))
+                written.append(target)
+            return {"paths": written}
+        except Exception as exc:  # noqa: BLE001 — never crash the bridge
+            return {"paths": [], "error": str(exc)}
 
     # ---- per-event overrides + recalculate --------------------------------
     @_logged

@@ -1,9 +1,9 @@
 import type {
   AnalysisResult, Caps, CrashReportResult, CsvMeta, EcuRecording, EventOverride,
   EventRecord, FeedbackKind, FeedbackResult, IticData, MetricSeries,
-  PendingCrashStatus, ReportRequest, ReportResult, SaveResult, SetpointOptions,
-  SetpointResult, SettingsReference, SnapshotData, SnapshotOpts, SteadyResult,
-  SteadyWindowEdit, TemplateInfo,
+  PendingCrashStatus, ReportRequest, ReportResult, SaveManyResult, SaveResult,
+  SetpointOptions, SetpointResult, SettingsReference, SnapshotData, SnapshotOpts,
+  SteadyResult, SteadyWindowEdit, TemplateInfo,
 } from './types';
 
 /**
@@ -57,6 +57,12 @@ export interface AnalysisBackend {
    * browser blob download. `dataB64` is the file's base64 bytes.
    */
   saveFile?(filename: string, dataB64: string): Promise<SaveResult>;
+  /**
+   * Save several report artifacts with a SINGLE native Save dialog: the user
+   * picks one location/name and each file is written there with its own
+   * extension. Desktop only; the UI downloads directly when absent.
+   */
+  saveFiles?(files: { name: string; b64: string }[], baseFilename: string): Promise<SaveManyResult>;
 
   // ---- crash reporting (desktop only) ---------------------------------------
   /** Whether a prior session crashed without the report being sent. */
