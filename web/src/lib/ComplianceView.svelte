@@ -71,10 +71,10 @@
   );
   const streaming = $derived(snapshots.length > 0 && snapshots.some((s) => s === null));
   const snapShow = $derived<SnapshotShow>({
-    band: config.show_tolerance_band,
-    limit: config.show_deviation_limits,
-    intersections: config.show_intersections,
-    extreme: config.show_max_deviation,
+    band: config.show_data_points && config.show_tolerance_band,
+    limit: config.show_data_points && config.show_deviation_limits,
+    intersections: config.show_data_points && config.show_intersections,
+    extreme: config.show_data_points && config.show_max_deviation,
   });
   // δ band + dwell windows to overlay on the V/F time-series when steady-state
   // is enabled (only for the two metrics the δ bands apply to).

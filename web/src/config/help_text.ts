@@ -25,6 +25,8 @@ export const HELP = {
 
   snapshot_display:
     'Choose which reference markers are drawn on the per-event snapshot plots.',
+  show_data_points:
+    'Master toggle for the per-event snapshot markers. When on, the individual marker options below are available; when off, no reference markers (tolerance band, deviation limits, intersection points, max deviation) are drawn on any snapshot. On by default.',
   show_tolerance_band:
     'Draw the recovery tolerance band (amber dashed lines) on each event snapshot plot.',
   show_deviation_limits:
@@ -34,6 +36,8 @@ export const HELP = {
   show_max_deviation:
     'Mark the actual peak voltage and frequency deviation point on each event snapshot (red ★) with a legend entry showing the measured value.',
 
+  detection_settings:
+    'Tuning for how load-step events are detected and measured. Expand to adjust the detection/snapshot/recovery windows, the fault threshold, and the load step size that counts as an event.',
   detection_window_s:
     'Time window used to group consecutive load-step rows into a single event. Changes within this window are merged into one net step by algebraic sum.',
   snapshot_window_s:
@@ -45,6 +49,8 @@ export const HELP = {
   load_threshold_kw:
     'Minimum load step size (kW) to register as a compliance event. Changes smaller than this are ignored.',
 
+  enable_asymmetric_limits:
+    'Expand to set direction-specific (asymmetric) recovery bands and max-deviation limits for voltage and frequency — separate values for load-increase vs load-decrease events. Leave collapsed when symmetric limits are sufficient.',
   apply_asymmetric_volt:
     'Enable separate recovery band limits for voltage — one set for load increase events (voltage drops) and another for load decrease (voltage rises). Unlocks the Voltage Recovery Bands inputs below.',
   apply_asymmetric_volt_dev:

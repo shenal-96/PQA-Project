@@ -258,21 +258,30 @@
     <label class="chk"><input type="checkbox" bind:checked={config.show_limits} /> Show Limits on Graphs <InfoTip text={HELP.show_limits} /></label>
 
     <div class="grp-label">Snapshot Display Options <InfoTip text={HELP.snapshot_display} /></div>
-    <label class="chk"><input type="checkbox" bind:checked={config.show_tolerance_band} /> Show Tolerance Band on Snapshots <InfoTip text={HELP.show_tolerance_band} /></label>
-    <label class="chk"><input type="checkbox" bind:checked={config.show_deviation_limits} /> Show Deviation Limits on Snapshots <InfoTip text={HELP.show_deviation_limits} /></label>
-    <label class="chk"><input type="checkbox" bind:checked={config.show_intersections} /> Show Intersection Points <InfoTip text={HELP.show_intersections} /></label>
-    <label class="chk"><input type="checkbox" bind:checked={config.show_max_deviation} /> Show Max Deviation <InfoTip text={HELP.show_max_deviation} /></label>
+    <label class="chk"><input type="checkbox" bind:checked={config.show_data_points} /> Display data points on snapshots <InfoTip text={HELP.show_data_points} /></label>
+    {#if config.show_data_points}
+      <label class="chk nested"><input type="checkbox" bind:checked={config.show_tolerance_band} /> Show Tolerance Band on Snapshots <InfoTip text={HELP.show_tolerance_band} /></label>
+      <label class="chk nested"><input type="checkbox" bind:checked={config.show_deviation_limits} /> Show Deviation Limits on Snapshots <InfoTip text={HELP.show_deviation_limits} /></label>
+      <label class="chk nested"><input type="checkbox" bind:checked={config.show_intersections} /> Show Intersection Points <InfoTip text={HELP.show_intersections} /></label>
+      <label class="chk nested"><input type="checkbox" bind:checked={config.show_max_deviation} /> Show Max Deviation <InfoTip text={HELP.show_max_deviation} /></label>
+    {/if}
 
-    <div class="field"><span>Detection Window (s) <InfoTip text={HELP.detection_window_s} /></span><input type="number" min="1" max="30" step="1" bind:value={config.detection_window_s} /></div>
-    <div class="field"><span>Snapshot Window (s) <InfoTip text={HELP.snapshot_window_s} /></span><input type="number" min="3" max="60" step="1" bind:value={config.snapshot_window_s} /></div>
-    <div class="field"><span>Recovery Verify Window (s) <InfoTip text={HELP.recovery_verify_s} /></span><input type="number" min="1" max="30" step="1" bind:value={config.recovery_verify_s} /></div>
-    <div class="field"><span>Fault Recovery Threshold (s) <InfoTip text={HELP.fault_recovery_threshold_s} /></span><input type="number" min="1" max="120" step="1" bind:value={config.fault_recovery_threshold_s} /></div>
-    <div class="field"><span>Load Threshold (kW) <InfoTip text={HELP.load_threshold_kw} /></span><input type="number" min="0" step="10" bind:value={config.load_threshold_kw} /></div>
+    <details class="det">
+      <summary>Detection Settings <InfoTip text={HELP.detection_settings} /></summary>
+      <div class="field"><span>Detection Window (s) <InfoTip text={HELP.detection_window_s} /></span><input type="number" min="1" max="30" step="1" bind:value={config.detection_window_s} /></div>
+      <div class="field"><span>Snapshot Window (s) <InfoTip text={HELP.snapshot_window_s} /></span><input type="number" min="3" max="60" step="1" bind:value={config.snapshot_window_s} /></div>
+      <div class="field"><span>Recovery Verify Window (s) <InfoTip text={HELP.recovery_verify_s} /></span><input type="number" min="1" max="30" step="1" bind:value={config.recovery_verify_s} /></div>
+      <div class="field"><span>Fault Recovery Threshold (s) <InfoTip text={HELP.fault_recovery_threshold_s} /></span><input type="number" min="1" max="120" step="1" bind:value={config.fault_recovery_threshold_s} /></div>
+      <div class="field"><span>Load Threshold (kW) <InfoTip text={HELP.load_threshold_kw} /></span><input type="number" min="0" step="10" bind:value={config.load_threshold_kw} /></div>
+    </details>
 
-    <label class="chk"><input type="checkbox" bind:checked={config.apply_asymmetric_volt} /> Apply asymmetric Voltage tolerance band <InfoTip text={HELP.apply_asymmetric_volt} /></label>
-    <label class="chk"><input type="checkbox" bind:checked={config.apply_asymmetric_volt_dev} /> Apply asymmetric Voltage deviation limit <InfoTip text={HELP.apply_asymmetric_volt_dev} /></label>
-    <label class="chk"><input type="checkbox" bind:checked={config.apply_asymmetric_freq} /> Apply asymmetric Frequency tolerance band <InfoTip text={HELP.apply_asymmetric_freq} /></label>
-    <label class="chk"><input type="checkbox" bind:checked={config.apply_asymmetric_freq_dev} /> Apply asymmetric Frequency deviation limit <InfoTip text={HELP.apply_asymmetric_freq_dev} /></label>
+    <details class="det">
+      <summary>Enable asymmetric limits <InfoTip text={HELP.enable_asymmetric_limits} /></summary>
+      <label class="chk"><input type="checkbox" bind:checked={config.apply_asymmetric_volt} /> Apply asymmetric Voltage tolerance band <InfoTip text={HELP.apply_asymmetric_volt} /></label>
+      <label class="chk"><input type="checkbox" bind:checked={config.apply_asymmetric_volt_dev} /> Apply asymmetric Voltage deviation limit <InfoTip text={HELP.apply_asymmetric_volt_dev} /></label>
+      <label class="chk"><input type="checkbox" bind:checked={config.apply_asymmetric_freq} /> Apply asymmetric Frequency tolerance band <InfoTip text={HELP.apply_asymmetric_freq} /></label>
+      <label class="chk"><input type="checkbox" bind:checked={config.apply_asymmetric_freq_dev} /> Apply asymmetric Frequency deviation limit <InfoTip text={HELP.apply_asymmetric_freq_dev} /></label>
+    </details>
     <label class="chk"><input type="checkbox" bind:checked={config.iso_8528_5_mode} /> Apply ISO dual frequency bands <InfoTip text={HELP.iso_8528_5_mode} /></label>
 
     <div class="two">
@@ -536,6 +545,7 @@
   .field.col-f input { width: 84px; flex: 0 0 84px; }
   .chk { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #cbd5e1; }
   .chk input { width: auto; flex: 0 0 auto; }
+  .chk.nested { margin-left: 18px; }
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .col { display: flex; flex-direction: column; gap: 6px; }
   .cap { font-size: 11px; color: #94a3b8; }
@@ -560,4 +570,8 @@
   .exact summary { font-size: 11px; color: #94a3b8; cursor: pointer; user-select: none; list-style: revert; }
   .exact summary:hover { color: #cbd5e1; }
   .exact[open] { display: flex; flex-direction: column; gap: 8px; }
+  .det { margin-top: 4px; }
+  .det summary { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8; cursor: pointer; user-select: none; list-style: revert; padding: 2px 0; }
+  .det summary:hover { color: #cbd5e1; }
+  .det[open] { display: flex; flex-direction: column; gap: 8px; }
 </style>
