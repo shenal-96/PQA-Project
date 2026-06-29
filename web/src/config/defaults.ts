@@ -123,7 +123,7 @@ export const DEFAULT_CONFIG: AnalysisConfigInput = {
   apply_asymmetric_freq: false,
   apply_asymmetric_freq_dev: false,
 
-  iso_8528_5_mode: false,
+  iso_8528_5_mode: true,
   band_mode: 'pct',
   beta_f_pct: 0.5,
   alpha_f_pct: 2.0,
