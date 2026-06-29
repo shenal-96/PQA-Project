@@ -105,7 +105,7 @@ export const DEFAULT_CONFIG: AnalysisConfigInput = {
   nominal_frequency: 50,
   ln_to_ll_mode: 'auto',
 
-  load_threshold_kw: 50,
+  load_threshold_kw: 30,
   detection_window_s: 5,
   snapshot_window_s: 10,
   recovery_verify_s: 6,
