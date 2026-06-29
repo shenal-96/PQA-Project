@@ -69,6 +69,9 @@ export interface AnalysisConfigInput {
 
   // ── Display flags (not analysis — drive snapshots/report rendering) ──
   show_limits: boolean;
+  // Master toggle nesting the four snapshot-marker flags below. When false, none
+  // of the per-event snapshot markers are drawn regardless of their own values.
+  show_data_points: boolean;
   show_tolerance_band: boolean;
   show_deviation_limits: boolean;
   show_intersections: boolean;
@@ -145,10 +148,11 @@ export const DEFAULT_CONFIG: AnalysisConfigInput = {
   freq_max_dev_pct_decrease: 7,
 
   show_limits: false,
+  show_data_points: true,
   show_tolerance_band: true,
   show_deviation_limits: true,
-  show_intersections: false,
-  show_max_deviation: false,
+  show_intersections: true,
+  show_max_deviation: true,
 
   steady_state_enabled: false,
   steady_voltage_band_pct: 2.5,
@@ -352,12 +356,14 @@ export interface DisplayOptions {
 }
 
 export function displayOptions(c: AnalysisConfigInput): DisplayOptions {
+  // The master `show_data_points` toggle gates the four snapshot-marker flags.
+  const dp = c.show_data_points;
   return {
     show_limits: c.show_limits,
-    show_tolerance_band: c.show_tolerance_band,
-    show_deviation_limits: c.show_deviation_limits,
-    show_intersections: c.show_intersections,
-    show_max_deviation: c.show_max_deviation,
+    show_tolerance_band: dp && c.show_tolerance_band,
+    show_deviation_limits: dp && c.show_deviation_limits,
+    show_intersections: dp && c.show_intersections,
+    show_max_deviation: dp && c.show_max_deviation,
     rated_load_kw: c.rated_load_kw,
   };
 }

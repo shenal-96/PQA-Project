@@ -258,10 +258,13 @@
     <label class="chk"><input type="checkbox" bind:checked={config.show_limits} /> Show Limits on Graphs <InfoTip text={HELP.show_limits} /></label>
 
     <div class="grp-label">Snapshot Display Options <InfoTip text={HELP.snapshot_display} /></div>
-    <label class="chk"><input type="checkbox" bind:checked={config.show_tolerance_band} /> Show Tolerance Band on Snapshots <InfoTip text={HELP.show_tolerance_band} /></label>
-    <label class="chk"><input type="checkbox" bind:checked={config.show_deviation_limits} /> Show Deviation Limits on Snapshots <InfoTip text={HELP.show_deviation_limits} /></label>
-    <label class="chk"><input type="checkbox" bind:checked={config.show_intersections} /> Show Intersection Points <InfoTip text={HELP.show_intersections} /></label>
-    <label class="chk"><input type="checkbox" bind:checked={config.show_max_deviation} /> Show Max Deviation <InfoTip text={HELP.show_max_deviation} /></label>
+    <label class="chk"><input type="checkbox" bind:checked={config.show_data_points} /> Display data points on snapshots <InfoTip text={HELP.show_data_points} /></label>
+    {#if config.show_data_points}
+      <label class="chk nested"><input type="checkbox" bind:checked={config.show_tolerance_band} /> Show Tolerance Band on Snapshots <InfoTip text={HELP.show_tolerance_band} /></label>
+      <label class="chk nested"><input type="checkbox" bind:checked={config.show_deviation_limits} /> Show Deviation Limits on Snapshots <InfoTip text={HELP.show_deviation_limits} /></label>
+      <label class="chk nested"><input type="checkbox" bind:checked={config.show_intersections} /> Show Intersection Points <InfoTip text={HELP.show_intersections} /></label>
+      <label class="chk nested"><input type="checkbox" bind:checked={config.show_max_deviation} /> Show Max Deviation <InfoTip text={HELP.show_max_deviation} /></label>
+    {/if}
 
     <div class="field"><span>Detection Window (s) <InfoTip text={HELP.detection_window_s} /></span><input type="number" min="1" max="30" step="1" bind:value={config.detection_window_s} /></div>
     <div class="field"><span>Snapshot Window (s) <InfoTip text={HELP.snapshot_window_s} /></span><input type="number" min="3" max="60" step="1" bind:value={config.snapshot_window_s} /></div>
@@ -536,6 +539,7 @@
   .field.col-f input { width: 84px; flex: 0 0 84px; }
   .chk { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #cbd5e1; }
   .chk input { width: auto; flex: 0 0 auto; }
+  .chk.nested { margin-left: 18px; }
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .col { display: flex; flex-direction: column; gap: 6px; }
   .cap { font-size: 11px; color: #94a3b8; }

@@ -25,6 +25,8 @@ export const HELP = {
 
   snapshot_display:
     'Choose which reference markers are drawn on the per-event snapshot plots.',
+  show_data_points:
+    'Master toggle for the per-event snapshot markers. When on, the individual marker options below are available; when off, no reference markers (tolerance band, deviation limits, intersection points, max deviation) are drawn on any snapshot. On by default.',
   show_tolerance_band:
     'Draw the recovery tolerance band (amber dashed lines) on each event snapshot plot.',
   show_deviation_limits:
