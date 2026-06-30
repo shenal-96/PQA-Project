@@ -1,0 +1,508 @@
+// PQA Project — redesign. Faithful to the real app's dark theme & content,
+// with the configuration sidebar restructured for clarity.
+const { useState } = React;
+
+/* ───────────────────────── icons ───────────────────────── */
+const Ic = {
+  bolt:   (p) => <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" {...p}><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/></svg>,
+  scope:  (p) => <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M3 12h4l2 6 4-14 2 8h6"/></svg>,
+  wrench: (p) => <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M14.7 6.3a4 4 0 0 0-5 5L4 17l3 3 5.7-5.7a4 4 0 0 0 5-5l-2.5 2.5-2-2 2.5-2.5z"/></svg>,
+  chart:  (p) => <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 15l3-4 2 2 4-6"/></svg>,
+  book:   (p) => <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M4 5a2 2 0 0 1 2-2h12v16H6a2 2 0 0 0-2 2z"/><path d="M4 5v16"/></svg>,
+  help:   (p) => <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1 .9-1 1.7"/><circle cx="12" cy="16.5" r="0.6" fill="currentColor"/></svg>,
+  chevron:(p) => <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M6 9l6 6 6-6"/></svg>,
+  reset:  (p) => <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>,
+  file:   (p) => <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>,
+  swap:   (p) => <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M7 7h11l-3-3M17 17H6l3 3"/></svg>,
+  clock:  (p) => <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>,
+};
+
+/* ───────────────────────── small UI atoms ───────────────────────── */
+
+function Switch({ on, onClick }) {
+  return (
+    <button onClick={onClick} style={{
+      width: 30, height: 18, borderRadius: 99, flexShrink: 0, cursor: 'pointer',
+      background: on ? 'var(--blue)' : '#1d293f',
+      border: `1px solid ${on ? 'var(--blue)' : '#2a3a57'}`,
+      position: 'relative', transition: 'background .15s, border-color .15s', padding: 0,
+    }}>
+      <span style={{
+        position: 'absolute', top: 1.5, left: on ? 13 : 1.5,
+        width: 13, height: 13, borderRadius: 99, background: '#fff',
+        transition: 'left .15s', boxShadow: '0 1px 2px rgba(0,0,0,.4)',
+      }} />
+    </button>
+  );
+}
+
+function ToggleRow({ label, on, set, hint }) {
+  return (
+    <div onClick={set} style={{
+      display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', cursor: 'pointer',
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12.5, color: on ? 'var(--ink)' : 'var(--sub)' }}>{label}</div>
+        {hint && <div style={{ fontSize: 10.5, color: 'var(--mute)', marginTop: 1 }}>{hint}</div>}
+      </div>
+      <Switch on={on} onClick={set} />
+    </div>
+  );
+}
+
+function Stepper({ label, value, unit, w = 78 }) {
+  const [v, setV] = useState(value);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 0' }}>
+      <div style={{ fontSize: 12.5, color: 'var(--sub)' }}>
+        {label} {unit && <span style={{ color: 'var(--faint)', fontSize: 11 }}>· {unit}</span>}
+      </div>
+      <div style={{
+        display: 'flex', alignItems: 'center', width: w, height: 30,
+        background: 'var(--panel)', border: '1px solid var(--line-2)', borderRadius: 7,
+        overflow: 'hidden',
+      }}>
+        <input className="mono" value={v} onChange={e => setV(e.target.value)} style={{
+          flex: 1, minWidth: 0, width: '100%', background: 'transparent', border: 'none', outline: 'none',
+          color: 'var(--ink)', fontSize: 13, textAlign: 'center', padding: 0, fontWeight: 600,
+        }} />
+        <div style={{ display: 'flex', flexDirection: 'column', borderLeft: '1px solid var(--line-2)', height: '100%' }}>
+          <button onClick={() => setV(x => (parseFloat(x) || 0) + 1)} style={stepBtn}>▲</button>
+          <button onClick={() => setV(x => (parseFloat(x) || 0) - 1)} style={{ ...stepBtn, borderTop: '1px solid var(--line-2)' }}>▼</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+const stepBtn = {
+  flex: 1, width: 20, background: 'transparent', border: 'none', color: 'var(--mute)',
+  cursor: 'pointer', fontSize: 6, display: 'grid', placeItems: 'center', padding: 0,
+};
+
+function Section({ title, count, children, defaultOpen = true, accent }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div style={{ borderTop: '1px solid var(--line)' }}>
+      <button onClick={() => setOpen(o => !o)} style={{
+        width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '13px 0 12px',
+        background: 'transparent', border: 'none', cursor: 'pointer',
+      }}>
+        {accent && <span style={{ width: 3, height: 12, borderRadius: 2, background: accent }} />}
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--sub)' }}>{title}</span>
+        {count != null && <span className="mono" style={{ fontSize: 10, color: 'var(--mute)', background: 'var(--panel-2)', border: '1px solid var(--line)', borderRadius: 99, padding: '1px 7px' }}>{count}</span>}
+        <span style={{ marginLeft: 'auto', color: 'var(--mute)', transform: open ? 'none' : 'rotate(-90deg)', transition: 'transform .15s' }}><Ic.chevron /></span>
+      </button>
+      {open && <div style={{ paddingBottom: 14 }}>{children}</div>}
+    </div>
+  );
+}
+
+/* ───────────────────────── top bar ───────────────────────── */
+
+function TopBar() {
+  const tabs = [
+    ['Compliance', Ic.bolt, true],
+    ['WinScope', Ic.scope, false],
+    ['Set Point', Ic.wrench, false],
+    ['ECU Plotting', Ic.chart, false],
+    ['Settings Reference', Ic.book, false],
+  ];
+  return (
+    <header style={{
+      height: 56, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4,
+      padding: '0 18px', background: 'var(--bg)', borderBottom: '1px solid var(--line)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 11, paddingRight: 18 }}>
+        <div style={{
+          width: 32, height: 32, borderRadius: 9, background: 'linear-gradient(150deg, #3f7bff, #2052e6)',
+          display: 'grid', placeItems: 'center', color: '#fff',
+          boxShadow: '0 2px 10px rgba(47,107,255,.4)',
+        }}><Ic.bolt /></div>
+        <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: '0.02em' }}>PQA <span style={{ color: 'var(--sub)' }}>PROJECT</span></div>
+        <span className="mono" style={{ fontSize: 10.5, color: 'var(--mute)', background: 'var(--panel-2)', border: '1px solid var(--line)', borderRadius: 6, padding: '2px 7px' }}>v4.1</span>
+      </div>
+
+      <nav style={{ display: 'flex', alignItems: 'center', gap: 2, height: '100%' }}>
+        {tabs.map(([label, Icon, active]) => (
+          <div key={label} style={{
+            display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px', height: '100%',
+            color: active ? 'var(--ink)' : 'var(--sub)', fontSize: 13.5,
+            fontWeight: active ? 600 : 500, cursor: 'pointer', position: 'relative',
+          }}>
+            <span style={{ color: active ? 'var(--blue)' : 'var(--mute)' }}><Icon /></span>
+            {label}
+            {active && <span style={{ position: 'absolute', left: 12, right: 12, bottom: 0, height: 2.5, background: 'var(--blue)', borderRadius: 2 }} />}
+          </div>
+        ))}
+      </nav>
+
+      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button style={pillBtn}><span style={{ color: 'var(--mute)' }}><Ic.help /></span> Help</button>
+        <button style={{ ...pillBtn, gap: 7 }}>
+          <span style={{ width: 7, height: 7, borderRadius: 99, background: 'var(--green)', boxShadow: '0 0 7px var(--green)' }} />
+          desktop
+        </button>
+      </div>
+    </header>
+  );
+}
+const pillBtn = {
+  display: 'flex', alignItems: 'center', gap: 7, height: 32, padding: '0 13px',
+  background: 'var(--panel)', border: '1px solid var(--line-2)', borderRadius: 8,
+  color: 'var(--ink)', fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
+};
+
+/* ───────────────────────── sidebar (the focus) ───────────────────────── */
+
+function Sidebar() {
+  const [disp, setDisp] = useState({ limits: false, band: true, dev: true, inter: false, max: false });
+  const t = (k) => setDisp(s => ({ ...s, [k]: !s[k] }));
+
+  return (
+    <aside style={{
+      width: 312, flexShrink: 0, background: 'var(--bg-side)', borderRight: '1px solid var(--line)',
+      display: 'flex', flexDirection: 'column', overflow: 'hidden',
+    }}>
+      {/* sticky header */}
+      <div style={{ padding: '15px 18px 13px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 9 }}>
+        <span style={{ width: 3, height: 14, borderRadius: 2, background: 'var(--blue)' }} />
+        <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.03em' }}>Configuration</div>
+        <div className="mono" style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--mute)' }}>G3 · hioki</div>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0 18px 28px' }}>
+
+        {/* DATA SOURCE — card */}
+        <div style={{ padding: '16px 0 4px' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--sub)', marginBottom: 10 }}>Data Source</div>
+          <div style={{
+            background: 'linear-gradient(160deg, var(--panel-2), var(--panel))', border: '1px solid var(--line-2)',
+            borderRadius: 11, padding: 13,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 11 }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: 9, flexShrink: 0,
+                background: 'rgba(59,130,246,.12)', border: '1px solid rgba(59,130,246,.25)',
+                display: 'grid', placeItems: 'center', color: 'var(--blue)',
+              }}><Ic.file /></div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>AWS54-1.4B-4556 G3</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
+                  <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--violet)', background: 'rgba(139,124,246,.13)', border: '1px solid rgba(139,124,246,.3)', borderRadius: 5, padding: '1px 6px' }}>hioki</span>
+                  <span className="mono" style={{ fontSize: 10.5, color: 'var(--mute)' }}>.csv · 57 samples</span>
+                </div>
+              </div>
+            </div>
+            <button style={{
+              width: '100%', marginTop: 12, height: 32, borderRadius: 8, cursor: 'pointer',
+              background: 'var(--panel-3)', border: '1px solid var(--line-2)', color: 'var(--ink)',
+              fontSize: 12.5, fontWeight: 600, fontFamily: 'inherit',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+            }}><span style={{ color: 'var(--sub)' }}><Ic.swap /></span> Change file</button>
+          </div>
+        </div>
+
+        {/* TIME WINDOW */}
+        <Section title="Time Window">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <div style={timePill}><span style={{ color: 'var(--mute)' }}><Ic.clock /></span><span className="mono">08:55:25</span></div>
+            <div style={{ color: 'var(--faint)', fontSize: 14 }}>→</div>
+            <div style={timePill}><span style={{ color: 'var(--mute)' }}><Ic.clock /></span><span className="mono">08:56:21</span></div>
+          </div>
+          {/* dual slider */}
+          <div style={{ position: 'relative', height: 22, margin: '4px 4px 10px' }}>
+            <div style={{ position: 'absolute', top: 9, left: 0, right: 0, height: 4, borderRadius: 99, background: '#16203a' }} />
+            <div style={{ position: 'absolute', top: 9, left: '6%', right: '4%', height: 4, borderRadius: 99, background: 'var(--blue)' }} />
+            {['6%', '96%'].map((l, i) => (
+              <div key={i} style={{
+                position: 'absolute', top: 2, left: l, width: 16, height: 16, marginLeft: -8,
+                borderRadius: 99, background: '#fff', border: '3px solid var(--blue)',
+                boxShadow: '0 2px 6px rgba(0,0,0,.5)', cursor: 'grab',
+              }} />
+            ))}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <button style={linkBtn}>Exact times ▸</button>
+            <button style={{ ...linkBtn, display: 'flex', alignItems: 'center', gap: 5 }}><Ic.reset /> Reset to full file</button>
+          </div>
+        </Section>
+
+        {/* PRESET — prominent */}
+        <Section title="Acceptance Preset" defaultOpen={true}>
+          <div style={{ position: 'relative' }}>
+            <select defaultValue="none" style={{
+              width: '100%', height: 38, borderRadius: 9, padding: '0 34px 0 13px', cursor: 'pointer',
+              background: 'var(--panel)', border: '1px solid var(--line-2)', color: 'var(--ink)',
+              fontSize: 13, fontWeight: 600, fontFamily: 'inherit', appearance: 'none', outline: 'none',
+            }}>
+              <option value="none">None — custom criteria</option>
+              <option>ISO 8528-5 · G2</option>
+              <option>ISO 8528-5 · G3</option>
+              <option>EN 50160</option>
+            </select>
+            <span style={{ position: 'absolute', right: 12, top: 12, color: 'var(--mute)', pointerEvents: 'none' }}><Ic.chevron /></span>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--mute)', marginTop: 8, lineHeight: 1.5 }}>
+            Selecting a preset fills the detection and tolerance values below. <span style={{ color: 'var(--amber)' }}>Editing any value switches to custom.</span>
+          </div>
+        </Section>
+
+        {/* DETECTION */}
+        <Section title="Detection" count="5">
+          <Stepper label="Detection window" unit="s" value="5" />
+          <Stepper label="Snapshot window" unit="s" value="10" />
+          <Stepper label="Recovery verify" unit="s" value="6" />
+          <Stepper label="Fault recovery" unit="s" value="10" />
+          <Stepper label="Load threshold" unit="kW" value="50" w={88} />
+        </Section>
+
+        {/* TOLERANCES — clean matrix */}
+        <Section title="Tolerances" accent="var(--cyan)">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 56px 56px', gap: '0', alignItems: 'center' }}>
+            {/* header */}
+            <div />
+            <div style={tolHd}>Voltage</div>
+            <div style={tolHd}>Freq</div>
+            {[
+              ['Tolerance %', '1.0', '0.5'],
+              ['Recovery s', '4', '3'],
+              ['Max dev %', '6.0', '2.0'],
+            ].map((r, i) => (
+              <React.Fragment key={i}>
+                <div style={{ fontSize: 12, color: 'var(--sub)', padding: '7px 0' }}>{r[0]}</div>
+                <div style={tolCell}>{r[1]}</div>
+                <div style={tolCell}>{r[2]}</div>
+              </React.Fragment>
+            ))}
+          </div>
+        </Section>
+
+        {/* DISPLAY */}
+        <Section title="Display Options" defaultOpen={false}>
+          <ToggleRow label="Show limits on graphs" on={disp.limits} set={() => t('limits')} />
+          <div style={{ height: 1, background: 'var(--line)', margin: '4px 0' }} />
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--faint)', padding: '8px 0 2px' }}>On snapshots</div>
+          <ToggleRow label="Tolerance band" on={disp.band} set={() => t('band')} />
+          <ToggleRow label="Deviation limits" on={disp.dev} set={() => t('dev')} />
+          <ToggleRow label="Intersection points" on={disp.inter} set={() => t('inter')} />
+          <ToggleRow label="Max deviation" on={disp.max} set={() => t('max')} />
+        </Section>
+
+        {/* ADVANCED */}
+        <Section title="Advanced" defaultOpen={false}>
+          {[
+            'Asymmetric voltage tolerance band',
+            'Asymmetric voltage deviation limit',
+            'Asymmetric frequency tolerance band',
+            'Asymmetric frequency deviation limit',
+            'ISO dual frequency bands',
+          ].map((l, i) => <AdvToggle key={i} label={l} />)}
+        </Section>
+      </div>
+    </aside>
+  );
+}
+function AdvToggle({ label }) {
+  const [on, setOn] = useState(false);
+  return <ToggleRow label={label} on={on} set={() => setOn(o => !o)} />;
+}
+const timePill = {
+  flex: 1, display: 'flex', alignItems: 'center', gap: 7, justifyContent: 'center',
+  height: 34, background: 'var(--panel)', border: '1px solid var(--line-2)', borderRadius: 8,
+  fontSize: 13, color: 'var(--ink)', fontWeight: 600,
+};
+const linkBtn = { background: 'transparent', border: 'none', color: 'var(--blue)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', padding: 0 };
+const tolHd = { fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--mute)', textAlign: 'center', paddingBottom: 6 };
+const tolCell = {
+  margin: '3px 3px', height: 30, display: 'grid', placeItems: 'center',
+  background: 'var(--panel)', border: '1px solid var(--line-2)', borderRadius: 7,
+  fontFamily: "'JetBrains Mono', monospace", fontSize: 12.5, fontWeight: 600, color: 'var(--ink)',
+};
+
+/* ───────────────────────── KPI row ───────────────────────── */
+
+function Kpis() {
+  const cards = [
+    { k: 'EVENTS',  v: '5',  c: 'var(--ink)',   glow: null },
+    { k: 'PASS',    v: '4',  c: 'var(--green)', glow: 'var(--green)' },
+    { k: 'FAIL',    v: '1',  c: 'var(--red)',   glow: 'var(--red)' },
+    { k: 'FAULTS',  v: '1',  c: 'var(--amber)', glow: 'var(--amber)' },
+    { k: 'SAMPLES', v: '57', c: 'var(--ink)',   glow: null },
+  ];
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+      {cards.map(c => (
+        <div key={c.k} style={{
+          background: 'var(--panel)', borderRadius: 10, padding: '10px 13px',
+          border: `1px solid ${c.glow ? c.glow + '55' : 'var(--line)'}`,
+          boxShadow: c.glow ? `inset 0 0 18px ${c.glow}12` : 'none',
+          position: 'relative', overflow: 'hidden',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+        }}>
+          {c.glow && <span style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: c.glow }} />}
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', color: 'var(--sub)' }}>{c.k}</div>
+          <div className="mono" style={{ fontSize: 22, fontWeight: 700, color: c.c, lineHeight: 1 }}>{c.v}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ───────────────────────── time-series chart ───────────────────────── */
+
+function TimeSeries() {
+  const tabs = ['Detected Events', 'Active Power (kW)', 'Voltage L-L (V)', 'Current (A)', 'Frequency (Hz)', 'Power Factor', 'THD (%)'];
+  const [active, setActive] = useState(0);
+  const W = 1180, H = 360, padL = 56, padB = 34, padT = 16, padR = 20;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const x = (f) => padL + f * plotW;
+  const y = (kw) => padT + (1 - kw / 2600) * plotH;
+  // step-load profile
+  const pts = [[0,0],[0.10,0],[0.13,620],[0.20,820],[0.34,830],[0.40,1250],[0.46,1450],[0.62,1450],[0.66,1700],[0.72,1930],[0.84,1930],[0.88,2120],[0.94,2350],[1,2350]];
+  const line = pts.map(([f,v],i) => `${i?'L':'M'}${x(f).toFixed(1)} ${y(v).toFixed(1)}`).join(' ');
+  const events = [[0.165,'+823 kW'],[0.43,'+619 kW'],[0.69,'+511 kW'],[0.91,'+466 kW']];
+  const yTicks = [0,500,1000,1500,2000,2500];
+
+  return (
+    <div style={panelCard}>
+      <CardTitle title="Time-series" accent="var(--blue)" />
+      {/* tabs */}
+      <div style={{ display: 'flex', gap: 4, padding: '0 18px', borderBottom: '1px solid var(--line)', overflowX: 'auto' }}>
+        {tabs.map((t, i) => (
+          <button key={t} onClick={() => setActive(i)} style={{
+            padding: '11px 13px', background: 'transparent', border: 'none', cursor: 'pointer',
+            fontSize: 13, fontWeight: i === active ? 600 : 500, fontFamily: 'inherit',
+            color: i === active ? 'var(--ink)' : 'var(--mute)', position: 'relative', whiteSpace: 'nowrap',
+          }}>
+            {t}
+            {i === active && <span style={{ position: 'absolute', left: 8, right: 8, bottom: -1, height: 2.5, background: 'var(--blue)', borderRadius: 2 }} />}
+          </button>
+        ))}
+      </div>
+      {/* legend */}
+      <div style={{ display: 'flex', gap: 18, padding: '12px 20px 4px' }}>
+        <Legend color="var(--blue)" label="Active Power (kW)" />
+        <Legend color="var(--amber)" label="Detected event (5)" dashed />
+      </div>
+      {/* chart */}
+      <div style={{ padding: '4px 8px 14px' }}>
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }}>
+          {yTicks.map(t => (
+            <g key={t}>
+              <line x1={padL} y1={y(t)} x2={W-padR} y2={y(t)} stroke="#152037" strokeWidth="1" />
+              <text x={padL-10} y={y(t)+4} fill="var(--mute)" fontSize="11" textAnchor="end" fontFamily="'JetBrains Mono'">{t.toLocaleString()}</text>
+            </g>
+          ))}
+          <text x={padL-2} y={padT-2} fill="var(--sub)" fontSize="11" fontWeight="600">kW</text>
+          {/* event verticals */}
+          {events.map(([f,lab],i) => (
+            <g key={i}>
+              <line x1={x(f)} y1={padT} x2={x(f)} y2={padT+plotH} stroke="var(--amber)" strokeWidth="1.3" strokeDasharray="4 4" opacity="0.8" />
+              <text x={x(f)-5} y={padT+12} fill="var(--amber)" fontSize="10.5" textAnchor="end" fontFamily="'JetBrains Mono'" fontWeight="600" transform={`rotate(-90 ${x(f)-5} ${padT+12})`}>{lab}</text>
+            </g>
+          ))}
+          {/* area + line */}
+          <path d={`${line} L ${x(1)} ${y(0)} L ${x(0)} ${y(0)} Z`} fill="url(#pg)" opacity="0.5" />
+          <path d={line} fill="none" stroke="var(--blue)" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" />
+          <defs>
+            <linearGradient id="pg" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="var(--blue)" stopOpacity="0.35" />
+              <stop offset="1" stopColor="var(--blue)" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          {/* x labels */}
+          {['08:55:30','08:55:35','08:55:40','08:55:45','08:55:50','08:55:55','08:56','08:56:05'].map((l,i,a) => (
+            <text key={l} x={padL + (i/(a.length-1))*plotW} y={H-12} fill="var(--mute)" fontSize="11" textAnchor="middle" fontFamily="'JetBrains Mono'">{l}</text>
+          ))}
+        </svg>
+        {/* range scrubber */}
+        <div style={{ margin: '6px 20px 0 56px', height: 22, background: '#0c1424', border: '1px solid var(--line)', borderRadius: 6, position: 'relative' }}>
+          <div style={{ position: 'absolute', top: -1, bottom: -1, left: '8%', right: '4%', background: 'rgba(59,130,246,.16)', border: '1px solid rgba(59,130,246,.5)', borderRadius: 5 }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+function Legend({ color, label, dashed }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--sub)' }}>
+      {dashed
+        ? <span style={{ width: 14, height: 0, borderTop: `2px dashed ${color}` }} />
+        : <span style={{ width: 9, height: 9, borderRadius: 99, background: color }} />}
+      {label}
+    </div>
+  );
+}
+
+/* ───────────────────────── ITIC card ───────────────────────── */
+
+function Itic() {
+  const W = 1180, H = 300, padL = 52, padB = 30, padT = 16, padR = 20;
+  const plotW = W-padL-padR, plotH = H-padT-padB;
+  const xf = (f) => padL + f*plotW;
+  const yv = (v) => padT + (1 - v/260)*plotH;
+  const upper = [[0,250],[0.06,250],[0.06,200],[0.12,200],[0.12,140],[0.48,140],[0.48,120],[0.62,120],[0.62,110],[1,110]];
+  const lower = [[0,0],[0.30,0],[0.30,70],[0.62,70],[0.62,80],[0.78,80],[0.78,90],[1,90]];
+  const path = (a) => a.map(([f,v],i)=>`${i?'L':'M'}${xf(f).toFixed(1)} ${yv(v).toFixed(1)}`).join(' ');
+  const dots = [[0.40,99],[0.43,98],[0.46,100],[0.52,97],[0.55,103]];
+  return (
+    <div style={panelCard}>
+      <CardTitle title="ITIC (CBEMA) Curve" accent="var(--red)" right={
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+          <Legend color="var(--red)" label="ITIC upper" />
+          <Legend color="var(--blue)" label="ITIC lower" />
+          <div style={{ display:'flex', alignItems:'center', gap:7, fontSize:12, color:'var(--sub)'}}><span style={{width:10,height:10,borderRadius:99,background:'var(--green)'}}/>Compliant (5)</div>
+          <div style={{ display:'flex', alignItems:'center', gap:7, fontSize:12, color:'var(--sub)'}}><span style={{width:10,height:10,transform:'rotate(45deg)',background:'var(--red)'}}/>Violation (0)</div>
+        </div>
+      } />
+      <div style={{ padding: '12px 8px 16px' }}>
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }}>
+          {[50,100,150,200,250].map(v => (
+            <g key={v}>
+              <line x1={padL} y1={yv(v)} x2={W-padR} y2={yv(v)} stroke="#152037" strokeWidth="1" strokeDasharray={v===100?'3 3':'0'} opacity={v===100?0.8:1} />
+              <text x={padL-10} y={yv(v)+4} fill="var(--mute)" fontSize="11" textAnchor="end" fontFamily="'JetBrains Mono'">{v}</text>
+            </g>
+          ))}
+          <text x={padL} y={padT-2} fill="var(--mute)" fontSize="11">Voltage (% of nominal)</text>
+          <path d={path(upper)} fill="none" stroke="var(--red)" strokeWidth="2.2" strokeLinejoin="round" />
+          <path d={path(lower)} fill="none" stroke="var(--blue)" strokeWidth="2.2" strokeLinejoin="round" />
+          {dots.map(([f,v],i) => (
+            <circle key={i} cx={xf(f)} cy={yv(v)} r="6" fill="var(--green)" stroke="#0c1424" strokeWidth="1.5" />
+          ))}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function CardTitle({ title, accent, right }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 20px 12px' }}>
+      <span style={{ width: 4, height: 16, borderRadius: 2, background: accent }} />
+      <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em' }}>{title}</div>
+      {right && <div style={{ marginLeft: 'auto' }}>{right}</div>}
+    </div>
+  );
+}
+const panelCard = { background: 'var(--bg-main)', border: '1px solid var(--line)', borderRadius: 14 };
+
+/* ───────────────────────── shell ───────────────────────── */
+
+function PQAApp() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg-main)' }}>
+      <TopBar />
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        <Sidebar />
+        <main style={{ flex: 1, overflowY: 'auto', padding: '20px 24px 40px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 1240, margin: '0 auto' }}>
+            <Kpis />
+            <TimeSeries />
+            <Itic />
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
+
