@@ -11,6 +11,7 @@
   import HelpDialog from './lib/HelpDialog.svelte';
   import ChangelogDialog from './lib/ChangelogDialog.svelte';
   import { APP_VERSION } from './config/changelog';
+  import { themeState, toggleTheme } from './theme/theme.svelte';
 
   let backend = $state<AnalysisBackend | undefined>(undefined);
   let caps = $state<Caps | undefined>(undefined);
@@ -72,6 +73,9 @@
         <button class="tab" class:active={tab === t.key} onclick={() => go(t.key)}>{t.label}</button>
       {/each}
     </div>
+    <button class="theme-toggle" onclick={toggleTheme} title="Toggle the redesign theme (prototype)">
+      {themeState.current === 'redesign' ? '🌙 Redesign' : '☀ Classic'}
+    </button>
     <button class="help-btn" onclick={() => (helpOpen = true)} title="Open the user guide">❔ Help</button>
     {#if caps}<span class="env">{caps.platform}</span>{/if}
   </nav>
@@ -79,7 +83,18 @@
   {#if helpOpen}<HelpDialog onClose={() => (helpOpen = false)} />{/if}
   {#if changelogOpen}<ChangelogDialog {backend} onClose={() => (changelogOpen = false)} />{/if}
 
-  {#if ready}
+  {#if themeState.current === 'redesign'}
+    <div class="redesign-placeholder">
+      <div class="bolt">⚡</div>
+      <h2>Redesign shell — Phase 2</h2>
+      <p>
+        Theme scaffolding is live (<code>data-theme="redesign"</code>). The dark
+        app shell, sidebar and content arrive in the next phases — see
+        <code>docs/redesign/PLAN.md</code>. Switch back to <b>Classic</b> for the
+        working app.
+      </p>
+    </div>
+  {:else if ready}
     <div class="view" class:hidden={tab !== 'compliance'}>
       {#if mounted.compliance}<ComplianceView {backend} {caps} mode="csv" />{/if}
     </div>
@@ -142,6 +157,22 @@
   .tab.active { color: #fff; border-bottom-color: var(--blue); font-weight: 600; }
   .help-btn { align-self: center; background: #1e293b; color: #cbd5e1; border: none; font-size: 13px; padding: 6px 12px; border-radius: 8px; cursor: pointer; margin-right: 8px; }
   .help-btn:hover { background: #334155; color: #fff; }
+  .theme-toggle {
+    align-self: center; background: #1e293b; color: #cbd5e1; border: none;
+    font-size: 12px; padding: 6px 10px; border-radius: 8px; cursor: pointer;
+    margin-right: 8px; white-space: nowrap;
+  }
+  .theme-toggle:hover { background: #334155; color: #fff; }
+  .redesign-placeholder {
+    flex: 1; display: grid; place-content: center; justify-items: center;
+    gap: 10px; text-align: center; padding: 40px; color: var(--text-sub);
+  }
+  .redesign-placeholder .bolt { font-size: 40px; opacity: 0.5; }
+  .redesign-placeholder h2 { margin: 0; color: var(--text-main); }
+  .redesign-placeholder p { margin: 0; max-width: 460px; line-height: 1.6; }
+  .redesign-placeholder code {
+    font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 0.9em;
+  }
   .env { align-self: center; background: #1e293b; color: #94a3b8; font-size: 11px; padding: 2px 8px; border-radius: 999px; }
   .view { flex: 1; min-height: 0; overflow: hidden; }
   .view.hidden { display: none; }

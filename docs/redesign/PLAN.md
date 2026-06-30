@@ -1,7 +1,7 @@
 # PQA Desktop — Dark UI Redesign: Implementation Plan
 
 **Branch:** `redesign/dark-ui`
-**Status:** Phase 0 complete (design extracted, reference committed, plan written)
+**Status:** Phase 1 complete (theme scaffolding + live toggle); Phase 2 next.
 **Owner:** Shenal · drives across multiple sessions; some phases handed to Codex.
 
 ---
@@ -411,7 +411,14 @@ python -m desktop.shell
   (`docs/redesign/reference/pqa-app.jsx`,
   `docs/redesign/reference/PQA-Redesign.standalone.html`) and this plan; verified
   the standalone renders.
-- **Phase 1 —** _not started_
+- **Phase 1 — done:** added `web/src/theme/theme.svelte.ts` (runes module:
+  `themeState`, `initTheme`, `setTheme`, `toggleTheme`; localStorage-persisted,
+  default `classic`); redesign tokens under `:root[data-theme="redesign"]` in
+  `app.css` (new names + overrides of classic shared tokens + dark body/scrollbar);
+  `main.ts` calls `initTheme()` before mount (no flash); `App.svelte` has a
+  top-bar theme toggle and shows a dark placeholder body when redesign is active.
+  Verified: toggle flips live, persists across reload, `npm run check`/`build`
+  both green, classic look unchanged.
 - **Phase 2 —** _not started_
 - **Phase 3 —** _not started_
 - **Phase 4 —** _not started_

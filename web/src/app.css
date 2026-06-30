@@ -24,3 +24,65 @@ button { font-family: inherit; cursor: pointer; }
 .mono {
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+/* ───────────────────────── Redesign (dark) theme ─────────────────────────
+   Activated by `data-theme="redesign"` on <html> (see theme.svelte.ts).
+   Defines the redesign-specific token names AND overrides the classic shared
+   tokens, so components that already reference --bg/--text-main/--card/etc.
+   move to dark automatically as each phase restyles them.
+   Source of truth: docs/redesign/reference/PQA-Redesign.standalone.html */
+:root[data-theme="redesign"] {
+  /* redesign-specific tokens */
+  --bg-side: #0a0f1a;
+  --bg-main: #0a0e16;
+  --panel: #0f1626;
+  --panel-2: #131c2e;
+  --panel-3: #182238;
+  --line: #1c2740;
+  --line-soft: #16203447;
+  --line-2: #243149;
+  --ink: #eef3fa;
+  --sub: #93a2bd;
+  --mute: #5f6f8c;
+  --faint: #41506b;
+  --blue-2: #2f6bff;
+  --violet: #8b7cf6;
+
+  /* overrides of the classic shared tokens */
+  --navy: #0a0f1a;
+  --blue: #3b82f6;
+  --green: #34d399;
+  --red: #f87171;
+  --amber: #fbbf24;
+  --cyan: #22d3ee;
+  --grid: #1c2740;
+  --text-main: #eef3fa;
+  --text-sub: #93a2bd;
+  --bg: #080c14;
+  --card: #0f1626;
+  --border: #1c2740;
+}
+
+:root[data-theme="redesign"] body {
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+:root[data-theme="redesign"] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+:root[data-theme="redesign"] ::-webkit-scrollbar-thumb {
+  background: #1f2c46;
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+:root[data-theme="redesign"] ::-webkit-scrollbar-thumb:hover {
+  background: #2a3a5c;
+  background-clip: padding-box;
+}
+:root[data-theme="redesign"] ::-webkit-scrollbar-track {
+  background: transparent;
+}
