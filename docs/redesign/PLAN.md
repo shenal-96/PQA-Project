@@ -1,7 +1,7 @@
 # PQA Desktop — Dark UI Redesign: Implementation Plan
 
 **Branch:** `redesign/dark-ui`
-**Status:** Phase 1 complete (theme scaffolding + live toggle); Phase 2 next.
+**Status:** Phase 2 complete (dark app shell + top bar); Phase 3 (sidebar) next.
 **Owner:** Shenal · drives across multiple sessions; some phases handed to Codex.
 
 ---
@@ -419,7 +419,17 @@ python -m desktop.shell
   top-bar theme toggle and shows a dark placeholder body when redesign is active.
   Verified: toggle flips live, persists across reload, `npm run check`/`build`
   both green, classic look unchanged.
-- **Phase 2 —** _not started_
+- **Phase 2 — done:** added `web/src/lib/redesign/Icon.svelte` (the design's SVG
+  icon set, reused by the sidebar in P3) and
+  `web/src/lib/redesign/AppShellRedesign.svelte` — dark 56px top bar (gradient
+  bolt logo, wordmark, version pill → changelog, icon tabs w/ blue active
+  underline, Help + Classic-toggle + platform-status pills) over the real views
+  (own tab state machine + lazy mount, mirrors `App.svelte`). `App.svelte` now
+  branches at the top level: redesign → `AppShellRedesign`, else the unchanged
+  classic shell; the classic top bar keeps a `🌙 Redesign` toggle. Inner content
+  (sidebar + results) stays classic-styled until P3/P4. Verified: top bar matches
+  the design, tabs switch + lazy-mount, toggle round-trips classic↔redesign with
+  no regression, `npm run check`/`build` green.
 - **Phase 3 —** _not started_
 - **Phase 4 —** _not started_
 - **Phase 5 —** _not started_
