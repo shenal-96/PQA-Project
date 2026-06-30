@@ -7,6 +7,8 @@
   import type { SnapshotShow } from './SnapshotChart.svelte';
   import { metricLabel, METRIC_COLORS } from './format';
   import Sidebar from './Sidebar.svelte';
+  import SidebarRedesign from './redesign/SidebarRedesign.svelte';
+  import { themeState } from '../theme/theme.svelte';
   import TimeSeriesChart from './TimeSeriesChart.svelte';
   import DetectedEventsChart from './DetectedEventsChart.svelte';
   import ComplianceTable from './ComplianceTable.svelte';
@@ -228,9 +230,15 @@
 </script>
 
 <div class="app">
-  <Sidebar {config} {caps} {backend} {fileName} {loggerFormat} {loading} {accept} {fileLabel}
-    {timeMin} {timeMax} bind:timeStart bind:timeEnd
-    bind:activePreset onRun={run} {onFile} />
+  {#if themeState.current === 'redesign'}
+    <SidebarRedesign {config} {caps} {backend} {fileName} {loggerFormat} {loading} {accept} {fileLabel}
+      {timeMin} {timeMax} bind:timeStart bind:timeEnd
+      bind:activePreset onRun={run} {onFile} />
+  {:else}
+    <Sidebar {config} {caps} {backend} {fileName} {loggerFormat} {loading} {accept} {fileLabel}
+      {timeMin} {timeMax} bind:timeStart bind:timeEnd
+      bind:activePreset onRun={run} {onFile} />
+  {/if}
 
   <main class="main">
     {#if caps?.platform === 'mock'}

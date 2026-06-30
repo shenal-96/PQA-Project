@@ -1,7 +1,7 @@
 # PQA Desktop — Dark UI Redesign: Implementation Plan
 
 **Branch:** `redesign/dark-ui`
-**Status:** Phase 2 complete (dark app shell + top bar); Phase 3 (sidebar) next.
+**Status:** Phase 3 complete (dark sidebar, full wiring parity); Phase 4 (content/charts) next.
 **Owner:** Shenal · drives across multiple sessions; some phases handed to Codex.
 
 ---
@@ -430,7 +430,22 @@ python -m desktop.shell
   (sidebar + results) stays classic-styled until P3/P4. Verified: top bar matches
   the design, tabs switch + lazy-mount, toggle round-trips classic↔redesign with
   no regression, `npm run check`/`build` green.
-- **Phase 3 —** _not started_
+- **Phase 3 — done (3a+3b+3c in one pass):** added `lib/redesign/Section.svelte`
+  (collapsible accent section), `lib/redesign/Toggle.svelte` (switch, `$bindable`
+  checked) and `lib/redesign/SidebarRedesign.svelte` — the full dark sidebar:
+  sticky Configuration header + status, Data Source card (icon/filename/format
+  pill/Change-file, drag-drop), Time Window (slider + exact times + reset),
+  Acceptance Preset (real preset list + Manage + modified banner), Detection
+  (5 fields), Tolerances matrix (V/F × tol%/recovery/maxdev with asym disable),
+  Display Options, Advanced (4 asym toggles + ISO dual bands w/ live Hz hint +
+  steady-state class chips/footnotes/δ bands), Signal & Nominal (nominal V chips,
+  nominal f, CSV column mode, rated load, expected steps), Run Analysis +
+  resize handle. **Script is copied verbatim from `Sidebar.svelte` and every
+  control binds to the same `config` field → wiring parity by construction.**
+  `ComplianceView.svelte` renders `SidebarRedesign` when redesign is active, else
+  the classic `Sidebar`. Verified live: every section/collapse/toggle/conditional
+  renders, ISO band hint computes, classic↔redesign round-trips with no
+  regression, `npm run check` + `build` green (0 warnings).
 - **Phase 4 —** _not started_
 - **Phase 5 —** _not started_
 - **Phase 6 —** _not started_
